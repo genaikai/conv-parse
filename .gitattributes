@@ -46,3 +46,6 @@ tests/test_examples.py       export-ignore
 # 자기 자신도 뺀다. 이 파일이 운영 환경에 남으면 "무언가를 제외했다"는 사실이
 # 목록째 드러난다.
 .gitattributes         export-ignore
+
+# C9 예외 목록
+scripts/sync-allow.txt   export-ignore

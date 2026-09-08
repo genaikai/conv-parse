@@ -53,6 +53,33 @@ yaml_keys() {
   ' "$1" | sort -u
 }
 
+# C9 예외. scripts/sync-allow.txt 의 문구를 담고 있는 줄을 걸러낸다.
+#
+#   - **고정 문구다. 정규식이 아니다** (grep -F). `.*` 로 전부 열 수 없다
+#   - 여덟 바이트 미만은 거부한다. 짧은 조각은 뜻하지 않은 줄까지 열어버린다.
+#     글자가 아니라 바이트로 세는 것은 awk 의 length() 가 로케일 없이는 바이트를
+#     세기 때문이다. 글자로 재려면 UTF-8 로케일이 있어야 하는데, 없는 환경에서
+#     조용히 바이트로 떨어지면 가드가 **약해지는** 쪽으로 틀린다. 바이트 수는
+#     언제나 글자 수 이상이라 이쪽으로 세면 틀려도 엄격해지는 쪽이다
+#     (여덟 바이트 = 한글 세 글자 · 영문 여덟 글자)
+#   - 파일이 없으면 아무것도 안 거른다. 예외를 쓰지 않는 프로젝트가 기본이다
+#
+# 이 파일은 프로젝트가 만든다. 스캐폴드는 자리만 안다.
+c9_allowed() {
+  local f="$REPO_DIR/scripts/sync-allow.txt" pat
+  if [[ ! -f "$f" ]]; then cat; return; fi
+  pat=$(grep -vE '^[[:space:]]*(#|$)' "$f" || true)
+  local short
+  short=$(printf '%s\n' "$pat" | awk 'length($0) > 0 && length($0) < 8')
+  if [[ -n "$short" ]]; then
+    warn "sync-allow.txt 에 너무 짧은 문구가 있어 무시한다 (8바이트 이상만):"
+    printf '      %s\n' "$short" >&2
+  fi
+  pat=$(printf '%s\n' "$pat" | awk 'length($0) >= 8')
+  if [[ -z "$pat" ]]; then cat; return; fi
+  grep -vF -f <(printf '%s\n' "$pat") || true
+}
+
 # 트리 안을 훑되 자기 자신(scripts/sync.sh)은 제외하고, 경로를 트리 기준 상대 경로로 줄인다.
 scan() {  # scan <dir> <regex>
   grep -rInE "$2" "$1" 2>/dev/null | grep -v "^$1/scripts/sync\.sh:" | sed "s|^$1/||" || true
@@ -109,7 +136,18 @@ inspect_tree() {
 
   # 사본은 평범한 프로그램으로 보여야 한다 (C9). 코드 주석·독스트링에 워크플로
   # 어휘가 남으면 파일 단위 제외로는 못 뺀다 — 코드는 가야 하기 때문이다.
-  hits=$(scan "$d" '개발 장비|운영 장비|운영 환경|이식|반입|스캐폴드|규격|인사이트|반출|\{AA\}|\{BB\}|규격 §|sync\.sh|\.staging')
+  #
+  # 도메인 어휘가 이 목록과 겹치는 프로젝트가 있다. 문서 반출 심사를 다루는
+  # 프로그램의 합성 데이터에는 "외부 반출은 보안심의를 거친다" 가 들어가고,
+  # 그건 워크플로가 아니라 그 프로그램이 판정하는 대상이다. 그런 프로젝트는
+  # scripts/sync-allow.txt 에 문구를 적어 그 줄만 뺀다 (형식은 아래 c9_allowed).
+  local raw exempt
+  raw=$(scan "$d" '개발 장비|운영 장비|운영 환경|이식|반입|스캐폴드|규격|인사이트|반출|\{AA\}|\{BB\}|규격 §|sync\.sh|\.staging')
+  hits=$(printf '%s' "$raw" | c9_allowed)
+  exempt=$(( $(printf '%s' "$raw" | grep -c . || true) - $(printf '%s' "$hits" | grep -c . || true) ))
+  # 예외로 넘긴 줄은 **반드시 화면에 센다.** 조용히 넘기면 목록이 자라도 아무도
+  # 모르고, 그때부터 이 점검은 통과 도장일 뿐이다.
+  [[ $exempt -gt 0 ]] && log "C9: $exempt 줄을 예외로 넘김 (scripts/sync-allow.txt)"
   if [[ -n "$hits" ]]; then
     warn "사본에 워크플로 어휘가 남아있음 (C9):"; printf '%s\n' "$hits" >&2; bad=1
   fi
