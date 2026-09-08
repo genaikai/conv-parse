@@ -27,6 +27,22 @@ CLAUDE.md              export-ignore
 AGENTS.md              export-ignore
 .github/               export-ignore
 
+# 워크플로를 설명하는 것들. 사본은 평범한 프로그램으로 보여야 한다 (C9).
+# 이 셋은 실제로 이 저장소에 있고, 넣기 전까지 사본에 그대로 실려 나갔다.
+README.md                    export-ignore
+scripts/sync.sh              export-ignore
+tests/test_spec_compliance.py export-ignore
+
+# 아직 이 저장소에 없지만 생기면 바로 빠지게 미리 적어둔다.
+IMPLEMENTATION_SPEC.md       export-ignore
+SCAFFOLD.md                  export-ignore
+examples/                    export-ignore
+scripts/adopt.sh             export-ignore
+scripts/hooks/               export-ignore
+scripts/sync_appendix.py     export-ignore
+tests/test_adopt.py          export-ignore
+tests/test_examples.py       export-ignore
+
 # 자기 자신도 뺀다. 이 파일이 운영 환경에 남으면 "무언가를 제외했다"는 사실이
 # 목록째 드러난다.
 .gitattributes         export-ignore

@@ -92,9 +92,26 @@ inspect_tree() {
     warn "개인 머신 절대 경로 (§1.3 위반이기도 하다 — 인자로 빼라):"; printf '%s\n' "$hits" >&2; bad=1
   fi
 
-  hits=$(scan "$d" 'Co-Authored-By|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
+  # RFC 2606 이 실제로 존재할 수 없게 예약해 둔 도메인은 뺀다. 민감정보를 찾는
+  # 프로그램이라면 이메일 꼴의 표본이 있어야 자기 규칙을 시험할 수 있는데, 전부
+  # 막으면 그 표본을 둘 자리가 없어져 규칙이 죽었는지 알 수 없게 된다.
+  # 줄이 아니라 주소 단위로 지운 뒤 다시 본다 — 줄로 거르면 예약 주소와 실제
+  # 주소가 한 줄에 있을 때 둘 다 놓친다.
+  hits=$(scan "$d" 'Co-Authored-By|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' | awk '
+    {
+      line = $0
+      gsub(/[A-Za-z0-9._%+-]+@(example\.(com|net|org)|[A-Za-z0-9.-]*\.(example|invalid|test))/, "", line)
+      if (line ~ /Co-Authored-By/ || line ~ /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]/) print
+    }')
   if [[ -n "$hits" ]]; then
     warn "이메일·커밋 트레일러:"; printf '%s\n' "$hits" >&2; bad=1
+  fi
+
+  # 사본은 평범한 프로그램으로 보여야 한다 (C9). 코드 주석·독스트링에 워크플로
+  # 어휘가 남으면 파일 단위 제외로는 못 뺀다 — 코드는 가야 하기 때문이다.
+  hits=$(scan "$d" '개발 장비|운영 장비|운영 환경|이식|반입|스캐폴드|규격|인사이트|반출|\{AA\}|\{BB\}|규격 §|sync\.sh|\.staging')
+  if [[ -n "$hits" ]]; then
+    warn "사본에 워크플로 어휘가 남아있음 (C9):"; printf '%s\n' "$hits" >&2; bad=1
   fi
 
   return $bad
