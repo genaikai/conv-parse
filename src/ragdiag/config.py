@@ -83,7 +83,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "service_error.markers": (list, False),
     "service_error.max_chars": (int, False),
 
-    # 라벨 실값 파일 경로. 운영 코드값이라 저장소에 두지 않는다 (§1.1 · C3).
+    # 라벨 실값 파일 경로. 실제 코드값이라 저장소에 두지 않고 설정으로 가리킨다.
     "labels.query": (str, False),
     "labels.emotion": (str, False),
 
