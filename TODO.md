@@ -1,6 +1,6 @@
 # 실행 전에 작업 폴더에서 해야 할 것
 
-`{AA}` 쪽에서 만들어야 돌아가는 것들. **이 저장소에는 없다** — 여기서 만들 수 없거나
+`작업 폴더` 쪽에서 만들어야 돌아가는 것들. **이 저장소에는 없다** — 여기서 만들 수 없거나
 (운영 실값), 그쪽 것을 쓰기로 한 것(필터)이다.
 
 
@@ -23,7 +23,7 @@
 
 ---
 
-## 1. `{AA}/configs/env.yaml` 채우기
+## 1. `작업 폴더의 configs/env.yaml` 채우기
 
 `sync.sh` 가 만들어 둔다. `← 채우세요` 가 붙은 **네 줄**만 채우면 된다.
 
@@ -39,7 +39,7 @@ llm:
 나머지 25개 키는 전부 기본값으로 돈다. 경로(`conv_data` 등)는 실행할 때
 `--conv-data` 로 줘도 되므로 여기 채우지 않아도 된다.
 
-> **`{AA}/{BB}/configs/` 가 아니다.** 그쪽은 sync 때마다 통째로 지워진다.
+> **`작업 폴더 안의 사본/configs/` 가 아니다.** 그쪽은 sync 때마다 통째로 지워진다.
 > 거기 두면 프로그램이 거부하면서 옮길 명령을 알려준다.
 
 ---
@@ -69,7 +69,7 @@ python log_analysis/src/run.py --conv-data <로그> --turns <목록>
 
 **규격: [`todo/scripting.md`](todo/scripting.md)**
 
-실행은 이 스크립트로 한다. `{AA}` 직하에 둔다 — `{AA}/{BB}` 안에 두면 sync 때
+실행은 이 스크립트로 한다. `작업 폴더` 직하에 둔다 — `작업 폴더 안의 사본` 안에 두면 sync 때
 지워진다.
 
 손으로 매번 치지 않는 이유가 둘이다. 인자를 하나 빠뜨려도 프로그램은 기본값으로
@@ -102,14 +102,14 @@ python log_analysis/src/run.py --conv-data <로그> --turns <목록>
 | `output/` | 분류 결과 · RUN SUMMARY | 남기고 싶을 수 있다 |
 
 ```bash
-cd {AA}
+cd 작업 폴더
 cat >> .gitignore <<'EOF'
 .cache/
 data/
 EOF
 ```
 
-`{AA}/{BB}` 사본이 커밋되는 것은 **목적이다** — 결과가 반출되지 않는 상황에서
+`작업 폴더 안의 사본` 사본이 커밋되는 것은 **목적이다** — 결과가 반출되지 않는 상황에서
 "어떤 코드로 돌렸는지"가 남는 유일한 형태다. 나머지는 의도한 것만 남긴다.
 
 ---
@@ -120,8 +120,8 @@ EOF
 조건**을 걸려면 실값이 필요하다.
 
 ```
-{AA}/configs/query_taxonomy.md       형식: A. 이름 -> 점수
-{AA}/configs/emotion_taxonomy.md
+작업 폴더의 configs/query_taxonomy.md       형식: A. 이름 -> 점수
+작업 폴더의 configs/emotion_taxonomy.md
 ```
 ```yaml
 labels:
@@ -143,8 +143,8 @@ labels:
 그 목록에서는 못 고른다.
 
 ```
-{AA}/configs/dept_class.json
-{AA}/configs/job_class.json
+작업 폴더의 configs/dept_class.json
+작업 폴더의 configs/job_class.json
 ```
 ```yaml
 paths:
@@ -182,7 +182,7 @@ paths:
 위에서부터. **앞이 깨지면 뒤는 볼 필요 없다.**
 
 ```bash
-cd {AA}
+cd 작업 폴더
 
 python log_analysis/src/run.py --check-llm
 #   서버 규약·모델·1회 소요시간. 전체가 몇 분인지 여기서 나온다

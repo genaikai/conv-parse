@@ -19,21 +19,21 @@
 
 ## 두 장비로 나뉜다
 
-**기능 개발은 이 저장소에서, 검증은 운영 장비에서.** 실데이터가 밖으로 나올 수
-없고 운영 환경에서는 코드를 고칠 수 없다. 그 분리가 구조에 박혀 있다 —
+**기능 개발은 이 저장소에서, 검증은 실행 환경에서.** 실데이터가 밖으로 나올 수
+없고 실행 환경에서는 코드를 고칠 수 없다. 그 분리가 구조에 박혀 있다 —
 `IMPLEMENTATION_SPEC.md` 규격을 따른다.
 
 ```
-[이 저장소] 구현 ──이식──▶ [운영 환경] 실험 ──인사이트──▶ [이 저장소] 개선 ──▶ …
+[이 저장소] 구현 ──이식──▶ [실행 환경] 실험 ──관찰──▶ [이 저장소] 개선 ──▶ …
 ```
 
 | | 무엇 |
 |---|---|
-| `src/ragdiag/contracts.py` | **입력 계약.** 운영 환경에서 회수한 포맷 정보가 도착하는 유일한 지점 |
+| `src/ragdiag/contracts.py` | **입력 계약.** 실행 환경에서 회수한 포맷 정보가 도착하는 유일한 지점 |
 | `configs/env.example.yaml` | **모든 설정 키.** 운영 실값은 `AA/configs/env.yaml` |
 | `src/ragdiag/fixtures/synth.py` | **가짜 데이터는 파일이 아니라 코드.** `generate(n, seed, cases)` 가 런타임에 만든다 |
 | `scripts/sync.sh` | 이식. `.git` 도 데이터도 넘기지 않는다 (규격 부록 A 전문) |
-| `docs/insights/` | 운영 환경에서 본 것을 적어 오는 자리 |
+| `docs/insights/` | 실행 환경에서 본 것을 적어 오는 자리 |
 | **[`TODO.md`](TODO.md)** | **작업 폴더에서 만들어야 하는 것.** 실행 전에 여기부터 |
 | `todo/` | 그것들의 규격 — 필터(이 프로젝트의 사정) · 실행 스크립트(어느 프로젝트나) |
 | `docs/` | 이 프로그램이 어떻게 도는지 — 처리 흐름 · 분류 체계 |
@@ -43,7 +43,7 @@
 
 `llm_eval_result` · `llm_emotion_result` 의 **라벨 이름과 점수는 운영 코드값**이라
 올리지 않는다 (규격 §1.1 · C3 — "식별 가능한 코드값 목록은 적지 않는다").
-이 저장소는 public 이고, 라벨 집합은 그 자체로 운영 환경 분류 체계를 드러낸다.
+이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
 
 저장소에 있는 것은 **구조뿐**이다 — 글자 `A`~`R` / `A`~`I` 와 개수. 파서가
 `llm_alternatives` 의 글자를 읽어야 하고 그건 값이 아니라 형식이다.
@@ -56,9 +56,9 @@ labels:
   emotion: configs/emotion_taxonomy.md
 ```
 
-두 파일은 `.gitignore` 에 있다. 운영 환경에서는 `{AA}/configs/` 에 두고 `env.yaml` 이
-가리키게 한다 — `sync.sh` 가 `{AA}/{BB}` 를 통째로 지웠다 다시 만들기 때문에
-**운영 자산은 `{AA}/{BB}` 밖에 둬야 한다.**
+두 파일은 `.gitignore` 에 있다. 실행 환경에서는 `작업 폴더의 configs/` 에 두고 `env.yaml` 이
+가리키게 한다 — `sync.sh` 가 `작업 폴더 안의 사본` 를 통째로 지웠다 다시 만들기 때문에
+**운영 자산은 `작업 폴더 안의 사본` 밖에 둬야 한다.**
 
 > **실값 없이 라벨·점수 조건을 건 필터를 주면 계산 전에 죽는다.** 자리표시자
 > "질의유형 K" 는 로그의 실제 라벨과 절대 안 맞아서, 막지 않으면 필터가 **에러 없이
@@ -84,7 +84,7 @@ python -m pytest tests/ -q                  # LLM 없이 도는 전부
 
 > **우선순위는 CLI > 설정 > 환경변수 > 기본값이다.** `--config` 를 안 줘도
 > 실행 위치의 `configs/env.yaml` 을 자동으로 쓴다 — 작업 폴더에서 돌리면
-> `{AA}/configs/env.yaml` 이다. 매번 `--config` 로 가리키게 하면 한 번 빼먹는
+> `작업 폴더의 configs/env.yaml` 이다. 매번 `--config` 로 가리키게 하면 한 번 빼먹는
 > 순간 조용히 기본값으로 돈다. 어느 쪽이 이겼는지는 실행 조건의 `←` 에 나온다.
 >
 > 환경변수(`LLM_API_URL` 등)는 설정보다 아래다. `.bashrc` 에 남은 옛 주소가
@@ -101,29 +101,29 @@ python -m pytest tests/ -q                  # LLM 없이 도는 전부
 >     -> /opt/shared/venv   (설정 paths.venv)
 > ```
 
-> **`configs/` 가 두 군데다.** 운영 환경에서 헷갈리기 쉬운 자리다.
+> **`configs/` 가 두 군데다.** 실행 환경에서 헷갈리기 쉬운 자리다.
 >
 > ```
-> {AA}/configs/env.yaml                 ← 실값. 살아남는다
-> {AA}/{BB}/configs/env.example.yaml    ← 템플릿. sync 때 사본과 함께 교체된다
+> 작업 폴더의 configs/env.yaml                 ← 실값. 살아남는다
+> 작업 폴더 안의 사본/configs/env.example.yaml    ← 템플릿. sync 때 사본과 함께 교체된다
 > ```
 >
-> `{AA}/{BB}` 는 sync 때마다 통째로 지워지고 다시 만들어진다. 거기에 `env.yaml` 을
+> `작업 폴더 안의 사본` 는 sync 때마다 통째로 지워지고 다시 만들어진다. 거기에 `env.yaml` 을
 > 만들면 **채운 값이 조용히 사라지고**, 화면에는 `configs/env.yaml exists — kept`
-> 가 찍힌다 — 그건 `{AA}/configs` 쪽 이야기인데 자기 파일이 지켜진 줄 알게 된다.
+> 가 찍힌다 — 그건 `작업 폴더의 configs` 쪽 이야기인데 자기 파일이 지켜진 줄 알게 된다.
 > 그래서 사본 안의 설정을 읽으면 프로그램이 경고하고, 없을 때는 작업 폴더 경로를
-> 알려준다. **`cd {AA}` 에서 실행하는 것이 기준이다.**
+> 알려준다. **`cd 작업 폴더` 에서 실행하는 것이 기준이다.**
 
 **설정 파일은 저장소에 없다.** `configs/env.yaml` 은 커밋되지 않으므로
 (`.gitignore`) 갓 clone 한 사본에는 예시만 있다. 매번 인자를 치기 싫으면 복사해서
-쓴다 — 개발 장비에서는 선택이고, 운영 환경에서는 `sync.sh` 가 알아서 만들어 준다.
+쓴다 — 개발 장비에서는 선택이고, 실행 환경에서는 `sync.sh` 가 알아서 만들어 준다.
 
 ```bash
 cp configs/env.example.yaml configs/env.yaml   # 개발 장비에서는 직접 복사
 python src/run.py --config configs/env.yaml --dry-run
 ```
 
-## 운영 장비에서
+## 실행 환경에서
 
 ```bash
 # 최초 1회. clone 위치는 .staging/<저장소이름> 이어야 한다.
@@ -178,7 +178,7 @@ output/run_summary_20260831-153708.txt     RUN SUMMARY 사본
 ```
 
 같은 데이터를 여러 번 돌리거나 설정을 바꿔 다시 돌렸을 때 **어느 것이 언제
-것인지 파일 이름만 보고 알 수 있어야 한다** — 운영 환경에서는 결과를 반출할 수 없어
+것인지 파일 이름만 보고 알 수 있어야 한다** — 실행 환경에서는 결과를 반출할 수 없어
 이 파일들이 그 자리에 계속 쌓인다. 덮어쓰지 않는다.
 
 경로를 고정해야 하는 자동화가 있으면 `--out` 으로 직접 준다. 그때는 시각
@@ -211,7 +211,7 @@ PYTHONPATH=log_analysis/src python -m ragdiag --config configs/env.yaml
 | `.cache/` | **LLM 판정 응답.** 실데이터에서 뽑은 관측·인용이 그대로 들어 있다 | 판단 필요 |
 | `data/` | 실데이터 | 대개 아니다 |
 | `output/` | 분류 결과 · RUN SUMMARY (파일명에 시각) | 남기고 싶을 수 있다 |
-| `{AA}/configs/env.yaml` | 운영 실값 (경로·주소) | 판단 필요 |
+| `작업 폴더의 configs/env.yaml` | 운영 실값 (경로·주소) | 판단 필요 |
 
 `AA/log_analysis` 사본이 커밋되는 것은 목적이지만 — "어떤 코드로 돌렸는지"가
 남는 유일한 형태다 — 나머지는 의도한 것만 남기는 편이 낫다. 특히 `.cache/` 는
@@ -225,7 +225,7 @@ data/
 EOF
 ```
 
-**태그 없이 실행하지 않는다.** 결과 파일이 반출되지 않으므로 운영 환경에 남은 사본이
+**태그 없이 실행하지 않는다.** 결과 파일이 반출되지 않으므로 실행 환경에 남은 사본이
 "어떤 코드로 돌렸는지"를 알려주는 유일한 형태다.
 
 `sync.sh` 가 지키는 것 — `configs/env.yaml` 은 있으면 **절대 건드리지 않고**
@@ -260,7 +260,7 @@ status    : PARTIAL
          └ 그쪽 것 ┘   └──── 가져갈 것 ────┘
 ```
 
-로그를 읽고 필터를 거는 부분은 운영 장비에 이미 있다. 이 저장소의 `conv.py` ·
+로그를 읽고 필터를 거는 부분은 실행 환경에 이미 있다. 이 저장소의 `conv.py` ·
 `filters.py` 는 여기서 검증할 때만 쓴다. **`Case` 를 만들어 넣을 수만 있으면**
 나머지는 그대로 돈다.
 
@@ -270,7 +270,7 @@ src/ragdiag/settings.py    배포마다 바뀌는 값 — 여기부터 열 것
 src/ragdiag/schema.py      Case + Step 1·2·3 출력 (Pydantic, 필드 순서에 의미 있음)
 src/ragdiag/taxonomy.py    case 30개 메타데이터와 설명 (case0 은 우리가 더한 것)
 src/ragdiag/prompts.py     판정 프롬프트 (단계별로 뺄 정보가 여기에 명시됨)
-src/ragdiag/backends.py    로컬 LLM (OpenAI 호환 HTTP) — 운영 환경에서 도는 유일한 경로
+src/ragdiag/backends.py    로컬 LLM (OpenAI 호환 HTTP) — 실행 환경에서 도는 유일한 경로
 src/ragdiag/judge.py       LLM 호출, 디스크 캐시, 케이스 단위 병렬
 src/ragdiag/decide.py      구 진리표 (judge 가 참조)
 src/ragdiag/verify.py      인용 대조 (사전지식 오염 차단)
@@ -284,7 +284,7 @@ src/ragdiag/pipeline.py    단계별 함수
 
 이 목록은 `tests/test_boundary.py` 가 **실제로 import 해서** 확인한다. 코어 모듈
 하나가 입력 계층을 끌어오면 테스트가 깨진다. 문서로만 적어두면 누가 import 하나를
-추가하는 순간 조용히 무너지고, 알아채는 건 운영 장비에서 `ImportError` 가 났을
+추가하는 순간 조용히 무너지고, 알아채는 건 실행 환경에서 `ImportError` 가 났을
 때다.
 
 #### 붙이는 법
@@ -516,7 +516,7 @@ case22  Retrieve 성공, 생성 실패    (TYPE5 / category_2, 신뢰도 medium)
 ### 인용 강제가 knowledge leakage를 막는다
 
 판정자가 "문서에 답이 있다"고 말할 때, 문서를 읽어서인지 자기가 이미 알던 지식 때문인지
-프롬프트로는 구분할 수 없다. 운영 환경 코퍼스는 일반 상식과 상당히 겹치므로 이건 실제 위험이다.
+프롬프트로는 구분할 수 없다. 실행 환경 코퍼스는 일반 상식과 상당히 겹치므로 이건 실제 위험이다.
 leakage가 일어나면 **검색 실패가 '근거 미활용'으로 오분류되어 통계에서 사라진다.**
 
 그래서 판정자에게 청크에서 글자 그대로 인용을 뽑게 하고 `verify.py`가 원문과 대조한다.
@@ -618,7 +618,7 @@ taxonomy 를 바꿀 때 LLM을 다시 돌리지 않아도 되며, "왜 이 라�
 
 ## 판정 백엔드
 
-**`src/run.py` 가 아는 백엔드는 하나다.** 규격 §1.4 · C8 — 운영 환경에서 실패할 호출은
+**`src/run.py` 가 아는 백엔드는 하나다.** 규격 §1.4 · C8 — 실행 환경에서 실패할 호출은
 `src/` 에 두지 않는다. claude CLI 와 Anthropic API 백엔드는 `tools/` 에 있고,
 `.gitattributes` 의 export-ignore 로 archive 에서 빠진다.
 
@@ -629,11 +629,11 @@ taxonomy 를 바꿀 때 LLM을 다시 돌리지 않아도 되며, "왜 이 라�
 | 연결 | OpenAI 호환 HTTP (표준 라이브러리) | CLI 서브프로세스 · Anthropic SDK |
 | 인증 | `LLM_API_URL` + `LLM_API_KEY` | 불필요 · `ANTHROPIC_API_KEY` |
 | 스키마 강제 | 서버 능력에 따라 자동 협상 | 없음 (프롬프트 계약) · 서버가 강제 |
-| 운영 환경에 도착하나 | **그렇다** | 아니다 (export-ignore) |
+| 실행 환경에 도착하나 | **그렇다** | 아니다 (export-ignore) |
 
 `tools/dev_run.py` 는 **같은 코드 경로를 돈다.** 백엔드만 만들어 `main()` 에 넣으므로
 인자도 출력도 `src/run.py` 와 같다 — 검증하는 코드와 배포되는 코드가 갈라지면
-여기서 통과한 것이 운영 환경에서 통과한다는 보장이 사라진다.
+여기서 통과한 것이 실행 환경에서 통과한다는 보장이 사라진다.
 
 ```bash
 python tools/dev_run.py --conv-data data/conv_eval.json   # claude 로 판정
@@ -668,14 +668,14 @@ python tools/dev_run.py --backend api --legacy-regression
 `anthropic`·`openai` import 를 실제로 잡으므로 다시 새어 들어가면 태그를 내기 전에
 걸린다.
 
-<!-- BEGIN 운영 환경 순서 -->
+<!-- BEGIN 실행 환경 순서 -->
 ```bash
 # ── 0. 최초 1회만 ────────────────────────────────────────────────────────
-cd {AA}
+cd 작업 폴더
 git clone <remote> .staging/log_analysis
 
 # ── 1. 매번 ──────────────────────────────────────────────────────────────
-cd {AA}
+cd 작업 폴더
 bash .staging/log_analysis/scripts/sync.sh v0.27
 #   태그를 fetch·checkout 하고 log_analysis/ 를 통째로 교체한다.
 #   이식 표면 점검에 걸리면 사본을 지우고 실패로 끝낸다.
@@ -685,16 +685,16 @@ source <기존 venv>/bin/activate
 python -m pip install --dry-run -r log_analysis/requirements.txt && python -m pip check
 python -m pip install -r log_analysis/requirements.txt
 #   --upgrade / --force-reinstall 금지. 공용 venv 를 조용히 깨뜨린다.
-#   충돌하면 고치지 말고 메시지를 인사이트로 가지고 나온다.
+#   충돌하면 고치지 말고 메시지를 관찰로 가지고 나온다.
 
 export LLM_API_URL=http://<서버>:8000
 export LLM_API_KEY=<키>
 
 # ── 3. 운영 실값 (v0.26 부터 필요) ───────────────────────────────────────
-#   {AA}/configs/ 에 운영 taxonomy 문서 두 개를 둔다. log_analysis/ 안이 아니다 —
+#   작업 폴더의 configs/ 에 운영 taxonomy 문서 두 개를 둔다. log_analysis/ 안이 아니다 —
 #   그 디렉터리는 sync 때마다 지워진다.
-#     {AA}/configs/query_taxonomy.md      형식: A. 이름 -> 점수
-#     {AA}/configs/emotion_taxonomy.md
+#     작업 폴더의 configs/query_taxonomy.md      형식: A. 이름 -> 점수
+#     작업 폴더의 configs/emotion_taxonomy.md
 #   그리고 configs/env.yaml 에:
 #     labels:
 #       query:   configs/query_taxonomy.md
@@ -729,9 +729,9 @@ python -m streamlit run log_analysis/src/dashboard.py
 #   조직 분류 JSON 은 configs/env.yaml 의 paths.dept_class / paths.job_class 에
 #   적어두면 매번 인자로 주지 않아도 된다.
 ```
-<!-- END 운영 환경 순서 -->
+<!-- END 실행 환경 순서 -->
 
-**`tools/` 는 반입본에 없다.** 위 명령에 `tools/` 가 등장하면 그건 운영 환경에서 안 도는
+**`tools/` 는 반입본에 없다.** 위 명령에 `tools/` 가 등장하면 그건 실행 환경에서 안 도는
 명령이다 (`tests/test_spec_compliance.py` 가 이 블록을 검사한다).
 
 `--model` 은 서버가 여러 모델을 서빙하고 첫 번째가 아닌 걸 쓰고 싶을 때만 필요하다.
@@ -942,11 +942,11 @@ src/
   ragdiag/         (반입 목록은 위 참고)
     settings.py    배포마다 바뀌는 값을 한 곳에
     config.py      YAML 설정 읽기 · 시작 즉시 검증
-    contracts.py   입력 계약 — 운영 환경에서 회수한 포맷이 도착하는 지점
+    contracts.py   입력 계약 — 실행 환경에서 회수한 포맷이 도착하는 지점
     pipeline.py    단계별 함수 — 노트북·다른 스크립트에서 부를 수 있게
     summary.py     RUN SUMMARY
 
-    ── 여기 전용 (운영 장비에는 그쪽 구현이 있다) ──
+    ── 여기 전용 (실행 환경에는 그쪽 구현이 있다) ──
     conv.py        conv_eval 파싱, 턴 짝짓기 (N+1 불만 ↔ N 답변·문서)
     filters.py     필터 적용, 점수 재계산, 단계별 탈락 기록
     labels.py      llm_eval / llm_emotion 라벨 테이블과 점수
@@ -967,7 +967,7 @@ scripts/
   legacy_run.py    구 파이프라인 (회귀 기준선)
 
 configs/env.example.yaml   모든 설정 키
-docs/insights/         운영 환경에서 본 것을 적어 오는 자리
+docs/insights/         실행 환경에서 본 것을 적어 오는 자리
 ```
 
 `load.py` · `decide.py` · `report.py` 는 구 파이프라인 전용이다. 새 코드에서 쓰지 말 것 —

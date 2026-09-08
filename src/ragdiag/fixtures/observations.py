@@ -262,7 +262,7 @@ CASES = [
     ),
     dict(
         id="ctx02", note="대상 명사 생략",
-        pre_queries=["운영 환경 GPU 서버 사용 신청 어떻게 하나요?",
+        pre_queries=["실행 환경 GPU 서버 사용 신청 어떻게 하나요?",
                      "신청하면 얼마나 쓸 수 있어요?"],
         answer="GPU 서버는 신청 후 승인을 받아 사용하실 수 있습니다.",
         complaint="사용 가능 시간을 물었습니다.",
@@ -340,7 +340,7 @@ CASES = [
     dict(
         id="unsup01", note="외부 링크 요구",
         pre_queries=["출장비 규정 원문 PDF 다운로드 링크를 주세요."],
-        answer="운영 환경 포털의 규정 메뉴에서 확인하실 수 있습니다.",
+        answer="실행 환경 포털의 규정 메뉴에서 확인하실 수 있습니다.",
         complaint="링크를 달라니까요.",
         chunks=RULES,
         expect=dict(requests_unsupported_output=True),

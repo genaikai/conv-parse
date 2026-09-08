@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_shipped_table_carries_no_real_label_values():
     """실값은 운영 코드값이라 저장소에 없다 (규격 §1.1 · C3).
 
-    이 저장소는 public 이고, 라벨 집합은 그 자체로 운영 환경 분류 체계를 드러낸다.
+    이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
     전에는 labels.py 와 query_taxonomy.md 양쪽에 실값이 박혀 있었다.
     """
     import re as _re
@@ -422,9 +422,9 @@ def test_single_turn_conversations_are_excluded():
 
 
 # ---------------------------------------------------------------------------
-# --turns — 필터를 운영 환경에 두고 고른 턴만 받는다
+# --turns — 필터를 실행 환경에 두고 고른 턴만 받는다
 #
-# 필터 로직은 운영 환경 것을 쓴다. 그런데 턴을 Case 로 엮는 일(후속 턴 ↔ 직전 턴의
+# 필터 로직은 실행 환경 것을 쓴다. 그런데 턴을 Case 로 엮는 일(후속 턴 ↔ 직전 턴의
 # 답변 ↔ 그 답변을 만든 청크)은 짝을 틀리면 **조용히 엉뚱한 답변을 판정한다.**
 # 그래서 그 부분만은 검증된 이쪽 코드가 한다.
 # ---------------------------------------------------------------------------
@@ -469,7 +469,7 @@ def test_turns_list_selects_exactly_what_was_asked(tmp_path):
 
 def test_turns_list_accepts_jsonl(tmp_path):
     """파이프라인이 JSONL 을 뱉는 경우가 흔하다. 변환 스크립트를 하나 더 짜게
-    만들 이유가 없다 - 운영 환경에서는 코드를 못 고친다 (C2)."""
+    만들 이유가 없다 - 실행 환경에서는 코드를 못 고친다 (C2)."""
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),

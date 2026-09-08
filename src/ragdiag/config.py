@@ -1,6 +1,6 @@
 """설정 읽기와 검증.
 
-운영 환경에서는 코드를 한 줄도 못 고친다. 바뀔 만한 값이 코드에 박혀 있으면 그 사이클은
+실행 환경에서는 코드를 한 줄도 못 고친다. 바뀔 만한 값이 코드에 박혀 있으면 그 사이클은
 거기서 끝난다 - 고칠 수 없고, 고치면 규칙을 깬 것이다. 그래서 값은 YAML 로 받는다.
 
 **검증은 시작 즉시 하고 계산 전에 죽는다.** 30분 돌린 뒤에 키 하나 때문에 죽으면
@@ -31,7 +31,7 @@ class ConfigError(Exception):
 
 # 키 → (기대 타입, 필수인가). 여기 없는 키는 오타로 본다.
 #
-# 오타를 통과시키면 조용히 기본값으로 돈다. 운영 환경에서 임계값을 바꿨는데 안 바뀐
+# 오타를 통과시키면 조용히 기본값으로 돈다. 실행 환경에서 임계값을 바꿨는데 안 바뀐
 # 채로 30분이 지나가는 것이 가장 나쁜 결과다.
 SPEC: dict[str, tuple[type | tuple, bool]] = {
     # 여기 적은 파이썬으로 갈아타서 실행한다 (src/run.py 의 switch_venv).
@@ -205,12 +205,12 @@ def validate(values: dict[str, Any]) -> list[str]:
 def _work_folder_hint(copy: Path, file: Path) -> str:
     """설정을 어디에 두고 어떻게 실행하라는 안내.
 
-    작업 폴더({AA})는 **실행 위치**다. 이 저장소의 다른 모든 경로가 그 규칙을
-    따르고(run.py · DEFAULT_CONFIG · sync.sh 의 pwd), 코드가 {AA} 를 알 다른
-    방법도 없다 - 아는 것은 사본({BB})의 위치뿐이다.
+    작업 폴더(작업 폴더)는 **실행 위치**다. 이 저장소의 다른 모든 경로가 그 규칙을
+    따르고(run.py · DEFAULT_CONFIG · sync.sh 의 pwd), 코드가 작업 폴더 를 알 다른
+    방법도 없다 - 아는 것은 사본(사본)의 위치뿐이다.
 
-    전에는 사본의 **부모**를 {AA} 로 쳤다. {AA}/{BB} 일 때만 맞고, 중간에 폴더가
-    끼면({AA}/tools/vendor/{BB}) 엉뚱한 자리에 설정을 만들라고 안내한다.
+    전에는 사본의 **부모**를 작업 폴더 로 쳤다. 작업 폴더 안의 사본 일 때만 맞고, 중간에 폴더가
+    끼면(작업 폴더의 tools/vendor 아래) 엉뚱한 자리에 설정을 만들라고 안내한다.
     """
     import os
 
@@ -227,9 +227,9 @@ def _work_folder_hint(copy: Path, file: Path) -> str:
 def synced_copy_root(path: Path, root: Optional[Path] = None) -> Optional[Path]:
     """이 경로가 sync 로 만들어진 사본 안에 있나. 있으면 사본 루트를 돌려준다.
 
-    사본({AA}/{BB})은 다음 sync 때 `rm -rf` 로 통째 교체된다. 거기에 설정을 두면
+    사본(작업 폴더 안의 사본)은 다음 sync 때 `rm -rf` 로 통째 교체된다. 거기에 설정을 두면
     채워 넣은 값이 **조용히 사라지고**, 화면에는 "configs/env.yaml exists — kept"
-    가 찍힌다 - 그건 {AA}/configs 쪽 이야기인데 지켜진 줄 알게 된다.
+    가 찍힌다 - 그건 작업 폴더의 configs 쪽 이야기인데 지켜진 줄 알게 된다.
 
     사본에는 sync.sh 가 VERSION 을 남긴다. 개발 저장소에는 그게 없으므로,
     거기서 configs/env.yaml 을 만드는 것은 정상이고 경고하지 않는다.
@@ -351,7 +351,7 @@ def load(path: Optional[str | Path]) -> Config:
     copy = synced_copy_root(file)
     if copy is not None:
         # 경고로 끝내면 이번 실행은 돌고 다음 sync 에 사라진다. 그 사이에 값이
-        # {AA} 쪽과 갈라져도 알 방법이 없다 - 설정은 언제나 {AA} 에 둔다.
+        # 작업 폴더 쪽과 갈라져도 알 방법이 없다 - 설정은 언제나 작업 폴더 에 둔다.
         work = Path.cwd()
         raise ConfigError(
             f"설정이 사본 안에 있습니다: {file}\n"

@@ -37,7 +37,7 @@ CHUNKS = [
 # ---------------------------------------------------------------------------
 
 def test_korean_with_english_terms_is_still_korean():
-    # 운영 환경 답변에는 영문 용어가 흔히 섞인다. 다수결로 세면 영어로 오판한다.
+    # 실행 환경 답변에는 영문 용어가 흔히 섞인다. 다수결로 세면 영어로 오판한다.
     text = "VPN 접속 시 MFA 인증이 필요하며, IT Helpdesk portal에서 재등록하십시오."
     assert detect_language(text) == "ko"
 

@@ -1,12 +1,12 @@
 """구현 규격(IMPLEMENTATION_SPEC.md)을 코드로 지킨다.
 
-규격의 규칙은 전부 제약에서 따라나온 것이고, 어긋나면 운영 환경 사이클 하나를 버린다.
+규격의 규칙은 전부 제약에서 따라나온 것이고, 어긋나면 실행 환경 사이클 하나를 버린다.
 문서로만 두면 다음에 파일 하나 추가하면서 조용히 깨진다.
 
 여기서 재는 것:
-  C6  가짜 데이터가 파일로 저장소에 있으면 이식을 통해 운영 환경으로 흘러간다
+  C6  가짜 데이터가 파일로 저장소에 있으면 이식을 통해 실행 환경으로 흘러간다
   C3  합성 데이터가 실데이터의 값을 흉내내면 그것도 유출 경로다
-  1.3 바뀔 만한 값이 설정에 없으면 운영 환경에서 "코드 한 줄만" 이 된다
+  1.3 바뀔 만한 값이 설정에 없으면 실행 환경에서 "코드 한 줄만" 이 된다
   3.2 계약 위반 메시지가 옮겨 적을 수 없으면 포맷 회수가 끊긴다
 """
 
@@ -66,7 +66,7 @@ def test_synth_generates_at_runtime_not_from_a_file():
     for banned in ("open(", "read_text", "json.load(", "Path("):
         assert banned not in source, (
             f"synth.py 가 {banned} 을 쓴다. 파일에서 읽으면 그 파일이 "
-            "저장소에 있어야 하고, 그러면 운영 환경으로 흘러간다.")
+            "저장소에 있어야 하고, 그러면 실행 환경으로 흘러간다.")
 
 
 def test_synth_is_deterministic():
@@ -77,7 +77,7 @@ def test_synth_is_deterministic():
 
 
 def test_synth_default_stays_small_enough_for_a_smoke_run():
-    """`--dry-run` 이 이걸 쓴다. 기본을 키우면 운영 환경의 첫 점검이 수백 번의
+    """`--dry-run` 이 이걸 쓴다. 기본을 키우면 실행 환경의 첫 점검이 수백 번의
     LLM 호출로 바뀌고, 거기서는 그 비용을 되돌릴 방법이 없다.
     """
     from ragdiag.fixtures.synth import generate
@@ -116,7 +116,7 @@ def test_synth_scales_without_losing_the_planted_signal():
 def test_synth_output_satisfies_the_contract():
     """계약이 바뀌면 합성 데이터도 따라 바뀌어야 한다.
 
-    어긋나면 여기서는 도는 코드가 운영 환경에서 죽는다.
+    어긋나면 여기서는 도는 코드가 실행 환경에서 죽는다.
     """
     from ragdiag.contracts import check_log
     from ragdiag.fixtures.synth import generate
@@ -154,11 +154,11 @@ def test_run_summary_lines_fit_eighty_columns():
 
 
 def test_prev_question_accepts_the_shape_the_real_log_uses():
-    """운영 환경로그의 prev_question 은 list 다 (2026-09-01, 16,141건).
+    """실행 환경로그의 prev_question 은 list 다 (2026-09-01, 16,141건).
 
     계약이 str 만 받으면 매 실행마다 MISMATCH 한 줄이 뜨는데, 파이프라인은 이
     필드를 읽지 않으므로 판정은 멀쩡하다. 계약 위반 줄은 "판정이 틀렸을 수 있다"는
-    뜻이어야 한다 - 거기 잡음이 섞이면 운영 환경에서 그 줄 자체를 안 보게 된다.
+    뜻이어야 한다 - 거기 잡음이 섞이면 실행 환경에서 그 줄 자체를 안 보게 된다.
     """
     from ragdiag.contracts import check_log
     from ragdiag.fixtures.synth import generate
@@ -220,7 +220,7 @@ def test_contract_mismatch_is_transcribable():
     rows = [{"turn": "1", "user_question": "질문", "새필드": 1}]
     lines = [m.line() for m in validate(rows, TURN_SCHEMA, "turn")]
     assert any("turn.turn" in l and "str" in l for l in lines), lines
-    assert any("새필드" in l for l in lines), "새 필드는 인사이트가 된다"
+    assert any("새필드" in l for l in lines), "새 필드는 관찰가 된다"
 
 
 def test_run_summary_prints_every_required_row():
@@ -340,7 +340,7 @@ def test_scripting_example_uses_only_documented_things():
 def test_docs_are_grouped_and_still_shipped():
     """참조 문서는 docs/ 에 모으되 반입은 되어야 한다.
 
-    docs/insights/ 만 export-ignore 다. 규칙을 docs/ 로 넓히면 운영 환경에서
+    docs/insights/ 만 export-ignore 다. 규칙을 docs/ 로 넓히면 실행 환경에서
     filter.md · scripting.md 를 못 보게 된다 - 거기서 봐야 하는 문서다.
     """
     # 성격이 다르다 - todo/ 는 저쪽에서 **만들 것**의 규격이고,
@@ -355,7 +355,7 @@ def test_docs_are_grouped_and_still_shipped():
         ignored = subprocess.run(["git", "check-attr", "export-ignore", "--", folder],
                                  capture_output=True, text=True, cwd=ROOT)
         assert not ignored.stdout.strip().endswith(": set"), (
-            f"{folder} 를 통째로 뺐다. 운영 환경에서 봐야 하는 문서다.")
+            f"{folder} 를 통째로 뺐다. 실행 환경에서 봐야 하는 문서다.")
 
 
 def test_root_keeps_only_what_has_to_be_there():
@@ -398,9 +398,9 @@ def test_readme_does_not_hand_out_a_command_that_needs_an_uncommitted_file():
         block = block.split("```")[0]
         if "--config configs/env.yaml" not in block:
             continue
-        # log_analysis/ 를 경로에 두는 블록은 작업 폴더({AA}) 기준이다. 거기서는
+        # log_analysis/ 를 경로에 두는 블록은 작업 폴더(작업 폴더) 기준이다. 거기서는
         # sync.sh 가 env.yaml 을 만들어 주므로 복사 단계가 필요 없다.
-        in_work_folder = "log_analysis/" in block or "{AA}" in block
+        in_work_folder = "log_analysis/" in block or "작업 폴더" in block
         assert "cp configs/env.example.yaml" in block or in_work_folder, (
             "clone 직후에 없는 파일을 쓰는 명령이다. 복사 단계를 함께 적을 것:\n"
             + block.strip()[:300])
@@ -443,9 +443,9 @@ def test_sync_script_is_committed_and_executable():
 
 
 def test_sync_derives_names_instead_of_hardcoding_them():
-    """규격: {BB} 는 스크립트 위치에서, <pkg> 는 src/ 아래에서 유도한다.
+    """규격: 사본 는 스크립트 위치에서, <pkg> 는 src/ 아래에서 유도한다.
 
-    이름을 박아 두면 저장소나 패키지 이름이 바뀔 때 운영 환경에서 조용히 엉뚱한
+    이름을 박아 두면 저장소나 패키지 이름이 바뀔 때 실행 환경에서 조용히 엉뚱한
     경로를 만든다. 거기서는 고칠 수 없다.
     """
     text = (ROOT / "scripts/sync.sh").read_text(encoding="utf-8")
@@ -530,20 +530,20 @@ SPEC = pathlib.Path(
 
 
 def test_internal_command_sequence_only_uses_what_ships():
-    """운영 환경 순서에 반입 안 되는 것이 등장하면 거기서 사이클이 하나 날아간다.
+    """실행 환경 순서에 반입 안 되는 것이 등장하면 거기서 사이클이 하나 날아간다.
 
     실제로 README 가 `tools/legacy_run.py --check-llm` 을 시키고 있었다. tools/ 는
-    export-ignore 라 운영 환경에 없다 - 물어볼 데도 없는 장비에서 command not found 를
+    export-ignore 라 실행 환경에 없다 - 물어볼 데도 없는 장비에서 command not found 를
     만나게 된다. 그래서 순서 블록은 archive 에 실제로 담기는 것만 참조해야 한다.
     """
     doc = (ROOT / "README.md").read_text(encoding="utf-8")
-    block = doc.split("<!-- BEGIN 운영 환경 순서 -->")[1].split("<!-- END 운영 환경 순서 -->")[0]
+    block = doc.split("<!-- BEGIN 실행 환경 순서 -->")[1].split("<!-- END 실행 환경 순서 -->")[0]
 
     ignored = [l.split()[0].rstrip("/") for l in
                (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
                if l.strip() and not l.strip().startswith("#") and "export-ignore" in l]
     hits = [name for name in ignored if f"{name}/" in block]
-    assert not hits, f"운영 환경에 없는 것을 시키고 있다: {hits}"
+    assert not hits, f"실행 환경에 없는 것을 시키고 있다: {hits}"
 
     # 진입점과 점검 순서가 실제로 있는지.
     for needed in ("scripts/sync.sh", "src/run.py --check-llm", "--dry-run"):
@@ -563,7 +563,7 @@ def test_gitattributes_has_no_end_of_line_comments():
 
     실제로 이걸로 한 번 뚫렸다. `tools/ export-ignore  # 설명` 은 경고 한 줄만
     내고 **그 줄이 통째로 무시된다.** 무시된 줄은 조용히 무시되므로 archive 를
-    풀어보기 전에는 tools/ 가 운영 환경으로 넘어가는 것을 알 수 없다.
+    풀어보기 전에는 tools/ 가 실행 환경으로 넘어가는 것을 알 수 없다.
     """
     path = ROOT / ".gitattributes"
     assert path.exists(), "이식 표면을 정하는 파일이 없다 (규격 §2.3)"
@@ -583,7 +583,7 @@ def test_every_export_ignore_line_actually_registers():
     """적어 놓은 것과 git 이 실제로 적용하는 것은 다를 수 있다.
 
     패턴 문법이 .gitignore 와 미묘하게 다르고, 잘못 쓴 줄은 **조용히** 무시된다.
-    한 줄이 죽으면 그 디렉터리가 통째로 운영 환경에 도착하는데, archive 를 풀어보기
+    한 줄이 죽으면 그 디렉터리가 통째로 실행 환경에 도착하는데, archive 를 풀어보기
     전에는 알 수 없다. 그래서 줄마다 git 에게 직접 물어본다.
 
     패턴을 쓴 그대로 물어봐야 한다 - `tools/` 는 set 이지만 `tools` 나
@@ -673,7 +673,7 @@ def test_sync_keeps_local_yaml_and_names_the_new_keys(tmp_path):
     subprocess.run(["git", "-C", str(bb), "tag", "v1"], check=True)
     aa = _fresh_aa(tmp_path, bb)
     _sync(aa, bb, "v1")
-    (aa / "configs" / "env.yaml").write_text("a: 운영 환경 실값\n", encoding="utf-8")
+    (aa / "configs" / "env.yaml").write_text("a: 실행 환경 실값\n", encoding="utf-8")
 
     (bb / "configs" / "env.example.yaml").write_text("a: 1\nb: 2\n", encoding="utf-8")
     for a in (["add", "-A"], ["commit", "-q", "-m", "key"], ["tag", "v2"]):
@@ -681,7 +681,7 @@ def test_sync_keeps_local_yaml_and_names_the_new_keys(tmp_path):
 
     out = _sync(aa, bb, "v2")
     assert out.returncode == 0, out.stderr
-    assert (aa / "configs" / "env.yaml").read_text(encoding="utf-8") == "a: 운영 환경 실값\n"
+    assert (aa / "configs" / "env.yaml").read_text(encoding="utf-8") == "a: 실행 환경 실값\n"
     assert "b" in out.stderr, "example 에만 있는 키를 알려줘야 한다\n" + out.stderr
 
 
@@ -931,7 +931,7 @@ def test_every_entry_script_runs_without_pythonpath():
 
     세 번 같은 실수를 했다. src/ragdiag/dashboard.py 는 streamlit 이 그 디렉터리를
     sys.path[0] 에 넣어 ragdiag 를 못 찾았고, scripts/legacy_run.py 는 scripts/ 가
-    올라가 마찬가지였다. 운영 환경에서는 인터넷도 없고 고칠 수도 없어서 그 자리에서 막힌다.
+    올라가 마찬가지였다. 실행 환경에서는 인터넷도 없고 고칠 수도 없어서 그 자리에서 막힌다.
     """
     import os
     import subprocess

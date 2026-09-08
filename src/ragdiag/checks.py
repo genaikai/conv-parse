@@ -74,7 +74,7 @@ def detect_language(text: str) -> str:
     """ko / en / ja / zh / unknown.
 
     한계: 스크립트 기반이라 라틴 문자를 쓰는 언어들(영어·독일어·프랑스어)을
-    구분하지 못한다. 운영 환경 챗봇에서 실제로 갈리는 건 한국어와 영어라 이 수준이면 된다.
+    구분하지 못한다. 실행 환경 챗봇에서 실제로 갈리는 건 한국어와 영어라 이 수준이면 된다.
     """
     profile = script_profile(text)
     if sum(profile.values()) == 0:

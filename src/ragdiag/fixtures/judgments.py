@@ -90,8 +90,8 @@ SUFFICIENCY = [
     ),
     dict(
         id="suf08", note="검색 결과가 아예 없음",
-        question="운영 환경 헬스장 이용 시간은?",
-        unmet_need="운영 환경 헬스장 운영 시간",
+        question="실행 환경 헬스장 이용 시간은?",
+        unmet_need="실행 환경 헬스장 운영 시간",
         chunks=[],
         expect_verdict="insufficient",
     ),

@@ -1,6 +1,6 @@
 """설정이 실제로 먹히는가.
 
-운영 환경에서는 코드를 한 줄도 못 고친다. 설정에 적은 값이 조용히 무시되면 그 사이클을
+실행 환경에서는 코드를 한 줄도 못 고친다. 설정에 적은 값이 조용히 무시되면 그 사이클을
 통째로 버린다 - 임계값을 바꿨는데 안 바뀐 채로 30분이 지나가고, 결과만 보고는
 알 수 없다.
 
@@ -237,7 +237,7 @@ def test_example_yaml_passes_its_own_validation():
 def test_example_yaml_lists_every_key():
     """규격: 모든 키가 env.example.yaml 에 등장한다.
 
-    없는 키는 운영 환경에서 "코드 한 줄만 고치면 되는데" 가 되는 자리다.
+    없는 키는 실행 환경에서 "코드 한 줄만 고치면 되는데" 가 되는 자리다.
     """
     import pathlib
 
@@ -287,7 +287,7 @@ def test_env_var_names_are_searched_in_order(monkeypatch):
 
 
 def test_documented_names_come_first():
-    """README 와 운영 환경 .bashrc 가 쓰는 이름이 1순위여야 한다."""
+    """README 와 실행 환경 .bashrc 가 쓰는 이름이 1순위여야 한다."""
     assert URL_VARS[0] == "LLM_API_URL"
     assert KEY_VARS[0] == "LLM_API_KEY"
 
@@ -469,15 +469,15 @@ def test_venv_peek_works_without_pyyaml(tmp_path):
 # ---------------------------------------------------------------------------
 # 사본 안에 둔 설정 — 조용히 지워지는 자리
 #
-# {AA}/{BB} 는 sync 때마다 rm -rf 로 통째 교체된다. 거기에 env.yaml 을 만들면
+# 작업 폴더 안의 사본 는 sync 때마다 rm -rf 로 통째 교체된다. 거기에 env.yaml 을 만들면
 # 채워 넣은 값이 사라지는데, 화면에는 "그대로 둡니다" 가 찍힌다 - 그건
-# {AA}/configs 쪽 이야기인데 자기 파일이 지켜진 줄 알게 된다.
+# 작업 폴더의 configs 쪽 이야기인데 자기 파일이 지켜진 줄 알게 된다.
 # ---------------------------------------------------------------------------
 
 def _fake_copy(tmp_path, under=""):
     """sync 로 만들어진 사본을 흉내낸다. 표식은 VERSION 파일이다.
 
-    under 로 중간 폴더를 끼울 수 있다. {AA}/{BB} 만 상정하면 {AA}/tools/vendor/{BB}
+    under 로 중간 폴더를 끼울 수 있다. 작업 폴더 안의 사본 만 상정하면 작업 폴더의 tools/vendor 아래
     에서 깨지는 안내를 못 잡는다.
     """
     work = tmp_path / "work"
@@ -507,10 +507,10 @@ def test_dev_repo_is_not_treated_as_a_copy(tmp_path):
 
 @pytest.mark.parametrize("under", ["", "tools/vendor"])
 def test_config_inside_a_copy_is_refused(tmp_path, monkeypatch, under):
-    """설정은 언제나 {AA} 에 둔다. 경고로 끝내면 이번 실행은 돌고 다음에 사라진다.
+    """설정은 언제나 작업 폴더 에 둔다. 경고로 끝내면 이번 실행은 돌고 다음에 사라진다.
 
-    작업 폴더는 **실행 위치**다. 전에는 사본의 부모를 {AA} 로 쳤는데, 그건
-    {AA}/{BB} 일 때만 맞다 - {AA}/tools/vendor/{BB} 면 중간 폴더에 설정을
+    작업 폴더는 **실행 위치**다. 전에는 사본의 부모를 작업 폴더 로 쳤는데, 그건
+    작업 폴더 안의 사본 일 때만 맞다 - 작업 폴더의 tools/vendor 아래 면 중간 폴더에 설정을
     만들라고 안내하고, 거기서 실행하라고 한다.
     """
     import ragdiag.config as mod
@@ -518,7 +518,7 @@ def test_config_inside_a_copy_is_refused(tmp_path, monkeypatch, under):
     work, copy = _fake_copy(tmp_path, under)
     cfg = copy / "configs" / "env.yaml"
     cfg.write_text("run:\n  workers: 2\n", encoding="utf-8")
-    monkeypatch.chdir(work)          # {AA} 에서 실행한다
+    monkeypatch.chdir(work)          # 작업 폴더 에서 실행한다
 
     real = mod.synced_copy_root
     monkeypatch.setattr(mod, "synced_copy_root",
@@ -540,7 +540,7 @@ def test_config_inside_a_copy_is_refused(tmp_path, monkeypatch, under):
 def test_work_folder_config_is_found_without_the_flag(tmp_path):
     """--config 를 안 줘도 작업 폴더의 설정을 쓴다.
 
-    운영 환경에서는 sync.sh 가 {AA}/configs/env.yaml 을 만들어 둔다. 그걸 매번
+    실행 환경에서는 sync.sh 가 작업 폴더의 configs/env.yaml 을 만들어 둔다. 그걸 매번
     --config 로 가리키게 하면 한 번 빼먹는 순간 조용히 기본값으로 돈다.
     """
     from ragdiag.fixtures.synth import generate
@@ -613,11 +613,11 @@ def _bare_args(**kw):
 
 
 def test_entry_point_knows_only_the_local_backend(monkeypatch):
-    """규격 §1.4 · C8 — 운영 환경에서 실패할 호출은 src/ 에 없다.
+    """규격 §1.4 · C8 — 실행 환경에서 실패할 호출은 src/ 에 없다.
 
     예전에는 LLM_API_URL 이 없으면 claude CLI 로 떨어졌다. 그 경로가 tools/ 로
     나가면서 자동 선택도 없앴다. 주소가 없으면 무엇을 export 하라고 알려주는
-    쪽이 맞다 - 운영 환경에는 claude CLI 자체가 없어서 폴백이 성립하지 않는다.
+    쪽이 맞다 - 실행 환경에는 claude CLI 자체가 없어서 폴백이 성립하지 않는다.
     """
     from ragdiag.__main__ import make_backend
     from ragdiag.backends import JudgeError
@@ -668,18 +668,18 @@ def test_shipped_source_has_no_llm_api_imports():
             if re.match(r"\s*(import|from)\s+(anthropic|openai)\b", line):
                 offenders.append(f"{path.relative_to(ROOT)}:{n}  {line.strip()}")
     assert not offenders, (
-        "운영 환경에서 죽을 의존이 src/ 에 있다 (C8):\n" + "\n".join(offenders))
+        "실행 환경에서 죽을 의존이 src/ 에 있다 (C8):\n" + "\n".join(offenders))
 
 
 # ---------------------------------------------------------------------------
-# CLI 형태 — 운영 환경에서 실제로 칠 명령
+# CLI 형태 — 실행 환경에서 실제로 칠 명령
 # ---------------------------------------------------------------------------
 
 def _run_against_stub(args: list[str], cwd) -> "subprocess.CompletedProcess":
     """가짜 LLM 서버를 띄우고 진입점을 끝까지 돌린다.
 
     claude CLI 백엔드에 묶어두면 그게 없는 사본에서 이 테스트들이 건너뛰어진다 -
-    그러면 운영 환경에서 처음 도는 경로(출력 디렉터리 생성, 파일 이름)가 검증되지 않은
+    그러면 실행 환경에서 처음 도는 경로(출력 디렉터리 생성, 파일 이름)가 검증되지 않은
     채로 나간다. 배관을 재는 테스트에 판정 품질은 필요 없다.
     """
     import os
@@ -702,8 +702,8 @@ def _run_against_stub(args: list[str], cwd) -> "subprocess.CompletedProcess":
 def test_entry_script_runs_without_pythonpath(tmp_path):
     """python <저장소>/src/run.py --conv-data ... --filter-data ... --output-dir ...
 
-    운영 환경에서 PYTHONPATH 를 매번 붙이지 않아도 되게 둔 진입점이다.
-    규격의 `PYTHONPATH={BB}/src python -m ragdiag` 와 같은 일을 한다.
+    실행 환경에서 PYTHONPATH 를 매번 붙이지 않아도 되게 둔 진입점이다.
+    규격의 `PYTHONPATH=사본의 src python -m ragdiag` 와 같은 일을 한다.
     """
     import json
     import os
@@ -775,7 +775,7 @@ def test_filter_keeps_the_old_flag_name(tmp_path):
 def test_output_filename_carries_the_finish_time(tmp_path):
     """같은 데이터를 여러 번 돌리면 어느 것이 언제 것인지 알 수 없다.
 
-    운영 환경에서는 결과를 반출할 수 없어 이 파일들이 그 자리에 계속 쌓인다.
+    실행 환경에서는 결과를 반출할 수 없어 이 파일들이 그 자리에 계속 쌓인다.
     파일 이름에 시각이 없으면 덮어써지거나 뒤섞인다.
     """
     import json
