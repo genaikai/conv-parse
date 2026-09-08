@@ -4,7 +4,7 @@
 문서로만 두면 다음에 파일 하나 추가하면서 조용히 깨진다.
 
 여기서 재는 것:
-  C6  가짜 데이터가 파일로 저장소에 있으면 이식을 통해 실행 환경으로 흘러간다
+  C6  가짜 데이터가 파일로 저장소에 있으면 사본을 통해 실행 환경으로 흘러간다
   C3  합성 데이터가 실데이터의 값을 흉내내면 그것도 유출 경로다
   1.3 바뀔 만한 값이 설정에 없으면 실행 환경에서 "코드 한 줄만" 이 된다
   3.2 계약 위반 메시지가 옮겨 적을 수 없으면 포맷 회수가 끊긴다
@@ -523,7 +523,7 @@ def _fresh_aa(tmp_path, bb):
 
 
 # 규격 문서는 옆 저장소에 있다. 절대 경로를 박으면 개인 머신 경로가 소스에 남고
-# sync.sh 의 이식 표면 점검이 그걸 잡는다 (§1.3 위반이기도 하다).
+# 점검 스크립트가 그걸 잡는다 (§1.3 위반이기도 하다).
 SPEC = pathlib.Path(
     os.environ.get("IMPLEMENTATION_SPEC")
     or ROOT.parent / "general_implementation" / "IMPLEMENTATION_SPEC.md")
@@ -702,7 +702,7 @@ def test_sync_removes_the_copy_when_the_check_fails(tmp_path):
 
 
 def test_dashboard_deps_are_not_in_the_main_requirements():
-    """반입할 것을 늘리지 않는다. 분류 파이프라인은 pydantic·PyYAML 이면 된다."""
+    """설치할 것을 늘리지 않는다. 분류 파이프라인은 pydantic·PyYAML 이면 된다."""
     main = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     active = [l for l in main.splitlines() if l.strip() and not l.startswith("#")]
     for banned in ("streamlit", "pandas"):

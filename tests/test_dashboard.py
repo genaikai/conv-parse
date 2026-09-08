@@ -41,7 +41,7 @@ def result_file(tmp_path_factory):
     log.write_text(json.dumps(generate(n=4, seed=0), ensure_ascii=False), encoding="utf-8")
 
     selection = load_and_select(log)
-    # 개발 장비 전용 백엔드에 묶어두면 깨끗한 사본에서 이 테스트가 통째로
+    # 저장소에 없는 백엔드에 묶어두면 깨끗한 사본에서 이 테스트가 통째로
     # 건너뛰어진다. 대시보드는 실행 환경에서 쓰는 화면이라 그러면 안 된다.
     with StubLLM() as stub:
         backend = OpenAICompatBackend(base_url=stub.url, model="stub-model",
@@ -175,7 +175,7 @@ def test_dashboard_survives_an_empty_result(tmp_path):
 
 
 def test_dashboard_does_not_need_matplotlib(result_file):
-    """히트맵에 matplotlib 을 쓰면 에어갭 반입 부담이 늘어난다.
+    """히트맵에 matplotlib 을 쓰면 에어갭 설치 부담이 늘어난다.
 
     Styler.background_gradient 가 matplotlib 을 요구해 한 번 깨졌다.
     """
@@ -184,7 +184,7 @@ def test_dashboard_does_not_need_matplotlib(result_file):
     at = render(result_file)
     assert not at.exception
     assert "matplotlib" not in sys.modules, (
-        "matplotlib 이 import 됐다. 대시보드 하나 때문에 반입할 패키지를 늘리지 않는다.")
+        "matplotlib 이 import 됐다. 대시보드 하나 때문에 설치할 패키지를 늘리지 않는다.")
 
 
 def test_dashboard_works_without_org_classification(result_file):
@@ -246,7 +246,7 @@ def test_missing_dependency_names_the_install_command(tmp_path):
         + proc.stderr)
     assert "requirements-dashboard.txt" in proc.stderr, proc.stderr
     assert "분류 파이프라인" in proc.stderr, (
-        "파이프라인에는 필요 없다는 것도 알려야 반입 부담을 안 늘린다")
+        "파이프라인에는 필요 없다는 것도 알려야 설치 부담을 안 늘린다")
 
 
 def test_corpus_gaps_group_by_need_not_department(result_file):

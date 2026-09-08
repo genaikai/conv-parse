@@ -180,7 +180,7 @@ def load_filter(path: str | Path) -> FilterSpec:
         raise LabelTableMissing(
             f"{path} 가 라벨·점수 조건을 쓰는데 라벨 실값이 없습니다.\n"
             "  이 저장소에는 자리표시자만 있습니다 — 실제 라벨 이름과 점수는\n"
-            "  운영 코드값이라 올리지 않습니다 (규격 §1.1 · C3).\n"
+            "  운영 코드값이라 올리지 않습니다.\n"
             "  설정에 운영 taxonomy 문서를 가리키세요:\n"
             "    labels:\n"
             "      query:   configs/query_taxonomy.md\n"

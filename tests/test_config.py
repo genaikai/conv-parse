@@ -235,7 +235,7 @@ def test_example_yaml_passes_its_own_validation():
 
 
 def test_example_yaml_lists_every_key():
-    """규격: 모든 키가 env.example.yaml 에 등장한다.
+    """규칙: 모든 키가 env.example.yaml 에 등장한다.
 
     없는 키는 실행 환경에서 "코드 한 줄만 고치면 되는데" 가 되는 자리다.
     """
@@ -540,7 +540,7 @@ def test_config_inside_a_copy_is_refused(tmp_path, monkeypatch, under):
 def test_work_folder_config_is_found_without_the_flag(tmp_path):
     """--config 를 안 줘도 작업 폴더의 설정을 쓴다.
 
-    실행 환경에서는 sync.sh 가 작업 폴더의 configs/env.yaml 을 만들어 둔다. 그걸 매번
+    작업 폴더의 configs/env.yaml 은 미리 만들어져 있다. 그걸 매번
     --config 로 가리키게 하면 한 번 빼먹는 순간 조용히 기본값으로 돈다.
     """
     from ragdiag.fixtures.synth import generate
@@ -613,7 +613,7 @@ def _bare_args(**kw):
 
 
 def test_entry_point_knows_only_the_local_backend(monkeypatch):
-    """규격 §1.4 · C8 — 실행 환경에서 실패할 호출은 src/ 에 없다.
+    """실행 환경에서 실패할 호출은 src/ 에 없다.
 
     예전에는 LLM_API_URL 이 없으면 claude CLI 로 떨어졌다. 그 경로가 tools/ 로
     나가면서 자동 선택도 없앴다. 주소가 없으면 무엇을 export 하라고 알려주는
@@ -646,7 +646,7 @@ def test_dev_backends_point_at_the_tools_runner(kind, monkeypatch):
 
 
 def test_src_does_not_import_tools():
-    """import 방향은 한쪽이다 (규격 §1.4). 반대로 가면 tools/ 없는 사본이 죽는다."""
+    """import 방향은 한쪽이다. 반대로 가면 tools/ 없는 사본이 죽는다."""
     import pathlib as _p
     import re
 
@@ -659,7 +659,7 @@ def test_src_does_not_import_tools():
 
 
 def test_shipped_source_has_no_llm_api_imports():
-    """sync.sh 가 잡기 전에 여기서 잡는다. 거기서 걸리면 태그를 다시 내야 한다."""
+    """점검 스크립트가 잡기 전에 여기서 잡는다. 거기서 걸리면 태그를 다시 내야 한다."""
     import re
 
     offenders = []
@@ -703,7 +703,7 @@ def test_entry_script_runs_without_pythonpath(tmp_path):
     """python <저장소>/src/run.py --conv-data ... --filter-data ... --output-dir ...
 
     실행 환경에서 PYTHONPATH 를 매번 붙이지 않아도 되게 둔 진입점이다.
-    규격의 `PYTHONPATH=사본의 src python -m ragdiag` 와 같은 일을 한다.
+    `PYTHONPATH=사본의 src python -m ragdiag` 와 같은 일을 한다.
     """
     import json
     import os
@@ -775,7 +775,7 @@ def test_filter_keeps_the_old_flag_name(tmp_path):
 def test_output_filename_carries_the_finish_time(tmp_path):
     """같은 데이터를 여러 번 돌리면 어느 것이 언제 것인지 알 수 없다.
 
-    실행 환경에서는 결과를 반출할 수 없어 이 파일들이 그 자리에 계속 쌓인다.
+    실행 환경에서는 결과를 가져올 수 없어 이 파일들이 그 자리에 계속 쌓인다.
     파일 이름에 시각이 없으면 덮어써지거나 뒤섞인다.
     """
     import json

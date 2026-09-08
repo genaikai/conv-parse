@@ -6,7 +6,7 @@
 **검증은 시작 즉시 하고 계산 전에 죽는다.** 30분 돌린 뒤에 키 하나 때문에 죽으면
 사이클 하나를 버린다. 운영 실험은 왕복이 비싸다.
 
-에러 메시지는 사람이 그대로 옮겨 적을 수 있게 쓴다. 결과 파일을 반출할 수 없으므로
+에러 메시지는 사람이 그대로 옮겨 적을 수 있게 쓴다. 결과 파일을 가져올 수 없으므로
 화면에 찍히는 문장이 유일한 회수 채널이다.
 
 settings.py 와의 관계: settings 는 기본값을, 여기는 그 위에 덮어쓸 값을 담는다.
@@ -206,7 +206,7 @@ def _work_folder_hint(copy: Path, file: Path) -> str:
     """설정을 어디에 두고 어떻게 실행하라는 안내.
 
     작업 폴더(작업 폴더)는 **실행 위치**다. 이 저장소의 다른 모든 경로가 그 규칙을
-    따르고(run.py · DEFAULT_CONFIG · sync.sh 의 pwd), 코드가 작업 폴더 를 알 다른
+    따르고(run.py · DEFAULT_CONFIG · 실행 위치), 코드가 작업 폴더 를 알 다른
     방법도 없다 - 아는 것은 사본(사본)의 위치뿐이다.
 
     전에는 사본의 **부모**를 작업 폴더 로 쳤다. 작업 폴더 안의 사본 일 때만 맞고, 중간에 폴더가
@@ -231,7 +231,7 @@ def synced_copy_root(path: Path, root: Optional[Path] = None) -> Optional[Path]:
     채워 넣은 값이 **조용히 사라지고**, 화면에는 "configs/env.yaml exists — kept"
     가 찍힌다 - 그건 작업 폴더의 configs 쪽 이야기인데 지켜진 줄 알게 된다.
 
-    사본에는 sync.sh 가 VERSION 을 남긴다. 개발 저장소에는 그게 없으므로,
+    사본에는 VERSION 파일이 있다. 개발 저장소에는 그게 없으므로,
     거기서 configs/env.yaml 을 만드는 것은 정상이고 경고하지 않는다.
     """
     root = root or Path(__file__).resolve().parents[2]

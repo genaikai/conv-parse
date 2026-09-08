@@ -1,5 +1,5 @@
-# 반입용. 공용 venv 를 쓰므로 --upgrade / --force-reinstall 금지.
-# 충돌이 나면 고치지 말고 메시지를 관찰로 가지고 나와 개발 장비에서 여기를 고친다.
+# 실행 환경 설치용. 공용 venv 를 쓰므로 --upgrade / --force-reinstall 금지.
+# 충돌이 나면 고치지 말고 메시지를 적어 두고 여기를 고친다.
 #
 #   pip install --dry-run -r BB/requirements.txt && pip check   # 먼저 확인
 #   pip install -r BB/requirements.txt
@@ -12,7 +12,7 @@ PyYAML>=6.0
 pytest>=8.0
 
 # 대시보드는 requirements-dashboard.txt 에 따로 있다.
-# 분류 파이프라인에는 필요 없어서 반입할 것을 늘리지 않으려고 나눠 뒀다.
+# 분류 파이프라인에는 필요 없어서 설치할 것을 늘리지 않으려고 나눠 뒀다.
 
 # --backend api 를 쓸 때만.
 # anthropic>=0.40

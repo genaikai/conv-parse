@@ -18,7 +18,7 @@ streamlit 이 스크립트를 브라우저 접속 시에 실행하고 예외를 
 
 에어갭 장비에서 돌아야 하므로 streamlit·pandas 둘만 추가로 필요하다. 차트는
 내장 st.bar_chart 로 그리고 히트맵은 CSS 를 직접 만든다 - plotly 나 matplotlib
-을 쓰면 반입할 패키지가 늘어난다.
+을 쓰면 설치할 패키지가 늘어난다.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ except ModuleNotFoundError as e:
           f"{Path(__file__).resolve().parents[1] / 'requirements-dashboard.txt'}\n\n"
           "분류 파이프라인(src/run.py)에는 필요 없습니다. 그래서 "
           "requirements.txt 와 나눠 뒀습니다 —\n"
-          "에어갭 장비에 반입할 것을 늘리지 않기 위해서입니다.")
+          "에어갭 장비에 설치할 것을 늘리지 않기 위해서입니다.")
 
 # streamlit 서버 없이 이 파일을 직접 실행하면 경고만 쏟고 아무 화면도 안 나온다.
 # 실패로 끝나지도 않아서 뭐가 잘못됐는지 알기 어렵다.
@@ -234,7 +234,7 @@ def heat(value: float) -> str:
     """0~1 을 배경색으로. matplotlib 을 쓰지 않는다.
 
     Styler.background_gradient 는 matplotlib 을 요구하는데, 대시보드 하나 때문에
-    에어갭 장비에 반입할 패키지를 늘릴 이유가 없다. 값에 따라 CSS 를 직접 만든다.
+    에어갭 장비에 설치할 패키지를 늘릴 이유가 없다. 값에 따라 CSS 를 직접 만든다.
     비율이 높을수록 진해지고, 글자는 배경이 어두워지면 흰색으로 바꾼다.
     """
     if not isinstance(value, (int, float)) or pd.isna(value):

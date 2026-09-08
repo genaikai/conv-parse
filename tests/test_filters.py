@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # ---------------------------------------------------------------------------
 
 def test_shipped_table_carries_no_real_label_values():
-    """실값은 운영 코드값이라 저장소에 없다 (규격 §1.1 · C3).
+    """실값은 운영 코드값이라 저장소에 없다.
 
     이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
     전에는 labels.py 와 query_taxonomy.md 양쪽에 실값이 박혀 있었다.

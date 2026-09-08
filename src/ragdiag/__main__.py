@@ -167,11 +167,11 @@ def make_backend(args, config=None, trace=None):
     if backend != "local":
         # 이 진입점은 실행 환경에서 도는 경로만 안다. claude CLI 와 Anthropic API 는
         # 실행 환경에서 호출이 전부 실패하므로 tools/ 에 있고, src/ 는 tools/ 를
-        # import 하지 않는다 (규격 §1.4).
+        # import 하지 않는다.
         raise JudgeError(
             f"--backend {backend} 는 이 진입점에 없습니다.\n"
-            "  실행 환경에서 실패할 호출은 src/ 에 두지 않습니다 (규격 §1.4 · C8).\n"
-            "  개발 장비에서 그 백엔드로 돌리려면:\n"
+            "  실행 환경에서 실패할 호출은 src/ 에 두지 않습니다.\n"
+            "  그 백엔드로 돌리려면:\n"
             "    python tools/dev_run.py --backend " + backend + " ...\n"
             "  실행 환경·서버 경로는 --backend local 입니다."
         )
@@ -217,8 +217,8 @@ def check_llm(args, config=None) -> int:
     진단이 되어야 하고, 전체를 돌리기 전에 서버 규약과 1회 소요시간을 확정해야
     한다 - 그래야 전체가 몇 분인지 알고 시작한다.
 
-    이 함수는 로컬 서버만 본다. 개발 장비 전용 백엔드를 쓰지 않으므로 tools/ 가
-    아니라 여기 있다 (규격 §1.4).
+    이 함수는 로컬 서버만 본다. 저장소에 없는 백엔드를 쓰지 않으므로 tools/ 가
+    아니라 여기 있다.
     """
     import time
 
@@ -489,7 +489,7 @@ def main(argv=None, backend=None) -> int:
                         "실행 환경에서 전체를 돌리기 전에 먼저 돌린다")
     p.add_argument("--backend", choices=["local", "cli", "api"],
                    help="local: OpenAI 호환 서버 / cli: claude -p "
-                        "(개발 장비 전용 — 저장소에 없다) / api: Anthropic SDK")
+                        "(저장소에 없다) / api: Anthropic SDK")
     p.add_argument("--base-url", help="LLM 주소 (또는 $LLM_API_URL)")
     p.add_argument("--api-key", help="(또는 $LLM_API_KEY)")
     p.add_argument("--model", help="생략하면 서버의 /v1/models 에서 자동 탐지")
@@ -510,7 +510,7 @@ def main(argv=None, backend=None) -> int:
 
     # 설정은 계산 전에 읽고 검증한다. 30분 뒤에 키 하나로 죽으면 사이클 하나를 버린다.
     try:
-        # --config 를 안 줘도 작업 폴더의 설정을 쓴다. 실행 환경에서는 sync.sh 가
+        # --config 를 안 줘도 작업 폴더의 설정을 쓴다. 실행 환경에서는 그 파일이
         # 거기 만들어 두므로, 이러면 실질적으로 필수가 되면서 아무것도 안 깨진다.
         # 없으면 기본값으로 도는 것도 그대로다 - 다만 없다는 사실이 화면에 남는다.
         config_path = args.config or (str(DEFAULT_CONFIG)
@@ -566,7 +566,7 @@ def main(argv=None, backend=None) -> int:
     out_path = args.out or config.get("paths.out")
     # 끝난 시각을 파일 이름에 박는다. 같은 데이터를 여러 번 돌리거나 설정을 바꿔
     # 다시 돌렸을 때 어느 것이 언제 것인지 파일 이름만 보고 알 수 있어야 한다 —
-    # 실행 환경에서는 결과를 반출할 수 없어 이 파일들이 그 자리에 계속 쌓인다.
+    # 실행 환경에서는 결과를 가져올 수 없어 이 파일들이 그 자리에 계속 쌓인다.
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if not out_path:
         out_path = str(Path(out_dir) / f"conv_parsed_{stamp}.json")

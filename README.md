@@ -42,7 +42,7 @@
 ### 라벨 실값은 저장소에 없다
 
 `llm_eval_result` · `llm_emotion_result` 의 **라벨 이름과 점수는 운영 코드값**이라
-올리지 않는다 (규격 §1.1 · C3 — "식별 가능한 코드값 목록은 적지 않는다").
+올리지 않는다.
 이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
 
 저장소에 있는 것은 **구조뿐**이다 — 글자 `A`~`R` / `A`~`I` 와 개수. 파서가
@@ -178,7 +178,7 @@ output/run_summary_20260831-153708.txt     RUN SUMMARY 사본
 ```
 
 같은 데이터를 여러 번 돌리거나 설정을 바꿔 다시 돌렸을 때 **어느 것이 언제
-것인지 파일 이름만 보고 알 수 있어야 한다** — 실행 환경에서는 결과를 반출할 수 없어
+것인지 파일 이름만 보고 알 수 있어야 한다** — 실행 환경에서는 결과를 가져올 수 없어
 이 파일들이 그 자리에 계속 쌓인다. 덮어쓰지 않는다.
 
 경로를 고정해야 하는 자동화가 있으면 `--out` 으로 직접 준다. 그때는 시각
@@ -203,7 +203,7 @@ PYTHONPATH=log_analysis/src python -m ragdiag --config configs/env.yaml
 
 ### ⚠ 작업 폴더의 `.gitignore` 를 먼저 손볼 것
 
-`sync.sh` 는 `.staging/` 만 무시 목록에 넣는다. 나머지는 그대로 두면 운영 git 에
+무시 목록은 한 줄만 보장된다. 나머지는 그대로 두면 운영 git 에
 커밋된다. 실행하면 작업 폴더에 이런 것들이 생긴다.
 
 | | 무엇 | 커밋해도 되나 |
@@ -618,7 +618,7 @@ taxonomy 를 바꿀 때 LLM을 다시 돌리지 않아도 되며, "왜 이 라�
 
 ## 판정 백엔드
 
-**`src/run.py` 가 아는 백엔드는 하나다.** 규격 §1.4 · C8 — 실행 환경에서 실패할 호출은
+**`src/run.py` 가 아는 백엔드는 하나다.** 실행 환경에서 실패할 호출은
 `src/` 에 두지 않는다. claude CLI 와 Anthropic API 백엔드는 `tools/` 에 있고,
 `.gitattributes` 의 export-ignore 로 archive 에서 빠진다.
 
@@ -939,7 +939,7 @@ streamlit 이 스크립트를 브라우저 접속 시에 실행하고 예외를 
 src/
   run.py           본 진입점 — 분류 · --golden · --legacy-regression
   dashboard.py     대시보드 (streamlit 이 실행)
-  ragdiag/         (반입 목록은 위 참고)
+  ragdiag/         (복사 목록은 위 참고)
     settings.py    배포마다 바뀌는 값을 한 곳에
     config.py      YAML 설정 읽기 · 시작 즉시 검증
     contracts.py   입력 계약 — 실행 환경에서 회수한 포맷이 도착하는 지점

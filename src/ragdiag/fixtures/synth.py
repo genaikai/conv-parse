@@ -684,7 +684,7 @@ LEAD_CHOICES = (0, 0, 1, 2)
 SELECTED_PER_CONV = 1
 
 # 후속 질문의 성격 라벨. 불만이므로 낮은 점수대에 몰린다.
-# 라벨 이름·점수는 운영 코드값이라 여기 적지 않는다 (규격 §1.1 · C3).
+# 라벨 이름·점수는 운영 코드값이라 여기 적지 않는다.
 # 현재 테이블에서 글자로 끌어온다 - 자리표시자면 자리표시자 이름이, 설정으로
 # 실값을 끼웠으면 실제 이름이 나온다. 합성 데이터가 그때그때 맞아떨어진다.
 def _pick(letters, table):
@@ -699,7 +699,7 @@ def generate(n: Optional[int] = None, seed: int = 0,
              cases: Optional[int] = None) -> dict:
     """계약(contracts.py)이 기술한 모양의 가짜 로그를 런타임에 만든다.
 
-    **파일로 두지 않는 이유**: 가짜 데이터가 파일로 있으면 이식을 통해 실행 환경
+    **파일로 두지 않는 이유**: 가짜 데이터가 파일로 있으면 사본을 통해 실행 환경
     저장소로 흘러간다. .gitignore 는 `git add -f` 한 번에 뚫리지만 **없는 파일은
     올라갈 수 없다.**
 
@@ -781,7 +781,7 @@ def generate(n: Optional[int] = None, seed: int = 0,
             "users": users}
 
 
-# 옛 이름. 규격은 generate() 를 쓴다.
+# 옛 이름. 지금은 generate() 를 쓴다.
 def build(seed: int = 20260828) -> dict:
     return generate(seed=seed)
 

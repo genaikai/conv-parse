@@ -1,4 +1,4 @@
-"""반입 경계를 실제 import 로 확인한다.
+"""복사 경계를 실제 import 로 확인한다.
 
 실행 환경에는 로그 파서와 필터가 이미 있다. 이 저장소에서 가져갈 것은 판정과
 출력, 즉 **Case 를 받아 case_id 를 붙이는 부분**이다. 그 부분이 입력 계층을
@@ -73,7 +73,7 @@ def test_core_does_not_pull_in_the_input_layer(module):
     leaked = pulled & set(LOCAL_ONLY)
     assert not leaked, (
         f"{module} 이 입력 계층을 끌어온다: {sorted(leaked)}\n"
-        "반입 목록이 늘어나거나, 실행 환경에서 ImportError 가 난다.\n"
+        "복사 목록이 늘어나거나, 실행 환경에서 ImportError 가 난다.\n"
         "타입 주석용이면 TYPE_CHECKING 블록으로, 일부 경로에서만 쓰면 "
         "함수 안으로 옮길 것."
     )
@@ -124,7 +124,7 @@ def test_core_accepts_a_foreign_conversation_object():
     """실행 환경의 파서가 만든 객체로도 출력이 조립돼야 한다.
 
     build_output 은 conversation_id 와 user 두 속성만 읽는다. 그 계약이 깨지면
-    반입한 쪽에서 AttributeError 가 나고, 여기서는 conv.Conversation 을 쓰고
+    복사한 쪽에서 AttributeError 가 나고, 여기서는 conv.Conversation 을 쓰고
     있어서 끝까지 드러나지 않는다. README 의 예제를 그대로 박아 둔다.
     """
     from dataclasses import dataclass
