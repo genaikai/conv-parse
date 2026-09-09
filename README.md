@@ -328,6 +328,79 @@ export LLM_API_KEY=<키>
 python tools/legacy_run.py --check-llm   # 서버·모델·강제방식·1회 소요시간
 ```
 
+### `{AA}` 의 env.yaml 하나로 통제할 때
+
+**이 저장소는 인자로 받은 것만 쓴다.** 자기 `configs/env.yaml` 을 만들지 않아도
+되고, `{AA}` 쪽 스크립트가 그쪽 `env.yaml` 을 읽어 플래그로 넘기면 그것으로 끝난다.
+설정을 두 벌로 두면 한쪽만 고치고 "왜 안 바뀌지" 를 찾게 된다.
+
+```yaml
+# {AA}/env.yaml — 이 파일 하나가 전부다
+conv_parse:
+  conv_eval:   data/conv_eval.json          # 원본 로그. 자르지 않고 통째로
+  conv_filter: data/conv_filter.json        # 어느 턴을 고를지의 조건
+labels:
+  query:       configs/query_taxonomy.md    # 형식: A. 이름 -> 점수
+  emotion:     configs/emotion_taxonomy.md
+vllm:
+  base_url: http://gpu-01:8000
+  model:    qwen3.5-32b
+  api_key:  sk-...
+```
+
+```bash
+# {AA}/run_analysis.sh
+source /opt/shared/venv/bin/activate       # venv 는 스크립트가 켠다
+
+python conv-parse/src/run.py \
+  --conv-data   "$(yq -r .conv_parse.conv_eval   env.yaml)" \
+  --filter-data "$(yq -r .conv_parse.conv_filter env.yaml)" \
+  --base-url "$(yq -r .vllm.base_url env.yaml)" \
+  --api-key  "$(yq -r .vllm.api_key  env.yaml)" \
+  --model    "$(yq -r .vllm.model    env.yaml)" \
+  --set labels.query="$(yq -r .labels.query   env.yaml)" \
+  --set labels.emotion="$(yq -r .labels.emotion env.yaml)"
+```
+
+| | 없으면 |
+|---|---|
+| `vllm.*` | 시작하지 못한다 |
+| `conv_parse.conv_eval` | 볼 것이 없다 |
+| `conv_parse.conv_filter` | 진단 가능한 후속 턴을 **전부** 본다 (비용이 는다) |
+| `labels.*` | **계산 전에 죽는다** — 아래 참고 |
+
+나머지(임계값·서비스 문구·조직 필드)는 **기본값으로 돈다.** 바꿔야 할 때만 넘긴다.
+
+**로그는 자르지 말고 그대로 넘긴다.** 고른 턴만 남기면 전부 0건이 된다 — 직전 턴의
+답변이 곧 판정 대상이라서다.
+
+#### 라벨 실값이 필요한 이유
+
+필터 JSON 이 라벨을 **이름**으로 가리킨다.
+
+```json
+"emotion_labels": ["I. 매우부정"],   "eval_range": [0, 60]
+```
+
+로그에도 이름이 적혀 있고(`llm_emotion_result: "매우부정"`), 이 저장소에는
+자리표시자(`감정 I`)뿐이라 이름을 글자로 풀 수 없다 — 라벨 집합은 그 자체로 분류
+체계를 드러내므로 public 저장소에 두지 않는다 (규격 §1.1 · C3).
+
+그래서 **운영 환경에 이미 있는 taxonomy 문서를 그대로** 가리킨다. 없이 라벨·점수
+조건이 걸린 필터를 주면 계산 전에 죽는다 — 조용히 0건이 나오는 것이 가장 찾기
+어려운 실패라 일부러 막아 뒀다.
+
+> 두 문서는 `{AA}/configs/` 에 둔다. `conv-parse/` 안이 아니다 — 그 디렉터리는
+> sync 때마다 통째로 지워진다.
+
+`--set 키=값` 은 플래그가 없는 설정 키를 인자로 주는 자리다. 이름은
+`configs/env.example.yaml` 과 같고, 오타를 내면 가까운 키를 알려주고 **계산 전에**
+죽는다. 목록 키(`service_error.templates`)는 여러 번 쓰면 쌓인다 — 쉼표로 나누지
+않는 이유는 그 값이 쉼표가 든 한국어 문장이어서다.
+
+> `paths.venv` 는 인자로 줄 수 없다. 파이썬을 갈아타는 일이 argparse 보다 먼저
+> 일어나서다 (`src/run.py`). 스크립트가 `activate` 하면 필요 없다.
+
 ## 3단계 분류
 
 ```

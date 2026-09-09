@@ -40,7 +40,7 @@ from ragdiag.backends import (
     env_first,
 )
 from ragdiag import contracts, settings
-from ragdiag.config import ConfigError
+from ragdiag.config import ConfigError, apply_overrides
 from ragdiag.filters import LabelTableMissing
 from ragdiag.config import apply as apply_config
 from ragdiag.config import load as load_config
@@ -467,6 +467,13 @@ def main(argv=None, backend=None) -> int:
         epilog=__doc__,
     )
     p.add_argument("--config", help="설정 YAML. configs/env.example.yaml 참고")
+    # 설정 파일 없이도 전부 인자로 줄 수 있어야 한다. 부르는 쪽이 자기 설정 하나로
+    # 통제하려면 그쪽 스크립트가 값을 읽어 넘기는 형태가 되는데, 그때 키마다
+    # 플래그를 만들면 서른 개가 넘고 키가 늘 때마다 또 는다.
+    p.add_argument("--set", action="append", metavar="키=값",
+                   help="설정 값을 인자로. 예: --set labels.query=configs/q.md "
+                        "(목록 키는 여러 번 쓰면 쌓인다). 이름은 "
+                        "configs/env.example.yaml 과 같다")
 
     p.add_argument("--conv-data", help="conv_eval JSON 경로 (설정을 덮어쓴다)")
     p.add_argument("--golden", action="store_true",
@@ -515,7 +522,7 @@ def main(argv=None, backend=None) -> int:
         # 없으면 기본값으로 도는 것도 그대로다 - 다만 없다는 사실이 화면에 남는다.
         config_path = args.config or (str(DEFAULT_CONFIG)
                                       if DEFAULT_CONFIG.exists() else None)
-        config = load_config(config_path)
+        config = apply_overrides(load_config(config_path), args.set)
     except ConfigError as e:
         print(e, file=sys.stderr)
         return 2
@@ -588,7 +595,9 @@ def main(argv=None, backend=None) -> int:
         if flag is not None:
             return flag_name
         if config.get(key) is not None:
-            return f"설정 {key}"
+            # --set 이나 llm.env_file 로 온 값은 그 사실을 적는다. "설정 X" 로만
+            # 찍으면 어디를 고쳐야 하는지가 안 보인다.
+            return config.origins.get(key) or f"설정 {key}"
         return "기본값"
 
     conditions = Conditions()
@@ -606,10 +615,14 @@ def main(argv=None, backend=None) -> int:
         ("설정 paths.venv" if want_venv else
          (f"venv {Path(sys.prefix).name}" if in_venv else "시스템 파이썬")),
         "" if (in_venv or want_venv) else "공용 환경을 건드리고 있을 수 있다")
+    n_set = sum(1 for o in config.origins.values() if o == "--set")
     conditions.add(
-        "설정", config.source,
+        "설정", config.source if config.source != "(기본값)" or not n_set
+        else f"--set {n_set}개",
         "--config" if args.config else
-        ("자동 (작업 폴더)" if config.values else f"{DEFAULT_CONFIG} 이 없다"),
+        ("--set 만" if n_set and not config.source.startswith("/")
+         and config.source == "(기본값)" else
+         "자동 (작업 폴더)" if config.values else f"{DEFAULT_CONFIG} 이 없다"),
         (f"{len(changed)}개 값을 덮어씀" if changed else "덮어쓴 값 없음"))
     conditions.add("로그", str(conv_data) if conv_data else "(합성 데이터)",
                    origin(args.conv_data, "paths.conv_data", "--conv-data"))
@@ -699,7 +712,8 @@ def main(argv=None, backend=None) -> int:
 
     if args.dry_run:
         conditions.add("백엔드", "(안 씀)", "--dry-run", "LLM 호출 없음")
-        conditions.hint = (f"{config.source} 를 고친다" if config.values else
+        conditions.hint = (f"{config.source} 를 고친다" if config.source != "(기본값)" else
+                           "--set 으로 준다" if config.values else
                            "configs/env.example.yaml 을 복사해 --config 로 준다")
         print("\n" + conditions.render(), file=sys.stderr)
         summary.setup = conditions.compact()
@@ -725,7 +739,8 @@ def main(argv=None, backend=None) -> int:
         conditions.add("백엔드", type(backend).__name__, "주입됨 (tools/dev_run.py)")
         conditions.add("모델", backend.model, "주입됨")
 
-    conditions.hint = (f"{config.source} 를 고친다" if config.values else
+    conditions.hint = (f"{config.source} 를 고친다" if config.source != "(기본값)" else
+                           "--set 으로 준다" if config.values else
                        "configs/env.example.yaml 을 복사해 --config 로 주거나 위 플래그로 덮어쓴다")
     print("\n" + conditions.render(), file=sys.stderr)
     print(f"분류 대상 {len(selection)}턴", file=sys.stderr)

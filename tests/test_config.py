@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from ragdiag import settings
 from ragdiag.backends import env_first
-from ragdiag.config import Config, ConfigError, apply, flatten, load, validate
+from ragdiag.config import (Config, ConfigError, apply, apply_overrides, flatten, load,
+                            validate)
 from ragdiag.settings import KEY_VARS, URL_VARS
 
 yaml = pytest.importorskip("yaml")
@@ -955,3 +956,72 @@ def test_no_env_file_means_nothing_changes(tmp_path, monkeypatch):
     loaded = load(cfg)
     assert loaded.origins == {}
     assert loaded.get("llm.model") is None
+
+
+# ---------------------------------------------------------------------------
+# --set — 설정 파일 없이 인자만으로
+# ---------------------------------------------------------------------------
+
+def test_set_covers_keys_that_have_no_flag():
+    """부르는 쪽이 설정 하나로 통제하려면 모든 값이 인자로 들어와야 한다.
+
+    키마다 플래그를 만들면 서른 개가 넘고, 키가 늘 때마다 또 는다.
+    """
+    got = apply_overrides(Config(), [
+        "labels.query=configs/q.md",
+        "thresholds.match_threshold=0.85",
+        "run.workers=8"])
+    assert got.get("labels.query") == "configs/q.md"
+    assert got.get("thresholds.match_threshold") == 0.85
+    assert got.get("run.workers") == 8
+
+
+def test_set_inherits_the_spec_checks():
+    """SPEC 을 그대로 물려받으므로 오타 탐지와 타입 검증이 공짜다."""
+    with pytest.raises(ConfigError) as e:
+        apply_overrides(Config(), ["thresholds.match_treshold=0.85"])
+    assert "혹시 thresholds.match_threshold" in str(e.value)
+
+    with pytest.raises(ConfigError) as e:
+        apply_overrides(Config(), ["run.workers=여덟"])
+    assert "int" in str(e.value)
+
+    # 값 자체의 앞뒤도 본다 - validate() 를 다시 돌린다.
+    with pytest.raises(ConfigError) as e:
+        apply_overrides(Config(), ["thresholds.match_threshold=1.5"])
+    assert "0 과 1 사이" in str(e.value)
+
+    with pytest.raises(ConfigError) as e:
+        apply_overrides(Config(), ["run.workers"])
+    assert "key=value" in str(e.value)
+
+
+def test_a_list_key_accumulates_instead_of_splitting_on_commas():
+    """service_error.templates 는 쉼표가 들어간 한국어 문장이다.
+
+    쉼표로 나누면 한 문장이 둘로 쪼개지고, 쪼개진 조각은 어느 답변에도
+    안 맞아서 case9 가 통째로 사라진다.
+    """
+    got = apply_overrides(Config(), [
+        "service_error.templates=서비스에 문제가 있거나, 부하가 걸리고 있어요.",
+        "service_error.templates=잠시 후 다시 시도해 주세요."])
+    assert got.get("service_error.templates") == [
+        "서비스에 문제가 있거나, 부하가 걸리고 있어요.",
+        "잠시 후 다시 시도해 주세요."]
+
+
+def test_set_beats_the_config_file_and_says_so(tmp_path, monkeypatch):
+    """CLI 가 설정 파일보다 위다. 그리고 어디서 온 값인지 화면에 남아야 한다."""
+    monkeypatch.chdir(tmp_path)
+    cfg = tmp_path / "env.yaml"
+    cfg.write_text(yaml.safe_dump({"run": {"workers": 2}}), encoding="utf-8")
+
+    got = apply_overrides(load(cfg), ["run.workers=8"])
+    assert got.get("run.workers") == 8
+    assert got.origins["run.workers"] == "--set"
+
+
+def test_no_overrides_changes_nothing():
+    base = Config(values={"run.workers": 2})
+    assert apply_overrides(base, None) is base
+    assert apply_overrides(base, []) is base

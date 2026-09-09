@@ -319,6 +319,68 @@ def merge_env_file(values: dict[str, Any]) -> dict[str, str]:
     return origins
 
 
+def _coerce(key: str, raw: str) -> Any:
+    """`--set` 의 문자열을 SPEC 이 기대하는 타입으로. 못 바꾸면 던진다."""
+    want, _ = SPEC[key]
+    kinds = want if isinstance(want, tuple) else (want,)
+    if list in kinds:
+        return [raw]                      # 목록은 --set 을 여러 번 써서 쌓는다
+    for kind in (int, float):             # (int, float) 는 int 를 먼저 시도한다
+        if kind in kinds:
+            try:
+                return kind(raw)
+            except ValueError:
+                continue
+    if str in kinds:
+        return raw
+    names = "/".join(k.__name__ for k in kinds)
+    raise ConfigError(f"--set {key}={raw!r}: {names} 로 바꿀 수 없습니다")
+
+
+def apply_overrides(config: Config, pairs: Optional[list[str]]) -> Config:
+    """`--set key=value` 를 설정 위에 얹는다.
+
+    부르는 쪽이 설정 하나로 전부 통제하려면 모든 값이 인자로 들어올 수 있어야
+    한다. 키마다 플래그를 만들면 서른 개가 넘고, 키가 늘 때마다 또 는다.
+    `--set` 은 SPEC 을 그대로 물려받아 **타입 검증과 오타 탐지가 공짜**다.
+
+    목록 키는 `--set` 을 여러 번 쓰면 쌓인다. 쉼표로 나누지 않는 이유:
+    service_error.templates 는 쉼표가 들어간 한국어 문장이다.
+    """
+    if not pairs:
+        return config
+    values = dict(config.values)
+    origins = dict(config.origins)
+    problems = []
+    for pair in pairs:
+        if "=" not in pair:
+            problems.append(f"--set {pair}: key=value 형태여야 합니다")
+            continue
+        key, raw = pair.split("=", 1)
+        key = key.strip()
+        if key not in SPEC:
+            near = difflib.get_close_matches(key, SPEC, n=1, cutoff=0.6)
+            problems.append(f"--set {key}: 모르는 키다"
+                            + (f" — 혹시 {near[0]} ?" if near else ""))
+            continue
+        value = _coerce(key, raw)
+        if isinstance(value, list) and isinstance(values.get(key), list) \
+                and origins.get(key, "").startswith("--set"):
+            values[key] = values[key] + value      # 같은 키를 또 주면 쌓는다
+        else:
+            values[key] = value
+        origins[key] = "--set"
+    if problems:
+        raise ConfigError("--set 에 문제가 있습니다. 계산을 시작하지 않았습니다.\n"
+                          + "\n".join(f"  - {p}" for p in problems))
+
+    remaining = validate(values)
+    if remaining:
+        raise ConfigError("설정에 문제가 있습니다. 계산을 시작하지 않았습니다.\n"
+                          + "\n".join(f"  - {p}" for p in remaining))
+    return Config(values=values, source=config.source, origins=origins)
+
+
 def load(path: Optional[str | Path]) -> Config:
     """설정을 읽고 검증한다. 문제가 있으면 계산을 시작하기 전에 던진다."""
     if path is None:
