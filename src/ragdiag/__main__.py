@@ -39,7 +39,7 @@ from ragdiag.backends import (
     backend_from_env,
     env_first,
 )
-from ragdiag import contracts, settings
+from ragdiag import contracts, features, settings
 from ragdiag.config import ConfigError, apply_overrides
 from ragdiag.filters import LabelTableMissing
 from ragdiag.config import apply as apply_config
@@ -756,46 +756,13 @@ def main(argv=None, backend=None) -> int:
     print(outcome.summary())
     print(f"\n결과: {out_path}", file=sys.stderr)
 
-    summary.metrics.append(("classified", f"{len(results) - outcome.n_failed:,} ok / "
-                                          f"{outcome.n_failed:,} failed"))
-    summary.metrics.append(("llm calls", f"{outcome.n_llm_calls:,}"))
-    for case_id, n in _top_cases(outcome):
-        summary.metrics.append(("", f"{case_id:<14} {n:,}"))
-    # 잘려서 조건을 바꿔 되살린 호출. 살아났어도 다음 실행에서는 처음부터
-    # 그 조건으로 도는 게 낫다는 신호다.
-    saved = getattr(backend, "fallbacks", [])
-    if saved:
-        for label, n in Counter(saved).most_common():
-            summary.metrics.append(("truncated", f"{n:,} recovered by {label}"))
-        summary.notes.append(
-            f"추론이 답에 도달 못 해 {len(saved)}건을 조건을 바꿔 다시 물었다. "
-            f"--thinking off 로 다시 돌릴 것.")
-    # case0 은 챗봇 지표가 아니라 **필터 지표**다. 필터가 재현율 쪽으로 넓게
-    # 잡아서 들어온 정상 턴이고, 필터는 실행 환경에 있어 여기서 못 고친다.
-    # 어떤 eval 라벨에 몰리는지가 그쪽으로 돌아가는 유일한 피드백이다.
-    #
-    # 0 건이라고 좋은 게 아니다. 필터가 너무 좁아 놓치고 있다는 뜻일 수도 있어서,
-    # 필터 리포트와 짝으로 읽어야 한다.
-    normal = [sel for sel, r in zip(selection.selected, results)
-              if r.classification and r.classification.primary_case == "case0"]
-    if normal:
-        share = 100 * len(normal) / max(1, len(results))
-        summary.metrics.append(("filter FP", f"{len(normal):,} / {len(results):,} "
-                                             f"({share:.0f}%) case0"))
-        for label, n in Counter(s.turn.eval_result for s in normal).most_common(3):
-            summary.metrics.append(("", f"{label[:20]:<20} {n:,}"))
-        summary.notes.append(
-            f"필터 오탐 후보 {len(normal)}건. 챗봇이 아니라 필터를 볼 것.")
+    # 지표는 features/ 가 낸다. 여기서 하나씩 붙이면 지표를 더할 때마다 진입점을
+    # 고쳐야 하고, 진입점은 기능이 늘어도 손대지 않아야 하는 파일이다.
+    got, said = features.collect(features.RunContext(
+        selection=selection, results=results, outcome=outcome, backend=backend))
+    summary.metrics += got
+    summary.notes += said
 
-    if outcome.n_failed:
-        summary.notes.append(f"분류 실패 {outcome.n_failed}건. 결과 파일의 "
-                             f"error 필드를 볼 것.")
-        # 어느 단계에서 깨졌는지. 관측에서 몰려 깨지면 프롬프트·토큰 문제고,
-        # 흩어져 깨지면 서버·입력 문제다. 조치가 갈린다.
-        stages = Counter(r.error.split("]")[0].lstrip("[")
-                         for r in results if r.error and r.error.startswith("["))
-        for stage, n in stages.most_common():
-            summary.metrics.append(("failed at", f"{stage:<14} {n:,}"))
     return finish("OK" if not outcome.n_failed else "PARTIAL",
                   1 if outcome.n_failed else 0)
 
@@ -813,15 +780,6 @@ def _write_temp(payload: dict) -> str:
         json.dump(payload, f, ensure_ascii=False)
     atexit.register(lambda: Path(path).unlink(missing_ok=True))
     return path
-
-
-def _top_cases(outcome, limit: int = 5):
-    """상위 case 몇 개. 지표 이름은 사이클 사이에 바뀌지 않아야 한다."""
-    from collections import Counter
-
-    counts = Counter(r.classification.primary_case
-                     for r in outcome.results if r.classification)
-    return counts.most_common(limit)
 
 
 if __name__ == "__main__":
