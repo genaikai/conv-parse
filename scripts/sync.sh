@@ -27,6 +27,9 @@ DATA_EXT='csv|tsv|parquet|xlsx|xls|pkl|pickle|npy|npz|h5|feather|sqlite'
 FORBIDDEN=(.git .gitattributes .github .claude .cursor .mcp.json CLAUDE.md AGENTS.md
            tools requirements-dev.txt docs/insights)
 
+# 자기 본문의 지문. checkout 이 자신을 갈아치웠는지 보는 데 쓴다.
+sum_self() { cksum < "${BASH_SOURCE[0]}"; }
+
 log()  { printf '[sync] %s\n' "$*"; }
 warn() { printf '[sync] ⚠ %s\n' "$*" >&2; }
 die()  { printf '[sync] ✗ %s\n' "$*" >&2; exit 1; }
@@ -211,7 +214,18 @@ sync_into_aa() {
 
   git -C "$STAGING" fetch --tags --quiet
   require_tag "$STAGING" "$tag"
+
+  # checkout 은 이 스크립트 자신도 갈아치운다. bash 는 이미 읽어들인 옛 본문으로
+  # 계속 돌기 때문에, 그대로 두면 "한 번 더 실행해야 새 동작이 나오는" 상태가 된다.
+  # 바뀌었으면 새 본문으로 다시 시작한다 - exec 라 이 프로세스가 대체되고 인자와
+  # cwd 가 보존된다. 아직 아무것도 바꾸지 않았으므로 잃을 것이 없다.
+  local before; before=$(sum_self)
   git -C "$STAGING" -c advice.detachedHead=false checkout --quiet "$tag"
+  if [[ -z "${SYNC_RESTARTED:-}" && "$(sum_self)" != "$before" ]]; then
+    log "스크립트가 $tag 의 것으로 바뀌었습니다. 새 본문으로 다시 시작합니다"
+    SYNC_RESTARTED=1 exec bash "${BASH_SOURCE[0]}" "$tag"
+  fi
+
   local sha; sha=$(git -C "$STAGING" rev-parse --short HEAD)
 
   [[ ! -e "$DEST/.git" ]] || die "$DEST 에 .git 이 있습니다. clone 인지 확인하고 직접 정리하세요 (자동 삭제하지 않습니다)"
