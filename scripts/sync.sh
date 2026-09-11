@@ -192,10 +192,19 @@ sync_into_aa() {
   local tag="$1"
 
   [[ -f .staging/.gitignore ]] || printf '*\n' > .staging/.gitignore
-  if [[ ! -f .gitignore ]] || ! grep -qx '\.staging/' .gitignore; then
-    printf '.staging/\n' >> .gitignore
-    log "$(basename "$(pwd -P)")/.gitignore 에 .staging/ 추가"
-  fi
+
+  # 이 스크립트가 만드는 것은 이 스크립트가 막는다. env.yaml 은 실값을 채우라고
+  # 만들어 놓고 무시 목록에 안 넣으면, 채운 순간 그대로 커밋된다 - 사람이 잊으면
+  # 끝인 자리를 사람에게 맡기지 않는다.
+  #
+  # env.example.yaml 은 일부러 뺀다. 실값이 없고, 어떤 키가 있는지 남는 편이 낫다.
+  local ig
+  for ig in '.staging/' 'configs/env.yaml' 'outputs/' 'notebooks/'; do
+    if [[ ! -f .gitignore ]] || ! grep -qxF "$ig" .gitignore; then
+      printf '%s\n' "$ig" >> .gitignore
+      log "$(basename "$(pwd -P)")/.gitignore 에 $ig 추가"
+    fi
+  done
 
   git -C "$STAGING" fetch --tags --quiet
   require_tag "$STAGING" "$tag"
@@ -219,7 +228,10 @@ sync_into_aa() {
   # 설정은 **언제나 {AA} 에 둔다.** $DEST 안에 두면 다음 교체 때 통째로 지워진다.
   # 경로를 상대로 찍으면 어느 configs 인지 알 수 없어서 - 사본에도 configs/ 가
   # 있다 - 전부 절대 경로로 말한다.
-  local ex="$DEST/configs/env.example.yaml" here; here=$(pwd -P)
+  # 예시는 중계 clone 에서 읽는다. 사본에는 configs/ 가 아예 없다 — 런타임에
+  # 아무도 안 읽는 폴더라, 두면 "여기 채우면 되나" 하는 오해만 만든다.
+  # clone 은 방금 이 태그로 checkout 했으므로 버전도 맞다.
+  local ex="$STAGING/configs/env.example.yaml" here; here=$(pwd -P)
   if [[ -f "$ex" ]]; then
     mkdir -p configs
 

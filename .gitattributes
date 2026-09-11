@@ -32,6 +32,7 @@ AGENTS.md              export-ignore
 README.md                    export-ignore
 scripts/sync.sh              export-ignore
 tests/test_spec_compliance.py export-ignore
+configs/env.example.yaml  export-ignore
 
 # 아직 이 저장소에 없지만 생기면 바로 빠지게 미리 적어둔다.
 IMPLEMENTATION_SPEC.md       export-ignore
