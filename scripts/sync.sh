@@ -222,6 +222,14 @@ sync_into_aa() {
   local ex="$DEST/configs/env.example.yaml" here; here=$(pwd -P)
   if [[ -f "$ex" ]]; then
     mkdir -p configs
+
+    # 예시를 실값 파일 옆에 둔다. 키 설명이 이 파일 주석에 있어서, 채우는 사람이
+    # 사본 안까지 들어가지 않아도 된다.
+    #
+    # **매번 덮어쓴다.** 실값이 없는 파일이라 잃을 것이 없고, 안 덮으면 저장소에
+    # 키가 늘어도 여기 것은 낡은 채 남아 "예시에 없는 키" 를 찾게 만든다.
+    cp "$ex" configs/env.example.yaml
+
     if [[ ! -f configs/env.yaml ]]; then
       # 옛 이름을 쓰던 작업 폴더가 있다. 그대로 두면 채워둔 실값이 무시된 채
       # 빈 env.yaml 로 돌아서, 설정을 고쳤는데 안 먹는 상태가 된다.
@@ -232,6 +240,7 @@ sync_into_aa() {
       fi
       cp "$ex" configs/env.yaml
       log "생성 — 운영 실값을 채우세요: $here/configs/env.yaml"
+      log "  키 설명은 옆의 env.example.yaml 에 있습니다"
     else
       log "그대로 둡니다 (실값이 든 파일): $here/configs/env.yaml"
       local missing
