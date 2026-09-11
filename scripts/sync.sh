@@ -199,7 +199,10 @@ sync_into_aa() {
   #
   # env.example.yaml 은 일부러 뺀다. 실값이 없고, 어떤 키가 있는지 남는 편이 낫다.
   local ig
-  for ig in '.staging/' 'configs/env.yaml' 'outputs/' 'notebooks/'; do
+  # venv 는 여기서 만들지 않지만, 작업 폴더에 만드는 사람이 많고 한 번 커밋되면
+  # 수천 파일이 히스토리에 박힌다. 되돌리기 가장 비싼 사고라 미리 막는다.
+  for ig in '.staging/' 'configs/env.yaml' 'outputs/' 'notebooks/' \
+            '.venv/' 'venv/' '__pycache__/'; do
     if [[ ! -f .gitignore ]] || ! grep -qxF "$ig" .gitignore; then
       printf '%s\n' "$ig" >> .gitignore
       log "$(basename "$(pwd -P)")/.gitignore 에 $ig 추가"
