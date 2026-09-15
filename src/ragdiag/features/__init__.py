@@ -18,27 +18,54 @@
 
 from ._context import RunContext
 from . import (
-    checks,
+    arithmetic,
     citation,
     classification,
     complaint_quote,
+    dates,
     failures,
     filter_fp,
+    format,
     grounding,
+    injection,
+    language,
+    length,
     llm_fallback,
     observe,
+    pii,
+    python_syntax,
+    quoted_spans,
     route,
     short_circuit,
+    sql_shape,
     sufficiency,
+    truncated,
 )
 
-__all__ = ["FEATURES", "RunContext", "collect"]
+__all__ = ["CHECKS", "FEATURES", "RunContext", "collect"]
+
+# 코드 검증기. LLM 없이 문자열만 본다 - 언어가 맞는지, 답변이 끊겼는지, 등식이 맞는지는
+# 문자열만 보면 안다. LLM 에 맡기면 비용도 들지만 무엇보다 같은 입력에 다른 답이 나온다.
+# 서로의 결과를 읽지 않으므로 이 안의 순서는 판정에 영향이 없다 (출력에 실리는 순서다).
+CHECKS = (
+    pii,
+    truncated,
+    quoted_spans,
+    python_syntax,
+    sql_shape,
+    arithmetic,
+    dates,
+    injection,
+    language,          # 이 셋은 관측이 뽑은 요구값을 읽는다 - observe 뒤여야 한다
+    format,
+    length,
+)
 
 FEATURES = (
     short_circuit,     # LLM 전에 case 를 확정하는 규칙들 (규칙끼리의 순서는 그 안의 RULES)
     observe,           # Step 1 관측 · LLM
     complaint_quote,   # "불만 아님" 의 근거를 후속 발화와 대조
-    checks,            # 코드 검증기
+    *CHECKS,           # 코드 검증기
     sufficiency,       # Step 2 충족도 · LLM
     citation,          # 판정자의 인용을 원문과 대조
     grounding,         # Step 3 근거 활용 · LLM

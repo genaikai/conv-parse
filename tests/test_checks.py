@@ -6,25 +6,16 @@ LLM 없이 도는 부분이라 여기서 전부 커버할 수 있다. 오탐 테
 
 import pytest
 
-from ragdiag.checks import (
-    Check,
-    LengthRequest,
-    check_dates,
-    check_format,
-    check_language,
-    check_length,
-    check_pii,
-    check_python_syntax,
-    check_quoted_spans,
-    check_truncated,
-    detect_language,
-    extract_quotes,
-    extract_sources,
-    find_pii,
-    has_format,
-    script_profile,
-)
+from ragdiag.features.dates import check_dates
+from ragdiag.features.format import check_format, has_format
+from ragdiag.features.language import check_language, detect_language, script_profile
+from ragdiag.features.length import LengthRequest, check_length
+from ragdiag.features.pii import check_pii, find_pii
+from ragdiag.features.python_syntax import check_python_syntax
+from ragdiag.features.quoted_spans import check_quoted_spans, extract_quotes, extract_sources
 from ragdiag.features.short_circuit.service_error import check_service_error
+from ragdiag.features.truncated import check_truncated
+from ragdiag.results import Check
 
 CHUNKS = [
     "국내 출장 식비는 1일 3만원을 상한으로 한다.",

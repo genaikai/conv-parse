@@ -979,21 +979,16 @@ def test_process_flow_checker_inputs_match_run_checks():
     import inspect
     import re
 
-    from ragdiag.features import checks as checker
-    from ragdiag.features import short_circuit
+    from ragdiag.features import CHECKS, short_circuit
 
+    # 검증기마다 턴에서 무엇을 꺼내 넘기는지 소스에서 읽는다. LLM 전에 case 를
+    # 확정하는 규칙도 검증기라 문서 표에 같이 있어야 한다.
     fields = ("llm_ans_on_last_q", "last_query", "rag_chunks")
-    body = inspect.getsource(checker.run_checks)
-    real: dict[str, set[str]] = {}
-    for m in re.finditer(r'"(\w+)": (check_\w+)\(([^)]*)', body):
-        real[m.group(1)] = {f for f in fields if f in m.group(3)}
-    for m in re.finditer(r'checks\["(\w+)"\] = (check_\w+)\(\s*case\.(\w+)', body):
-        real.setdefault(m.group(1), set()).add(m.group(3))
-    assert real, "run_checks 에서 검증기를 못 찾았다"
-    # LLM 전에 case 를 확정하는 규칙도 검증기다. 문서 표에 같이 있어야 한다.
-    for rule in short_circuit.RULES:
-        source = inspect.getsource(rule.check)
-        real[rule.NAME] = {f for f in fields if f"case.{f}" in source}
+    entries = ([(m.NAME, m.process_data) for m in CHECKS]
+               + [(rule.NAME, rule.check) for rule in short_circuit.RULES])
+    real = {name: {f for f in fields if f"case.{f}" in inspect.getsource(fn)}
+            for name, fn in entries}
+    assert real, "검증기를 못 찾았다"
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     table = doc.split("| 검증기 | 입력 | 무엇을 |")[1].split("\n\n")[0]
@@ -1054,13 +1049,9 @@ def test_process_flow_documents_every_checker_verdict_rule():
     import inspect
     import re
 
-    from ragdiag.features import checks as checker
-    from ragdiag.features import short_circuit
+    from ragdiag.features import CHECKS, short_circuit
 
-    body = inspect.getsource(checker.run_checks)
-    real = (set(re.findall(r'"(\w+)":\s*check_', body))
-            | set(re.findall(r'checks\["(\w+)"\]', body))
-            | {rule.NAME for rule in short_circuit.RULES})
+    real = {m.NAME for m in CHECKS} | {rule.NAME for rule in short_circuit.RULES}
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     assert "### verdict 를 어떻게 만드나" in doc, "판정 규칙 절이 없다"

@@ -132,9 +132,9 @@ def test_every_feature_exposes_the_agreed_shape():
 
 def test_features_run_in_an_order_that_feeds_each_step():
     """순서가 틀리면 뒤 기능이 아직 비어 있는 값(None)을 읽는다."""
-    from ragdiag.features import (checks, citation, classification, complaint_quote,
-                                  failures, filter_fp, grounding, llm_fallback, observe,
-                                  route, short_circuit, sufficiency)
+    from ragdiag.features import (CHECKS, citation, classification, complaint_quote,
+                                  failures, filter_fp, format, grounding, language, length,
+                                  llm_fallback, observe, route, short_circuit, sufficiency)
 
     order = {feature.NAME: i for i, feature in enumerate(features.FEATURES)}
 
@@ -144,11 +144,13 @@ def test_features_run_in_an_order_that_feeds_each_step():
 
     before(short_circuit, observe)       # LLM 전에 확정할 턴을 닫는다
     before(observe, complaint_quote)     # 관측의 complaint_quote 를 대조한다
-    before(observe, checks)              # language · format · length 가 요구값을 읽는다
+    for check in (language, format, length):
+        before(observe, check)           # 관측이 뽑은 요구값을 읽는다
     before(observe, sufficiency)
     before(sufficiency, citation)
     before(citation, grounding)          # 강등된 verdict 로 물을지 정한다
-    before(checks, route)
+    for check in CHECKS:
+        before(check, route)             # 진리표가 검증기 결과를 전부 읽는다
     before(grounding, route)
     for report in (classification, llm_fallback, filter_fp, failures):
         before(route, report)            # 집계는 판정이 끝난 뒤에 읽는다
