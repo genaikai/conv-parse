@@ -1,543 +1,111 @@
 # 대화 로그 실패 분류기
 
-업무 지식 챗봇의 대화 로그에서 **사용자가 직전 답변에 불만을 표한 턴**을 골라,
-그 실패가 taxonomy 29개 케이스 중 어디에 해당하는지 분류한다.
-실패가 아닌 턴은 `case0`(정상)으로 따로 뺀다 — 필터가 넓게 잡아 들어온 것들이다.
+업무 지식 챗봇(RAG)의 대화 로그에서 **사용자가 직전 답변에 불만을 표한 턴**을 찾아,
+그 실패가 어떤 유형인지 taxonomy case 로 분류한다.
 
-목적은 개별 답변을 고치는 게 아니라 **집계했을 때 어디를 고쳐야 하는지**를
-알아내는 것이다. 그래서 라벨은 증상이 아니라 **조치 주체**로 나뉜다 — 같은 증상도
-문서팀이 고칠 일과 프롬프트 담당이 고칠 일은 다르다.
+개별 답변을 고치는 도구가 아니다. **집계했을 때 어디를 고쳐야 하는지** — 문서인지,
+검색기인지, 프롬프트인지, 인프라인지 — 를 찾는 도구다.
 
-🔀 **[처리 흐름](docs/process_flow.md)** — conv-data · filter-data 가 들어와 case 가 붙기까지,
-각 단계가 무엇을 쓰고 **무엇을 일부러 안 쓰는지**.
-
-📋 **[실패 분류 체계](docs/taxonomy.md)** — 29개 케이스 + `case0` 중 무엇이 이 로그로 판정 가능하고
-무엇이 아닌지, 그 판단 근거.
-
-📊 **[파이프라인 흐름도](https://claude.ai/code/artifact/180f8cc5-d5fb-41e0-9084-8be60c271d5f)**
-— 3단계 판정과 각 단계가 일부러 감추는 입력을 그림으로. (비공개 링크)
-
-## 두 장비로 나뉜다
-
-**기능 개발은 이 저장소에서, 검증은 실행 환경에서.** 실데이터가 밖으로 나올 수
-없고 실행 환경에서는 코드를 고칠 수 없다. 그 분리가 구조에 박혀 있다 —
-`IMPLEMENTATION_SPEC.md` 규격을 따른다.
-
-```
-[이 저장소] 구현 ──이식──▶ [실행 환경] 실험 ──관찰──▶ [이 저장소] 개선 ──▶ …
-```
-
-| | 무엇 |
+| 문서 | 내용 |
 |---|---|
-| `src/ragdiag/contracts.py` | **입력 계약.** 실행 환경에서 회수한 포맷 정보가 도착하는 유일한 지점 |
-| `configs/env.example.yaml` | **모든 설정 키.** 운영 실값은 `AA/configs/env.yaml` |
-| `src/ragdiag/fixtures/synth.py` | **가짜 데이터는 파일이 아니라 코드.** `generate(n, seed, cases)` 가 런타임에 만든다 |
-| `scripts/sync.sh` | 이식. `.git` 도 데이터도 넘기지 않는다 (규격 부록 A 전문) |
-| `docs/insights/` | 실행 환경에서 본 것을 적어 오는 자리 |
-| **[`TODO.md`](TODO.md)** | **작업 폴더에서 만들어야 하는 것.** 실행 전에 여기부터 |
-| `todo/` | 그것들의 규격 — 필터(이 프로젝트의 사정) · 실행 스크립트(어느 프로젝트나) |
-| `docs/` | 이 프로그램이 어떻게 도는지 — 처리 흐름 · 분류 체계 |
-| `src/ragdiag/labels.py` | **자리표시자만.** 실제 라벨 이름·점수는 설정으로 온다 (아래) |
+| [docs/process_flow.md](docs/process_flow.md) | 단계별 입력 · 출력, 일부러 안 쓰는 입력과 그 이유 |
+| [docs/taxonomy.md](docs/taxonomy.md) | case 전체 목록과 이 로그로 판정 가능한지 여부 |
 
-### 라벨 실값은 저장소에 없다
+## 무엇을 하나
 
-`llm_eval_result` · `llm_emotion_result` 의 **라벨 이름과 점수는 운영 코드값**이라
-올리지 않는다.
-이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
+1. **턴 고르기** — 로그 전체에서 필터 조건(조직 · 턴 구간 · 기간 · `llm_eval` / `llm_emotion`
+   점수와 라벨)에 맞는 후속 턴을 고른다. 조건마다 몇 건이 빠졌는지 남긴다.
+2. **짝짓기** — 불만 턴(N+1)을 **그 불만이 겨냥한 직전 턴(N)의 답변과 검색 문서**에 짝지어
+   판정 단위(`Case`)를 만든다.
+3. **판정** — LLM 에는 좁은 관측만 묻고, 문자열로 알 수 있는 것은 코드로 검증한 뒤,
+   코드 진리표가 case 를 정한다.
+4. **출력** — 원본 로그 모양에 판정 결과를 붙인 JSON, 실행 요약, 대시보드.
 
-저장소에 있는 것은 **구조뿐**이다 — 글자 `A`~`R` / `A`~`I` 와 개수. 파서가
-`llm_alternatives` 의 글자를 읽어야 하고 그건 값이 아니라 형식이다.
+## 입력
 
-실값은 설정으로 가리킨다. 운영 taxonomy 문서를 **형식 그대로** 쓰면 된다:
+**대화 로그** (`--conv-data`) — 사용자 → 대화 → 턴. 턴 하나가 (질문, 답변) 한 쌍이다.
 
-```yaml
-labels:
-  query:   configs/query_taxonomy.md     # A. 이름 -> 점수
-  emotion: configs/emotion_taxonomy.md
+```
+users[]
+  user_id · db_login_id · job_grade · db_dept_name · db_job_name · db_position_name
+  conversations[]
+    conversation_id
+    turns[]
+      turn · timestamp · user_question · llm_response
+      retrieved_data                        그 질문으로 검색된 청크
+      llm_eval_result · llm_eval_score · llm_alternatives                  대화 맥락 라벨 A~R
+      llm_emotion_result · llm_emotion_score · llm_emotion_alternatives    감정 라벨 A~I
 ```
 
-두 파일은 `.gitignore` 에 있다. 실행 환경에서는 `작업 폴더의 configs/` 에 두고 `env.yaml` 이
-가리키게 한다 — `sync.sh` 가 `작업 폴더 안의 사본` 를 통째로 지웠다 다시 만들기 때문에
-**운영 자산은 `작업 폴더 안의 사본` 밖에 둬야 한다.**
+`llm_eval_*` · `llm_emotion_*` 는 앞선 LLM 판정이 직전 턴을 보고 매긴 값이라 첫 턴에는 없다.
+**턴을 고르는 데만 쓰고 판정 LLM 에는 넘기지 않는다** — 넘기면 독립적인 두 번째 의견이어야
+할 판정이 첫 번째 의견의 확인 도장이 된다.
 
-> **실값 없이 라벨·점수 조건을 건 필터를 주면 계산 전에 죽는다.** 자리표시자
-> "질의유형 K" 는 로그의 실제 라벨과 절대 안 맞아서, 막지 않으면 필터가 **에러 없이
-> 0건**을 돌려준다 — 이 코드베이스에서 가장 찾기 어려운 실패다.
+**필터** (`--filter-data`, 선택) — 어느 턴을 볼지의 조건. 없으면 판정 가능한 후속 턴 전부.
 
-## 진입점
+| 키 | 거는 곳 |
+|---|---|
+| `role` · `org` · `org_tree` | 직급 · 직위 · 부서 · 직무. `"전체"` 나 빈 값은 제한 없음 |
+| `turn` | 턴 구간 — `"1-5 턴"`, `"51 턴 이상"` |
+| `use_date` · `start_date` · `end_date` | 기간 |
+| `eval_range` · `emotion_range` | 점수 구간. alternatives 확률과 `query_scores` 로 **다시 계산한** 값에 건다 |
+| `eval_labels` · `emotion_labels` | 라벨. `"I. 매우부정"` 처럼 글자 · 이름 표기를 모두 받는다 |
 
-| | 무엇 | 언제 |
+필터 대신 이미 고른 턴 목록(`conversation_id` + `turn`, JSON 배열 또는 JSONL)을 `--turns` 로
+줄 수도 있다. 어느 쪽이든 **로그는 자르지 않고 전체를 넣는다** — 판정 대상이 고른 턴의
+직전 답변이기 때문이다.
+
+## 처리 흐름
+
+```
+conv_eval ─┐
+filter    ─┴─▶ 파싱 → 턴 고르기 → 짝짓기 (불만 턴 N+1 ↔ 턴 N 의 답변 · 문서)
+                 → 서비스 오류 문구?   코드   걸리면 case9 로 끝
+                 → Step 1 관측         LLM    문서를 주지 않는다
+                 → 코드 검증기 12종    코드   언어 · 포맷 · 잘림 · 개인정보 · 인용 · 계산 …
+                 → Step 2 충족도       LLM    답변을 주지 않는다   (도메인 + 내용 불만일 때만)
+                 → 인용 대조           코드   지어낸 인용을 버린다
+                 → Step 3 근거 활용    LLM    질문을 주지 않는다   (문서가 충분할 때만)
+                 → 라우팅              코드   관측 + 검증 → case
+```
+
+- **LLM 은 턴당 최대 3회**, 대부분 1회로 끝난다. 판정은 `.cache/` 에 저장되어 재실행 시 재사용된다.
+- **case 는 LLM 이 고르지 않는다.** 30지선다는 정확도가 안 나오고, 한 번에 물으면 결론을 먼저
+  정하고 관측을 끼워 맞춘다. 좁은 관측만 LLM 에 묻고 조합은 `route.py` 의 진리표가 한다 —
+  taxonomy 를 고쳐도 LLM 을 다시 돌리지 않는다.
+- **단계마다 입력을 일부러 뺀다.** 관측은 문서를 안 봐야 요구를 문서 쪽으로 끌어오지 않고,
+  충족도는 답변을 안 봐야 답변 품질을 문서 품질로 착각하지 않는다.
+- **"문서에 답이 있다"는 인용으로 증명해야 한다.** 판정자가 댄 인용을 코드가 원문과 대조하고,
+  살아남은 인용이 없으면 insufficient 로 강등한다. 판정자의 사전지식이 섞이는 것을 구조로 막는다.
+
+단계별 상세는 [docs/process_flow.md](docs/process_flow.md).
+
+## 분류 체계
+
+case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답이 부실하다"도 문서에 답이 없었는지
+(case20 · 문서 보강), 문서엔 있는데 답변이 안 썼는지(case22 · 프롬프트 수정)에 따라 고칠 곳이 정반대다.
+
+| type | 고칠 곳 | case |
 |---|---|---|
-| **`python src/run.py`** | 본 파이프라인. conv_eval 로그를 30개 case 로 분류 | 실제 분석 |
-| `tools/legacy_run.py` | 구 파이프라인. case20/case22 판별만, 라벨 6개 | **회귀 기준선** |
-
-`legacy_run.py` 는 지우지 않는다. 이 프로젝트에서 **실제 LLM 으로 검증된 최초의
-파이프라인**이고, 그 23건 회귀셋이 새 파이프라인의 라우팅 결함을 잡아냈다.
-검증된 기준선을 지우면 같은 종류의 회귀를 다음에 못 잡는다.
-
-```bash
-python src/run.py --conv-data <로그> --turns <턴 목록> --output-dir <출력>
-python src/run.py --golden                  # 3단계 판정 품질
-python src/run.py --legacy-regression       # 회귀 기준선
-python -m pytest tests/ -q                  # LLM 없이 도는 전부
-```
-
-> **우선순위는 CLI > 설정 > 환경변수 > 기본값이다.** `--config` 를 안 줘도
-> 실행 위치의 `configs/env.yaml` 을 자동으로 쓴다 — 작업 폴더에서 돌리면
-> `작업 폴더의 configs/env.yaml` 이다. 매번 `--config` 로 가리키게 하면 한 번 빼먹는
-> 순간 조용히 기본값으로 돈다. 어느 쪽이 이겼는지는 실행 조건의 `←` 에 나온다.
->
-> 환경변수(`LLM_API_URL` 등)는 설정보다 아래다. `.bashrc` 에 남은 옛 주소가
-> 설정을 이기면 안 되기 때문이다. CLI 는 위다 — 한 번만 다르게 돌려보는 길은
-> 열어 둔다.
-
-> **`paths.venv` 를 적으면 그 파이썬으로 갈아타서 실행한다.** `activate` 를 잊고
-> 시스템 파이썬으로 쳐도 알아서 넘어간다 — 갈아타기는 `src/run.py` 가 `ragdiag` 를
-> import 하기 **전에** 한다. 그러지 않으면 `pydantic` import 에서 먼저 죽어서
-> 그 뒤의 어떤 안내도 화면에 못 나온다. 경로가 틀리면 계산 전에 죽는다.
->
-> ```
-> [venv] /usr/lib/python3.14
->     -> /opt/shared/venv   (설정 paths.venv)
-> ```
-
-> **`configs/` 가 두 군데다.** 실행 환경에서 헷갈리기 쉬운 자리다.
->
-> ```
-> 작업 폴더의 configs/env.yaml                 ← 실값. 살아남는다
-> 작업 폴더 안의 사본/configs/env.example.yaml    ← 템플릿. sync 때 사본과 함께 교체된다
-> ```
->
-> `작업 폴더 안의 사본` 는 sync 때마다 통째로 지워지고 다시 만들어진다. 거기에 `env.yaml` 을
-> 만들면 **채운 값이 조용히 사라지고**, 화면에는 `configs/env.yaml exists — kept`
-> 가 찍힌다 — 그건 `작업 폴더의 configs` 쪽 이야기인데 자기 파일이 지켜진 줄 알게 된다.
-> 그래서 사본 안의 설정을 읽으면 프로그램이 경고하고, 없을 때는 작업 폴더 경로를
-> 알려준다. **`cd 작업 폴더` 에서 실행하는 것이 기준이다.**
-
-**설정 파일은 저장소에 없다.** `configs/env.yaml` 은 커밋되지 않으므로
-(`.gitignore`) 갓 clone 한 사본에는 예시만 있다. 매번 인자를 치기 싫으면 복사해서
-쓴다 — 개발 장비에서는 선택이고, 실행 환경에서는 `sync.sh` 가 알아서 만들어 준다.
-
-```bash
-cp configs/env.example.yaml configs/env.yaml   # 개발 장비에서는 직접 복사
-python src/run.py --config configs/env.yaml --dry-run
-```
-
-## 실행 환경에서
-
-```bash
-# 최초 1회. clone 위치는 .staging/<저장소이름> 이어야 한다.
-cd <작업 폴더> && git clone <이 저장소> .staging/log_analysis
-
-# 매번. 멱등하다 — 최초든 갱신이든 같은 명령이다.
-bash .staging/log_analysis/scripts/sync.sh <태그>   # 예: v0.11
-```
-
-`sync.sh` 는 이름을 스스로 유도한다. 저장소 이름은 자기 위치에서, 진입점은
-`src/run.py` 에서 찾으므로 **손볼 것이 없다.** 그리고 다음에 실행할 것까지 찍어 준다 —
-**지금 실제로 필요한 줄만** 나온다.
-
-```
-next:
-  의존 설치 (최초 1회)
-    pip install --dry-run -r log_analysis/requirements.txt && pip check
-    pip install -r log_analysis/requirements.txt      # --upgrade 는 쓰지 않는다
-  python log_analysis/src/run.py --dry-run                        # ① 합성 스모크
-  python log_analysis/src/run.py --conv-data <실데이터> --limit 1000   # ② 계약 확인
-  python log_analysis/src/run.py --conv-data <실데이터>              # ③ 전체 (결과는 ./output)
-
-  대시보드 (선택 · 결과를 본 뒤에)
-    python -m pip install -r log_analysis/requirements-dashboard.txt
-    python -m streamlit run log_analysis/src/dashboard.py          # ./output 의 최신 결과
-```
-
-두 번째 갱신부터는 `pip` 줄이 사라진다. `requirements.txt` 가 바뀌었을 때만 다시 나오고,
-그때는 `⚠ requirements.txt 가 바뀌었습니다` 가 함께 찍힌다.
-
-①에서 실패하면 **환경 문제**고, ②에서 나오는 계약 위반이 첫 사이클의 실제
-수확이다. 계약이 깨끗해진 뒤에 ③으로 간다 — 틀린 계약 위에서 뽑은 숫자는
-믿을 수 없다.
-
-`PYTHONPATH` 도 설치도 필요 없다. 파이썬이 스크립트가 있는 `src/` 를
-`sys.path[0]` 에 넣으므로 옆의 `ragdiag/` 가 그대로 import 된다. 공용 venv 에
-우리 패키지를 남기지 않고, 사본 통째 교체가 무연산이 된다.
-
-상대 경로는 전부 **실행 위치 기준**이다. 작업 폴더에서 실행하면 사본이
-어디 있든 `output/` 이 맞아떨어진다.
-
-> **`sync.sh` 는 규격대로 `outputs/` 를 만드는데 프로그램은 `output/` 에 쓴다.**
-> 둘 다 생기지만 `outputs/` 는 비어 있게 된다. 신경 쓰이면 지워도 되고,
-> `--output-dir outputs` 를 주면 규격 쪽에 맞출 수 있다.
-
-`--output-dir` 을 생략하면 **실행 위치의 `./output`** 에 넣는다. 파일 이름에는
-**끝난 시각**이 붙는다.
-
-```
-output/conv_parsed_20260831-153708.json    분류 결과
-output/run_summary_20260831-153708.txt     RUN SUMMARY 사본
-```
-
-같은 데이터를 여러 번 돌리거나 설정을 바꿔 다시 돌렸을 때 **어느 것이 언제
-것인지 파일 이름만 보고 알 수 있어야 한다** — 실행 환경에서는 결과를 가져올 수 없어
-이 파일들이 그 자리에 계속 쌓인다. 덮어쓰지 않는다.
-
-경로를 고정해야 하는 자동화가 있으면 `--out` 으로 직접 준다. 그때는 시각
-스탬프를 붙이지 않는다.
-
-대시보드는 `--result` 를 생략하면 `--output-dir` 에서 **가장 최근 것**을 고르고,
-다른 실행이 몇 건 더 있는지 화면에 적는다.
-
-경로를 매번 치기 싫으면 설정에 넣고 `--config configs/env.yaml` 만 준다.
-CLI 인자가 설정을 덮어쓰므로 한 번만 다르게 돌려볼 때도 섞어 쓸 수 있다.
-
-규격이 적은 `PYTHONPATH` 형태도 그대로 된다. `src/run.py` 가 하는 일이 그것뿐이라
-둘은 같은 것이다.
-
-```bash
-PYTHONPATH=log_analysis/src python -m ragdiag --config configs/env.yaml
-```
-
-**어느 쪽이든 패키지를 venv 에 설치하지 않는다.** 공용 venv 를 오염시키지 않고 사본
-통째 교체가 무연산이 된다. `--upgrade` 와 `--force-reinstall` 도 쓰지 않는다 —
-남의 환경을 조용히 깨뜨리고 되돌릴 수 없다.
-
-### ⚠ 작업 폴더의 `.gitignore` 를 먼저 손볼 것
-
-무시 목록은 한 줄만 보장된다. 나머지는 그대로 두면 운영 git 에
-커밋된다. 실행하면 작업 폴더에 이런 것들이 생긴다.
-
-| | 무엇 | 커밋해도 되나 |
-|---|---|---|
-| `.cache/` | **LLM 판정 응답.** 실데이터에서 뽑은 관측·인용이 그대로 들어 있다 | 판단 필요 |
-| `data/` | 실데이터 | 대개 아니다 |
-| `output/` | 분류 결과 · RUN SUMMARY (파일명에 시각) | 남기고 싶을 수 있다 |
-| `작업 폴더의 configs/env.yaml` | 운영 실값 (경로·주소) | 판단 필요 |
-
-`AA/log_analysis` 사본이 커밋되는 것은 목적이지만 — "어떤 코드로 돌렸는지"가
-남는 유일한 형태다 — 나머지는 의도한 것만 남기는 편이 낫다. 특히 `.cache/` 는
-분류를 다시 돌리면 재생성되는 파생물이고, 대화 내용이 그대로 들어 있다.
-
-```bash
-cd <작업 폴더>
-cat >> .gitignore <<'EOF'
-.cache/
-data/
-EOF
-```
-
-**태그 없이 실행하지 않는다.** 결과 파일이 반출되지 않으므로 실행 환경에 남은 사본이
-"어떤 코드로 돌렸는지"를 알려주는 유일한 형태다.
-
-`sync.sh` 가 지키는 것 — `configs/env.yaml` 은 있으면 **절대 건드리지 않고**
-example 에만 있는 키를 경고한다(모르고 지나가면 조용히 기본값으로 돈다).
-데이터 파일이 사본에 섞이면 **사본을 지우고** 실패로 끝낸다.
-
-실행이 끝나면 화면 마지막에 이 블록이 찍힌다. 파일도 플롯도 못 가져오므로
-**이게 유일한 출력**이다.
-
-```
-================ RUN SUMMARY =================================================
-version   : v0.11 2982c80
-args      : --conv-data data/conv_eval.json --filter-data data/filter.json --ou
-input     : 12,004 users / 48,221 conversations / 210,553 turns
-contract  : 21 ok / 2 MISMATCH
-  - turn.retrieved_data        : str|list 를 기대했으나 dict 가 왔다 (1,204건)
-  - turn.권한코드               : 계약에 없는 키 (210,553건). 새 필드인지 확인할 것
-metrics   : selected 3,912 turns
-            classified 3,908 ok / 4 failed
-runtime   : 412s, peak 6.2GB
-status    : PARTIAL
-==============================================================================
-```
-
-계약 위반 줄은 **그대로 옮겨 적어** `docs/insights/` 에 넣는다. 그게 포맷이
-이쪽으로 돌아오는 유일한 경로다.
-
-### 무엇을 가져가나 — 경계는 `Case` 다
-
-```
-  로그 → 필터 → Case → 판정 → 출력 JSON
-         └ 그쪽 것 ┘   └──── 가져갈 것 ────┘
-```
-
-로그를 읽고 필터를 거는 부분은 실행 환경에 이미 있다. 이 저장소의 `conv.py` ·
-`filters.py` 는 여기서 검증할 때만 쓴다. **`Case` 를 만들어 넣을 수만 있으면**
-나머지는 그대로 돈다.
-
-<!-- copy-list -->
-```
-src/ragdiag/settings.py    배포마다 바뀌는 값 — 여기부터 열 것
-src/ragdiag/schema.py      Case + Step 1·2·3 출력 (Pydantic, 필드 순서에 의미 있음)
-src/ragdiag/taxonomy.py    case 30개 메타데이터와 설명 (case0 은 우리가 더한 것)
-src/ragdiag/prompts.py     판정 프롬프트 (단계별로 뺄 정보가 여기에 명시됨)
-src/ragdiag/backends.py    로컬 LLM (OpenAI 호환 HTTP) — 실행 환경에서 도는 유일한 경로
-src/ragdiag/judge.py       LLM 호출, 디스크 캐시, 케이스 단위 병렬
-src/ragdiag/decide.py      구 진리표 (judge 가 참조)
-src/ragdiag/verify.py      인용 대조 (사전지식 오염 차단)
-src/ragdiag/checks.py      코드 검증기 — 언어·길이·포맷·잘림·PII·인용·문법·계산·인젝션·서비스오류
-src/ragdiag/route.py       라우팅 진리표 — 관측+검증 → case
-src/ragdiag/classify.py    Step 1·2·3 오케스트레이션
-src/ragdiag/output.py      pre_data_format 형태 출력
-src/ragdiag/pipeline.py    단계별 함수
-```
-<!-- /copy-list -->
-
-이 목록은 `tests/test_boundary.py` 가 **실제로 import 해서** 확인한다. 코어 모듈
-하나가 입력 계층을 끌어오면 테스트가 깨진다. 문서로만 적어두면 누가 import 하나를
-추가하는 순간 조용히 무너지고, 알아채는 건 실행 환경에서 `ImportError` 가 났을
-때다.
-
-#### 붙이는 법
-
-```python
-from ragdiag.backends import backend_from_env
-from ragdiag.pipeline import build_outcome, judge_cases, make_judge
-from ragdiag.schema import Case
-
-cases = [Case(...) for turn in 그쪽_필터_결과]   # 여기만 새로 쓰면 된다
-judge = make_judge(backend_from_env())
-results = judge_cases(cases, judge, workers=4)
-build_outcome(owners, results).save("conv_parsed.json")
-```
-
-`owners` 는 결과를 되돌릴 대화 객체다. `conversation_id` 와 `user` 두 속성만
-읽으므로 그쪽 파서가 만든 객체를 그대로 넣어도 된다.
-
-## 실행에 필요한 것
-
-```bash
-pip install pydantic PyYAML
-
-export LLM_API_URL=http://<서버>:8000   # /v1 이 붙어 있어도, 스킴이 없어도 된다
-export LLM_API_KEY=<키>
-```
-
-설정 파일 없이도 돈다. 나머지는 자동으로 정해진다.
-
-| 자동으로 정해지는 것 | 어떻게 |
-|---|---|
-| 백엔드 | `LLM_API_URL`이 있으면 로컬 LLM |
-| 모델 이름 | 서버의 `GET /v1/models` 에 물어본다 |
-| 구조화 출력 강제 방식 | `json_schema` → `guided_json` → `json_object` → `none` 순으로 시도 |
-| 추론 블록 처리 | `<think>` 블록과 `reasoning_content` 를 알아서 걷어낸다 |
-| URL 형태 | `/v1`, 끝 슬래시, 전체 엔드포인트, 스킴 누락을 모두 흡수 |
-
-문제가 생기면 먼저 이걸 돌린다:
-
-```bash
-python tools/legacy_run.py --check-llm   # 서버·모델·강제방식·1회 소요시간
-```
-
-### `{AA}` 의 env.yaml 하나로 통제할 때
-
-**이 저장소는 인자로 받은 것만 쓴다.** 자기 `configs/env.yaml` 을 만들지 않아도
-되고, `{AA}` 쪽 스크립트가 그쪽 `env.yaml` 을 읽어 플래그로 넘기면 그것으로 끝난다.
-설정을 두 벌로 두면 한쪽만 고치고 "왜 안 바뀌지" 를 찾게 된다.
-
-```yaml
-# {AA}/env.yaml — 이 파일 하나가 전부다
-conv_parse:
-  conv_eval:   data/conv_eval.json          # 원본 로그. 자르지 않고 통째로
-  conv_filter: data/conv_filter.json        # 어느 턴을 고를지의 조건
-labels:
-  query:       configs/query_taxonomy.md    # 형식: A. 이름 -> 점수
-  emotion:     configs/emotion_taxonomy.md
-vllm:
-  base_url: http://gpu-01:8000
-  model:    qwen3.5-32b
-  api_key:  sk-...
-```
-
-```bash
-# {AA}/run_analysis.sh
-source /opt/shared/venv/bin/activate       # venv 는 스크립트가 켠다
-
-python conv-parse/src/run.py \
-  --conv-data   "$(yq -r .conv_parse.conv_eval   env.yaml)" \
-  --filter-data "$(yq -r .conv_parse.conv_filter env.yaml)" \
-  --base-url "$(yq -r .vllm.base_url env.yaml)" \
-  --api-key  "$(yq -r .vllm.api_key  env.yaml)" \
-  --model    "$(yq -r .vllm.model    env.yaml)" \
-  --set labels.query="$(yq -r .labels.query   env.yaml)" \
-  --set labels.emotion="$(yq -r .labels.emotion env.yaml)"
-```
-
-| | 없으면 |
-|---|---|
-| `vllm.*` | 시작하지 못한다 |
-| `conv_parse.conv_eval` | 볼 것이 없다 |
-| `conv_parse.conv_filter` | 진단 가능한 후속 턴을 **전부** 본다 (비용이 는다) |
-| `labels.*` | **계산 전에 죽는다** — 아래 참고 |
-
-나머지(임계값·서비스 문구·조직 필드)는 **기본값으로 돈다.** 바꿔야 할 때만 넘긴다.
-
-**로그는 자르지 말고 그대로 넘긴다.** 고른 턴만 남기면 전부 0건이 된다 — 직전 턴의
-답변이 곧 판정 대상이라서다.
-
-#### 라벨 실값이 필요한 이유
-
-필터 JSON 이 라벨을 **이름**으로 가리킨다.
-
-```json
-"emotion_labels": ["I. 매우부정"],   "eval_range": [0, 60]
-```
-
-로그에도 이름이 적혀 있고(`llm_emotion_result: "매우부정"`), 이 저장소에는
-자리표시자(`감정 I`)뿐이라 이름을 글자로 풀 수 없다 — 라벨 집합은 그 자체로 분류
-체계를 드러내므로 public 저장소에 두지 않는다 (규격 §1.1 · C3).
-
-그래서 **운영 환경에 이미 있는 taxonomy 문서를 그대로** 가리킨다. 없이 라벨·점수
-조건이 걸린 필터를 주면 계산 전에 죽는다 — 조용히 0건이 나오는 것이 가장 찾기
-어려운 실패라 일부러 막아 뒀다.
-
-> 두 문서는 `{AA}/configs/` 에 둔다. `conv-parse/` 안이 아니다 — 그 디렉터리는
-> sync 때마다 통째로 지워진다.
-
-`--set 키=값` 은 플래그가 없는 설정 키를 인자로 주는 자리다. 이름은
-`configs/env.example.yaml` 과 같고, 오타를 내면 가까운 키를 알려주고 **계산 전에**
-죽는다. 목록 키(`service_error.templates`)는 여러 번 쓰면 쌓인다 — 쉼표로 나누지
-않는 이유는 그 값이 쉼표가 든 한국어 문장이어서다.
-
-> `paths.venv` 는 인자로 줄 수 없다. 파이썬을 갈아타는 일이 argparse 보다 먼저
-> 일어나서다 (`src/run.py`). 스크립트가 `activate` 하면 필요 없다.
-
-## 3단계 분류
-
-```
-Step 1  관측 추출     LLM   ✂ rag_data 를 주지 않는다
-Step 2  충족도 판정   LLM   ✂ 챗봇 답변을 주지 않는다   (도메인 질문일 때만)
-Step 3  근거 활용     LLM   ✂ 질문과 불만을 주지 않는다 (문서가 충분할 때만)
-라우팅                코드  case 는 LLM 이 고르지 않는다
-
-코드 검증기 11종은 Step 과 나란히 항상 돈다.
-```
-
-case 를 LLM 에게 직접 고르게 하지 않는 이유가 셋이다. 29지선다는 어떤 모델이든
-정확도가 안 나오지만 좁은 질문 여러 개는 안정적이고, 한 호출로 case 까지 물으면
-모델이 결론을 먼저 직감하고 관측값을 거기 맞추며, taxonomy 를 고쳐도 관측값은
-그대로 재사용되어 라우팅만 다시 돌리면 된다.
-
-category 는 따로 분류하지 않는다. 각 case 는 정확히 하나의 type 에, type 은 하나의
-category 에 속하므로 case 만 정하면 나머지는 계산이다.
-
-**판정의 절반 이상이 코드다** — 언어·길이·포맷·잘림·개인정보·인용 대조·문법·계산.
-LLM 에 맡기면 비용도 들지만 무엇보다 같은 입력에 다른 답이 나온다.
-
-단계별로 무엇을 주고 무엇을 감추는지는 **[처리 흐름](docs/process_flow.md)** 에 자세히 있다.
-
-## 한 건을 끝까지 따라가기
-
-실제로 돌린 결과다. 재무팀 대리의 2턴 대화 하나.
-
-### 입력
-
-```
-turn 1  질문   "국내 출장 갈 때 식비는 얼마까지 쓸 수 있나요?"
-        문서   ① 국내 출장 식비는 1일 3만원을 상한으로 한다.      <- 답이 여기 있다
-               ② 국내 출장 숙박비는 1박 8만원을 상한으로 한다.
-               ③ 출장비는 출장 종료 후 5영업일 이내에 정산한다.
-        답변   "회사 규정에 따라 지급되며, 자세한 금액은 부서나 직급에 따라
-                다를 수 있으니 총무팀에 확인해 보시기 바랍니다."
-
-turn 2  질문   "부서별로 다르다는 게 아니라 규정상 정해진 금액이 있을 텐데요."
-        라벨   질의유형 K(25점) · 감정 I(3.1점)
-```
-
-문서에 "1일 3만원"이 명확히 있는데 답변은 "총무팀에 확인하세요"로 넘겼다.
-
-### 필터
-
-```
-진단 가능 후속 턴 (2턴 이상)     1
-eval_score (0~60)               1     라벨 K = 25점
-emotion_score (0~20)            1     라벨 I = 3.1점
-emotion 라벨 (I. 매우부정)       1
-```
-
-점수는 기록값이 아니라 필터의 `query_scores` 로 재계산한 값이다.
-
-### 짝짓기
-
-```
-불만     <- turn 2 의 질문
-답변     <- turn 1 의 응답        비판받은 것
-문서     <- turn 1 의 retrieved   ★ turn 2 것이 아니다
-히스토리 <- turn 1 의 질문        (최대 3턴)
-```
-
-turn 2 의 검색 결과를 쓰면 "다음 질문으로 찾은 문서가 충분했나"라는 다른 질문이 된다.
-
-### Step 1 · 관측 — LLM 1회, rag_data 를 주지 않는다
-
-```
-resolved_question        "국내 출장 시 규정상 정해진 식비 한도 금액은 얼마인가요?"
-unmet_need               "국내 출장 식비의 규정상 정해진 정확한 한도 금액"
-complaint_target         content_missing
-question_domain          domain
-question_self_contained  True
-answer_refused           False
-```
-
-`answer_refused` 가 false 인 것이 중요하다. "총무팀에 확인하세요"는 회피성 안내지
-정책상 거절이 아니다. 이걸 거절로 읽으면 case28 으로 빠지고 **진짜 원인이 통계에서
-사라진다** — 실제로 났던 사고다.
-
-문서를 주지 않은 덕에 `unmet_need` 가 "3만원"이 아니라 사용자가 원한 것으로 나왔다.
-문서를 봤다면 거기 있는 내용 쪽으로 끌려갔을 것이다.
-
-### Step 2 · 충족도 판정 (+ 코드 검증기)
-
-코드 검증(LLM 0회)은 요구가 없던 항목이 `not_applicable` 이라 출력에 실리지 않는다.
-실린 것은 항상 도는 둘뿐이다.
-
-```
-pii        ok    검출 없음
-truncated  ok    종결 부호로 끝남
-```
-
-충족도 판정(LLM, 챗봇 답변을 주지 않는다):
-
-```
-verdict   sufficient
-인용      청크0  ratio=1.0  "국내 출장 식비는 1일 3만원을 상한으로 한다."
-폐기      없음
-```
-
-**`ratio=1.0` 이 이 판정의 무게를 결정한다.** 판정자가 "문서에 답이 있다"고 주장하며
-뽑은 인용을 코드가 원문과 대조했고 완전히 일치했다. 지어낸 것이 아니다. 인용이 하나도
-살아남지 못했다면 `insufficient` 로 강등됐을 것이다.
-
-여기서 답변을 주지 않은 것이 결정적이다. 답변("부서별로 다를 수 있다")을 봤다면
-판정자가 그걸 문서의 대리물로 착각해 "문서에도 명확한 금액이 없나 보다"로 흐를 수 있다.
-
-### Step 3 · 근거 활용 — 여기서 처음 답변을 본다
-
-```
-answer_used_rag   ignored
-```
-
-이 시점엔 충족도가 이미 확정돼 있어 오염될 수 없다.
-
-### 라우팅 — 코드, LLM 0회
-
-```
-complaint_target=content_missing   -> 내용 불만
-question_domain=domain             -> TYPE5 분기
-verdict=sufficient + 인용 1개 생존  -> 문서는 충분했다
-answer_used_rag=ignored            -> 답변이 쓰지 않았다
-                                   v
-case22  Retrieve 성공, 생성 실패    (TYPE5 / category_2, 신뢰도 medium)
-```
-
-**case20(Retrieve 실패)가 아니라 case22 인 것이 이 도구의 존재 이유다.** 사용자에게는
-똑같이 "답이 부실하다"로 보이지만, case20 면 문서를 써야 하고 case22 이면 프롬프트를
-고쳐야 한다. 멀쩡한 코퍼스에 문서를 더 채우는 헛수고를 막는 것이 이 구분이다.
-
-`category_2` 는 case22 에서 계산된다. 따로 분류하지 않는다.
-
-### 최종 출력
-
-원본 필드는 그대로 두고 분류는 `classification` 아래에 모인다.
+| TYPE0 실패가 아님 | 필터 | case0 |
+| TYPE1 적절하지 않은 질문/요청 | 질문 유도 · UI | case1 ~ 6 |
+| TYPE2 서비스 안정성 | 인프라 | case7 ~ 9 |
+| TYPE3 의도 파악 실패 | 생성 프롬프트 · 후처리 | case10 ~ 17 |
+| TYPE4 할루시네이션 | 생성 프롬프트 | case18 ~ 19 |
+| TYPE5 Retrieve Context | 검색기 · 문서 · 생성 | case20 ~ 24 |
+| TYPE6 일반 질문 | 모델 · 도구 연동 | case25 ~ 27 |
+| TYPE7 보안/정책 | 권한 정책 · 입력 방어 | case28 ~ 29 |
+
+- case5 · 7 · 19 · 23 은 로그에 필요한 필드가 없어 나오지 않는다.
+- 주 case 와 별개로 성립한 것은 `secondary_cases` 에 붙는다 (예: 모호한 질문이면서 검색 실패).
+- 정할 수 없으면 `unclassified`(수동 검토 대상), 맞는 case 가 없으면 `out_of_taxonomy`.
+- 신뢰도 `high` 는 코드로 검증된 것, `medium` 은 인용이 강제된 LLM 판정, `low`(case25) 는
+  판정자의 사전지식에 의존한다 — 같은 무게로 집계하지 않는다.
+
+## 출력
+
+`output/conv_parsed_<끝난시각>.json` — 입력과 같은 사용자 → 대화 → 턴 모양이고, 턴마다
+짝지은 입력과 판정이 붙는다.
 
 ```json
 {
@@ -548,500 +116,127 @@ case22  Retrieve 성공, 생성 실패    (TYPE5 / category_2, 신뢰도 medium)
   "chunk_data": ["국내 출장 식비는 1일 3만원을 상한으로 한다.", "…"],
   "classification": {
     "case_id": "case22", "case_name": "Retrieve 성공, 생성 실패",
-    "type_id": "TYPE5", "category": "category_2",
+    "type_id": "TYPE5", "type_name": "도메인 관련 Retrieve Context 문제", "category": "category_2",
     "confidence": "medium",
     "reason": "문서에 답이 있는데 답변이 쓰지 않음",
     "secondary_cases": [], "notes": [],
-    "evidence": { "observation": {…}, "sufficiency": {…}, "grounding": {…}, "checks": [] },
+    "evidence": { "observation": {}, "sufficiency": {}, "grounding": {}, "checks": [] },
     "llm_calls": 3, "answered_turn": 1
   }
 }
 ```
 
-`answered_turn` 으로 짝짓기를 사후 확인할 수 있고, `evidence` 전체가 남아
-"왜 이 라벨이 붙었나"에 언제든 답할 수 있다.
-
-**LLM 호출 3회.** 문서에 답이 없었다면 2회(근거 활용을 물을 이유가 없다),
-형식 불만이었다면 1회로 끝난다.
-
-## 왜 이 구조인가
-
-### 불만이 sufficiency를 판정 가능하게 만든다
-
-"이 문서가 충분한가?"는 그 자체로는 판정할 수 없다. 무엇에 대해 충분한지 기준이 없기 때문이다.
-그런데 `current_query`(불만)가 사용자의 진짜 정보 요구를 드러낸다. "예외 케이스가 안 나왔잖아"라는
-불만은 원했던 게 예외 케이스였음을 알려주고, 판정은 "문서에 예외 케이스가 있었나?"라는
-확인 가능한 질문으로 바뀐다.
-
-### 단계마다 정보를 일부러 뺀다
-
-이 표는 [흐름도](https://claude.ai/code/artifact/180f8cc5-d5fb-41e0-9084-8be60c271d5f)의 붉은 점선에 해당한다.
-
-| 단계 | 주는 것 | **빼는 것** | 왜 |
-|---|---|---|---|
-| Step 1 관측 추출 | 질문 히스토리, 답변, 불만 | **`rag_data`** | 문서를 같이 주면 모델이 "사용자가 원한 것"을 문서에 있는 내용 쪽으로 끌어당긴다(anchoring). 요구와 문서가 저절로 일치해 보여서 sufficiency가 항상 후해진다 |
-| Step 2 충족도 판정 | 정리된 질문, 미충족 요구, 청크 | **챗봇 답변** | 답변을 보여주면 판정자가 답변을 문서의 대리물로 착각한다 — "답변이 이렇게 말했으니 문서에 있었겠지" |
-| Step 3 근거 활용 | 답변, 청크 | **질문 · 불만** | 질문을 주면 "질문에 잘 답했나"라는 다른 판단이 섞인다. 그건 Step 2 가 이미 봤고, 여기서 또 보면 같은 방향으로 쏠린 두 번째 표가 된다 |
-| 라우팅 | 관측 + 검증 전부 | **LLM 자체** | 결론을 먼저 정하고 사실을 끼워 맞추는 것을 막는다 |
-
-단계별 상세는 **[처리 흐름](docs/process_flow.md)** 에 목적·입력·출력으로 정리돼 있다.
-
-### 인용 강제가 knowledge leakage를 막는다
-
-판정자가 "문서에 답이 있다"고 말할 때, 문서를 읽어서인지 자기가 이미 알던 지식 때문인지
-프롬프트로는 구분할 수 없다. 실행 환경 코퍼스는 일반 상식과 상당히 겹치므로 이건 실제 위험이다.
-leakage가 일어나면 **검색 실패가 '근거 미활용'으로 오분류되어 통계에서 사라진다.**
-
-그래서 판정자에게 청크에서 글자 그대로 인용을 뽑게 하고 `verify.py`가 원문과 대조한다.
-지어낸 인용은 일치하지 않으므로 걸러지고, 살아남은 인용이 하나도 없으면 verdict를
-`insufficient`로 강등한다. "지어내지 마세요"라는 프롬프트와 달리 이건 검증 가능한 장치다.
-
-### 라벨은 LLM이 아니라 코드가 결정한다
-
-한 번의 호출로 원인까지 물으면 모델이 원인을 먼저 직감하고 판정값을 거기에 역으로
-맞춘다(합리화). 관측값만 받아서 `route.py`의 진리표가 조합하면 그 경로가 막히고,
-taxonomy 를 바꿀 때 LLM을 다시 돌리지 않아도 되며, "왜 이 라벨이 붙었나"에 항상 답할 수 있다.
-
-도메인 질문의 내용 불만이 갈리는 지점만 추리면 이렇다. 전체 순서는
-[처리 흐름](docs/process_flow.md) 의 ⑩에 있다.
-
-| 청크 | verdict | used_rag | case | 고칠 곳 |
-|---|---|---|---|---|
-| 빈 리스트 | — | — | **`case21`** Retrieve 미수행 | **검색 트리거** |
-| 있음 | insufficient / partial | — | **`case20`** Retrieve 실패 | **코퍼스 / 검색기** |
-| 있음 | sufficient | ignored | **`case22`** Retrieve 성공, 생성 실패 | **생성 프롬프트** |
-| 있음 | sufficient | contradicted | `case18` 문서와 어긋나는 주장 | 생성 프롬프트 |
-| 있음 | sufficient | used | `case17` / `case13` | 답변의 구체성 · 의도 이해 |
-
-## 알려진 한계
-
-- **`rag_data`만으로는 '검색기가 못 찾음'과 '코퍼스에 애초에 문서 없음'을 구분할 수 없다.**
-  가져온 top-k에 답이 없다는 사실은 코퍼스 어딘가에 답이 있는지에 대해 아무것도 말해주지
-  않는다. 그래서 둘을 `case20` 하나로 둔다. 구분 못 하는 걸 구분한 척하는 라벨이 제일 나쁘다.
-  **case × 부서 교차표가 이 구분을 간접적으로 되살리는 유일한 신호다** — 특정 부서에
-  몰려 있으면 그 도메인 문서가 비어 있다는 뜻이다. 코퍼스에 접근할 수 있게 되면
-  재검색으로 쪼갤 수 있다. (검색을 **아예 안 탄** 경우는 `case21` 로 갈린다 — 빈 리스트는
-  로그에 적힌 사실이라 판정이 아니다.)
-- `case13`(의도와 다른 답변)과 `case17`(두루뭉술한 답변)은 잔여 범주라 경계가 흐리다.
-  집계에서 이게 크면 라벨을 쪼갤 때다.
-- **전체 대화가 들어온다고 가정한다.** 불만 턴만 골라 넣으면 직전 턴(비판받은 답변)이
-  없어 짝짓기가 성립하지 않는다. 필터가 2턴 이상인 대화에서 후속 턴을 찾는다.
-- **`rag_data`는 청크를 `\n\n`(또는 `\n`)으로 이어붙인 통문자열이라 청크 경계를 복원해야 한다.**
-  빈 줄을 먼저 시도하고 그걸로 안 쪼개질 때만 단일 개행으로 내려간다 — 청크 내부에도 개행이
-  있을 수 있어서 순서가 반대면 한 청크가 여러 조각으로 찢어진다. 청크가 단일 개행으로
-  이어붙여져 있고 내부에도 개행이 있으면 경계는 원리적으로 복원 불가능하다.
-  다만 인용 검증이 전 청크를 훑기 때문에 잘못 쪼개진 경계는 `index_corrected`로 흡수되고,
-  sufficiency 판정 자체는 영향을 받지 않는다. 대시보드의 **판정 건강** 지표와
-  결과 파일의 `n_chunks` 가 이 실패를 드러낸다.
-
-## 합성 데이터의 위치
-
-`src/ragdiag/fixtures/synthetic.py` 는 **정확도 측정용이 아니라 회귀 테스트용**이다.
-
-1. 데이터와 판정 프롬프트를 같은 사람이 만들면 편향을 공유한다. 여기서 나온 일치율은 실전보다 후하다.
-2. 합성 문서는 지어낸 업무 규정이라 판정자가 사전지식으로 알 리가 없다. `leakage_probe`
-   케이스(상식으로 답 가능한 질문 + 그 답이 없는 문서)가 그 틈을 일부 메우지만 완전히는 못 메운다.
-
-**이 셋은 이제 독립적인 측정 도구가 아니다.** 판정 실패를 보고 프롬프트를 여섯 차례 고치는 데
-사용됐기 때문이다. 현재 23/23이 나오지만 이건 "알려진 회귀가 없다"는 뜻이지 정확도가 100%라는
-뜻이 아니다. 프롬프트를 이 셋의 실패에 맞춰 조정한 이상, 같은 셋으로 잰 점수는 과대평가다.
-
-실제 정확도는 실데이터 20~30건을 손으로 라벨링해서 재야 한다. 특히
-**`false insufficient`(충분했는데 부족하다고 판정)** 를 따로 추적한다 — 이 방향 오류는
-멀쩡한 코퍼스에 문서를 더 채워 넣게 만들어서 노력을 엉뚱한 데 쓰게 한다.
-
-함정 유형: `near_miss`(주제 일치·답 부재), `partial`, `distractor`(그럴듯한 오답 문서),
-`generation_failure`, `leakage_probe`, `context_dependent`, `format_complaint`.
-
-### 검증 기록 — 두 셋이 서로 다른 층을 잡는다
-
-| 셋 | 무엇을 재나 | 현재 |
-|---|---|---|
-| 관측 골든셋 44건 (`--golden`) | Step 1 관측 **하나하나**의 정확도 | 72/72 |
-| 판정 골든셋 18건 (`--golden`) | Step 2·3 의 verdict·인용 위치 정확도 | 22/22 |
-| 구 회귀셋 23건 (`--legacy-regression`) | 관측이 조합되어 case 로 가는 **경로** | 23/23 |
-| 단위 테스트 (`pytest`) | LLM 없이 도는 전부 | 381개 |
-
-**세 층은 서로를 대체하지 못한다.** 골든셋이 98% 일 때 회귀셋은 15/23 이었다. 관측 필드
-자체는 멀쩡한데 그 값을 **라우팅 어디에 놓았느냐**가 틀렸던 것이고, 필드 단위
-측정으로는 절대 보이지 않는다.
-
-돌려보지 않았으면 못 찾았을 결함들:
-
-| 결함 | 증상 | 고친 방식 |
-|---|---|---|
-| 사용량 집계 동시성 경합 | 15콜·$1.08 로 보고 (실제 6콜·$0.49) | 호출이 자기 사용량을 반환, 케이스가 지역 변수에 누적 |
-| `partial`/`insufficient` 정의 중복 | 두 설명이 같은 상황을 서술 | "이 인용이 요구의 **어느 부분에 답하는가**" 시험 |
-| `unmet_need` 부풀리기 | 답이 있는 문서를 partial 로 깎음 | "사용자가 요구한 범위를 넘지 마라" |
-| `context_dependent` 과탐 | 23건 중 15건이 찍힘 | 대상 명사 유무로 판별, "확신 없으면 false" |
-| 안전 지표 사각지대 | `partial` 과소평가를 놓침 (당시 구 라벨 `rag_partial`) | 두 verdict 를 같은 방향으로 집계 |
-| **`case14` 가 도메인 분기를 가로챔** | **회귀셋 6건이 샘** | 부가 케이스로 강등 |
-| **`answer_refused` 가 회피를 거절로 읽음** | **case22 탐지가 무너짐** | 정책·권한·보안으로 좁힘 |
-| **빈 `rag_data` 를 '검색 실패'와 합쳐 셈** | **검색 트리거 문제가 임베딩 문제로 보임** | 빈 리스트를 case21 로 분리, 충족도 LLM 생략 |
-| **`answer_refused` 가 서비스 장애 문구를 거절로 읽음** | **인프라 장애가 case28(보안 정책)로 집계** | 확정 문구를 코드로 대조해 LLM 이전에 단락 (case9) |
-
-굵게 표시한 넷은 같은 구조다 — **약한 증거가 강한 증거를 가로챘다.** 답변이 나쁘면
-여러 관측이 동시에 켜지므로, 라우팅 순서는 발견 순서가 아니라 **증거의 강도 순서**여야 한다.
-`case14`(LLM 의 인상)가 `case20`·`case22`(인용으로 검증된 문서 증거)를 가로챈 것,
-회피성 안내가 거절로 읽혀 `case22` 를 삼킨 것, 서비스 장애 문구가 거절로 읽힌 것이
-전부 같은 모양이다.
-
-반복된 교훈: **프롬프트에 지시를 넣을 때는 반대 방향 제약을 같이 넣어야 한다.**
-"구체적으로 써라"는 요구 부풀리기를, "애매하면 넓게 잡아라"는 과탐을 낳았다.
-
-## 판정 백엔드
-
-**`src/run.py` 가 아는 백엔드는 하나다.** 실행 환경에서 실패할 호출은
-`src/` 에 두지 않는다. claude CLI 와 Anthropic API 백엔드는 `tools/` 에 있고,
-`.gitattributes` 의 export-ignore 로 archive 에서 빠진다.
-
-| | `src/run.py` | `tools/dev_run.py` |
-|---|---|---|
-| 대상 | **에어갭 장비의 로컬 LLM** | 개발 장비 전용 |
-| 백엔드 | `--backend local` 하나 | `--backend cli` (claude -p) · `--backend api` |
-| 연결 | OpenAI 호환 HTTP (표준 라이브러리) | CLI 서브프로세스 · Anthropic SDK |
-| 인증 | `LLM_API_URL` + `LLM_API_KEY` | 불필요 · `ANTHROPIC_API_KEY` |
-| 스키마 강제 | 서버 능력에 따라 자동 협상 | 없음 (프롬프트 계약) · 서버가 강제 |
-| 실행 환경에 도착하나 | **그렇다** | 아니다 (export-ignore) |
-
-`tools/dev_run.py` 는 **같은 코드 경로를 돈다.** 백엔드만 만들어 `main()` 에 넣으므로
-인자도 출력도 `src/run.py` 와 같다 — 검증하는 코드와 배포되는 코드가 갈라지면
-여기서 통과한 것이 실행 환경에서 통과한다는 보장이 사라진다.
-
-```bash
-python tools/dev_run.py --conv-data data/conv_eval.json   # claude 로 판정
-python tools/dev_run.py --golden                          # 관측 골든셋
-python tools/dev_run.py --backend api --legacy-regression
-```
-
-> **`tools/backend_cli.py` 는 저장소에도 없다.** 위의 나머지는 커밋되고 export-ignore
-> 로만 빠지지만, claude CLI 백엔드는 `.gitignore` 에 넣어 GitHub 에도 올리지 않는다.
-> 없는 사본에서 `--backend cli` 를 주면 무엇을 대신 쓰라는 안내가 나간다.
->
-> 그 백엔드를 필요로 하던 테스트는 `tests/stub_llm.py`(요청의 JSON 스키마를 읽어
-> 최소 유효 객체로 답하는 가짜 서버)로 옮겼다. 그래서 **깨끗한 사본에서 API 키
-> 하나 없이 전체가 돌고, 건너뛰는 테스트가 없다** — 규격 §1.4 가 요구하는
-> `env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY python -m pytest` 가 그대로 통과한다.
-
-`LLM_API_URL`이 설정돼 있으면 기본 백엔드가 자동으로 `local`이 된다.
-
-| | 인식하는 환경변수 (앞에 있는 것이 우선) |
+| 필드 | 내용 |
 |---|---|
-| 주소 | `LLM_API_URL` · `API_URL` · `RAGDIAG_BASE_URL` · `OPENAI_BASE_URL` · `OPENAI_API_BASE` |
-| 키 | `LLM_API_KEY` · `API_KEY` · `RAGDIAG_API_KEY` · `OPENAI_API_KEY` |
+| `pre_queries` · `llm_ans_on_last_q` · `current_query` · `chunk_data` | 짝지은 입력 — 이전 질문들 · 비판받은 답변(턴 N) · 불만(턴 N+1) · 그 답변의 문서 |
+| `evidence` | 판정 근거 — 관측, 충족도와 인용(버려진 것 포함), 근거 활용, 코드 검증 결과 |
+| `answered_turn` | 비판받은 답변의 턴 번호. 짝짓기를 사후에 확인한다 |
+| `classification.error` | 판정이 실패한 턴은 이것만 남는다 — `[단계] 예외` |
 
-이름 하나가 목록에서 빠지면 그 장비에서 "주소가 없습니다"로 멈추므로, `tests/test_config.py`가
-문서에 적힌 이름을 전부 검증한다.
+`output/run_summary_<끝난시각>.txt` — 실행 조건, 입력 형식 대조, 지표. 화면 끝에도 같은 것이 찍힌다.
 
-### 에어갭 장비 이관
+| 지표 | 뜻 |
+|---|---|
+| `classified` · `llm calls` | 분류 성공 · 실패 건수, 상위 case, LLM 호출 수 |
+| `filter FP` | case0(정상) 비율과 몰린 eval 라벨 — 챗봇이 아니라 필터를 좁힐 신호 |
+| `truncated` | 추론이 잘려 조건을 바꿔 되살린 호출 — 다음엔 `--thinking off` |
+| `failed at` | 실패가 몰린 단계 |
 
-반입할 것은 소스와 `pydantic`·`PyYAML` 뿐이다. 로컬 LLM에는 표준 라이브러리로
-붙으므로 HTTP 클라이언트가 필요 없고, `anthropic`은 **소스에 아예 없다** —
-`tools/` 로 빠져 archive 에 담기지 않는다. `sync.sh` 의 이식 표면 점검이
-`anthropic`·`openai` import 를 실제로 잡으므로 다시 새어 들어가면 태그를 내기 전에
-걸린다.
+지표를 더하려면 `src/ragdiag/features/template/` 을 복사하고 `features/__init__.py` 의
+`FEATURES` 에 한 줄 더한다.
 
-<!-- BEGIN 실행 환경 순서 -->
-```bash
-# ── 0. 최초 1회만 ────────────────────────────────────────────────────────
-cd 작업 폴더
-git clone <remote> .staging/log_analysis
-
-# ── 1. 매번 ──────────────────────────────────────────────────────────────
-cd 작업 폴더
-bash .staging/log_analysis/scripts/sync.sh v0.27
-#   태그를 fetch·checkout 하고 log_analysis/ 를 통째로 교체한다.
-#   이식 표면 점검에 걸리면 사본을 지우고 실패로 끝낸다.
-
-# ── 2. 환경 ──────────────────────────────────────────────────────────────
-source <기존 venv>/bin/activate
-python -m pip install --dry-run -r log_analysis/requirements.txt && python -m pip check
-python -m pip install -r log_analysis/requirements.txt
-#   --upgrade / --force-reinstall 금지. 공용 venv 를 조용히 깨뜨린다.
-#   충돌하면 고치지 말고 메시지를 관찰로 가지고 나온다.
-
-export LLM_API_URL=http://<서버>:8000
-export LLM_API_KEY=<키>
-
-# ── 3. 운영 실값 (v0.26 부터 필요) ───────────────────────────────────────
-#   작업 폴더의 configs/ 에 운영 taxonomy 문서 두 개를 둔다. log_analysis/ 안이 아니다 —
-#   그 디렉터리는 sync 때마다 지워진다.
-#     작업 폴더의 configs/query_taxonomy.md      형식: A. 이름 -> 점수
-#     작업 폴더의 configs/emotion_taxonomy.md
-#   그리고 configs/env.yaml 에:
-#     labels:
-#       query:   configs/query_taxonomy.md
-#       emotion: configs/emotion_taxonomy.md
-
-# ── 4. 점검 — 위에서부터. 앞이 깨지면 뒤는 볼 필요 없다 ──────────────────
-python log_analysis/src/run.py --check-llm
-#   서버 규약·모델·1회 소요시간. 전체가 몇 분인지 여기서 나온다.
-
-python -m pytest log_analysis/tests -q
-#   LLM 없이 도는 부분. 실패하면 반입 자체가 잘못된 것이다.
-
-python log_analysis/src/run.py --dry-run
-#   합성 데이터로 끝까지. 여기서 깨지면 환경 문제이지 데이터 문제가 아니다.
-
-# ── 5. 실데이터 — 작업 폴더의 실행 스크립트로 (todo/scripting.md) ────────
-python log_analysis/src/run.py --config configs/env.yaml \
-    --conv-data <실데이터> --turns <고른_턴_목록> --limit 50
-#   --turns 는 필터를 그쪽에 두고 고른 턴만 받는 경로다 (todo/filter.md).
-#   이 저장소의 필터를 쓸 거면 --filter-data <필터> 로 바꾼다.
-#   RUN SUMMARY 의 contract 줄이 첫 사이클의 실제 수확이다.
-#   계약이 깨끗해진 뒤에 전체로 간다 — 틀린 계약 위의 숫자는 믿을 수 없다.
-
-python log_analysis/src/run.py --config configs/env.yaml \
-    --conv-data <실데이터> --turns <고른_턴_목록>
-#   결과는 ./output 에 끝난 시각이 붙어 쌓인다.
-
-# ── 6. 화면으로 보기 (선택) ──────────────────────────────────────────────
-python -m pip install -r log_analysis/requirements-dashboard.txt
-python -m streamlit run log_analysis/src/dashboard.py
-#   --result 를 안 주면 ./output 의 가장 최근 결과를 고른다.
-#   조직 분류 JSON 은 configs/env.yaml 의 paths.dept_class / paths.job_class 에
-#   적어두면 매번 인자로 주지 않아도 된다.
-```
-<!-- END 실행 환경 순서 -->
-
-**`tools/` 는 반입본에 없다.** 위 명령에 `tools/` 가 등장하면 그건 실행 환경에서 안 도는
-명령이다 (`tests/test_spec_compliance.py` 가 이 블록을 검사한다).
-
-`--model` 은 서버가 여러 모델을 서빙하고 첫 번째가 아닌 걸 쓰고 싶을 때만 필요하다.
-`--check-llm` 이 서버의 다른 모델 목록도 함께 보여준다.
-
-**3번이 이 장비에서 가장 중요하다.** 개발 장비의 Claude Opus 5 기준선은 라벨 23/23이다.
-로컬 모델이 크게 낮으면 프롬프트를 못 따르고 있다는 뜻이고, 실데이터 결과를 믿을 수 없다.
-어느 함정 유형에서 깨지는지가 무엇을 고쳐야 하는지 알려준다. 397B급이면 기준선에 근접할
-것으로 보지만, 확인 없이 넘어갈 일은 아니다.
-
-`--check-llm`은 구조화 출력 강제 방식을 서버에 직접 물어 찾는다. 순서는
-`json_schema`(OpenAI 규격) → `guided_json`(vLLM 고유) → `json_object` → `none`이고,
-처음 통하는 것을 이후 계속 쓴다. 강제가 되면 재시도를 하지 않는다 — 로컬에서는 호출 한 번이 비싸다.
-
-### 프록시(LiteLLM 등)를 거치는 경우
-
-포트 4000 + `sk-...` 키는 보통 LiteLLM 프록시다. 프록시는 모르는 파라미터를 400으로
-거절하지 않고 **조용히 버리는** 경우가 있다. 그러면 200 OK만 보고 "이 모드 된다"고
-확정한 뒤 재시도를 1회로 줄여버려서, 첫 응답이 어긋나는 순간 케이스가 그냥 실패한다.
-
-그래서 협상은 HTTP 200이 아니라 **강제가 실제로 걸렸는지**를 본다. 스키마와 무관한
-탐침("Reply with a JSON object.")을 보내고, 돌아온 응답이 스키마에 맞는지 검사한다.
-강제가 걸렸을 때만 맞을 수 있다. `--check-llm`이 협상 과정을 그대로 보여준다.
-
-```
-구조화 출력 강제 방식 : guided_json
-  협상 과정:
-    json_schema  200 OK지만 강제가 걸리지 않음 (프록시가 조용히 무시한 듯)
-    guided_json  채택
-```
-
-모드별로 요구하는 것이 다르다. `json_schema`/`guided_json`은 스키마까지 맞아야 채택되고,
-`json_object`는 유효한 JSON이기만 하면 된다(그 모드가 약속하는 게 거기까지다).
-전부 실패하면 `none`으로 떨어지고, 그때는 `parse_with_repair`가 유일한 방어선이 된다.
-
-### 하이브리드 추론 모델 (Qwen3 계열)
-
-Qwen3 계열은 응답 앞에 `<think>...</think>` 추론 블록을 붙일 수 있다. **이게 JSON 추출을
-망가뜨린다** — 추론 문장에 중괄호가 하나라도 있으면 `extract_json`이 그걸 집는다.
-검증 실패 -> 재시도 -> 같은 실패로 케이스가 통째로 날아간다.
-
-`strip_reasoning()`이 닫는 태그 뒤를 취해 이 문제를 없앤다. 여는 태그를 찾지 않는 이유는,
-채팅 템플릿이 `<think>`를 미리 넣어주면 모델 출력에는 **닫는 태그만** 나오기 때문이다.
-vLLM `--reasoning-parser`를 켜서 `reasoning_content`로 분리되는 경우도 함께 처리한다.
-
-- `--thinking {auto,on,off}` — `auto`(기본)는 서버 기본값을 건드리지 않는다.
-  `on`/`off`는 `chat_template_kwargs.enable_thinking`을 보낸다. 서버가 이 필드를 모르면
-  모든 모드가 400이 되므로, 협상 실패 메시지가 그 가능성을 알려준다.
-- `--max-tokens` 기본 16000. 추론 모드가 켜져 있으면 생각에만 수천 토큰을 쓰고,
-  잘리면 JSON이 아예 안 나온다.
-
-### 답까지 도달 못 한 응답은 버리지 않는다
-
-생각만 하다 생성이 끝나는 일이 생긴다. 이건 **형식 오류가 아니다.** 형식 오류는 무엇이
-틀렸는지 알려주며 다시 물으면 고쳐지지만(`parse_with_repair`), 잘린 응답은 조건이 같으면
-같은 자리에서 또 잘린다. 그래서 `_attempt()`가 조건을 바꿔 다시 묻는다:
-
-| 순서 | 바꾸는 것 | 왜 이 순서인가 |
-|---|---|---|
-| 1 | `enable_thinking=False` | 더 잘 듣고 더 싸다 |
-| 2 | `max_tokens` × 2 | 이미 한도만큼 태운 요청을 두 배로 태우는 것이라 나중 |
-
-서버가 `chat_template_kwargs`를 400으로 거절하면 그 칸을 건너뛰고 다음 칸으로 간다.
-되살린 횟수는 RUN SUMMARY의 `truncated` 줄에 나오고, 처음 한 번은 즉시 화면에 뜬다.
-
-**되살아나도 그건 임시방편이다.** 합성 27턴을 잘리는 서버에 물렸을 때, 사다리로 다 살렸지만
-출력 토큰은 407,500이었다. 같은 27턴을 처음부터 `--thinking off`로 돌리면 7,500이다.
-`truncated` 줄이 보이면 다음 실행은 `--thinking off`로 시작하는 게 맞다.
-
-두 가지가 더 걸려 있었다.
-
-- **모드 협상에서 잘리면 실행 전체가 죽었다.** 탐침이 잘리면 그 모드가 거절된 걸로 세서
-  네 모드가 다 탈락하고, 메시지는 "어떤 방식으로도 서버가 응답하지 않습니다"라고 했다.
-  서버는 멀쩡히 응답하고 있었다 — 연결을 뒤지러 가면 정반대 방향이다.
-- **오류 문구가 틀린 조치를 권했다.** 어느 경우든 "max_tokens를 늘리거나"라고 했는데,
-  `finish_reason`이 `length`가 아니면 모델이 스스로 멈춘 것이라 늘려도 같다. 이제
-  `finish_reason`을 그대로 읽어서 듣는 쪽만 권한다.
-
-**thinking을 켤지 끌지는 측정해서 정해라.** 출력 스키마에 이미 `reasoning` 필드가 맨 앞에
-있어서 모델은 어차피 근거를 먼저 쓴다. 추론 모드가 그 위에 더 얹을 값이 있는지는 모델과
-과제에 따라 다르다. 23건짜리 합성 셋이 있으니 양쪽을 다 돌려 비교하는 게 추측보다 빠르다.
-
-```bash
-python tools/legacy_run.py --synthetic --thinking off --out off.jsonl
-python tools/legacy_run.py --no-cache --synthetic --thinking on --out on.jsonl
-```
-
-특히 `partial`과 `insufficient`의 경계 판정에서 차이가 날 가능성이 크다. 그 4+3건이
-갈리는지를 보면 된다.
-
-### 서빙 쪽에서 확인할 것
-
-- 397B MoE(활성 17B)는 다중 GPU 텐서 병렬이 필요하다. `--check-llm`이 1회 소요시간을
-  알려주므로 거기서 전체 소요를 역산한다.
-- `--workers`는 서버 처리량에 맞춘다. vLLM은 연속 배치를 잘 처리하므로 8~16도 무리가
-  아니지만, `--check-llm`의 1회 시간이 수십 초라면 낮추는 게 낫다.
-- 입력은 케이스당 2~3천 토큰 수준이라 컨텍스트 길이는 문제가 되지 않는다.
-
-CLI가 3배쯤 무거운 이유는 Claude Code 기본 시스템 프롬프트(약 12k 토큰)가 매 호출에 실리기
-때문이다. `--system-prompt`로 교체해도 줄지 않는다. 캐시가 더워지면 그 부분은 캐시 읽기가 된다.
-
-**리포트의 달러 값은 청구액이 아니다.** CLI가 주는 `total_cost_usd`는 `costBasis="list"`,
-즉 API 정가 환산치다. 구독(OAuth) 인증으로 붙으면 별도 청구가 발생하지 않고 구독 사용량만
-소모하며, 한도를 넘으면 과금이 아니라 요청이 거절된다. 이 숫자는 어느 단계가 사용량을
-많이 먹는지 비교하는 용도로만 읽어라. API 키로 붙는 `--backend api`에서는 실제 요금이 된다.
-
-CLI 경로에는 서버측 스키마 강제가 없으므로 `prompts.output_contract()`가 Pydantic 모델에서
-계약 문구를 생성해 시스템 프롬프트에 붙인다. 손으로 두 번 쓰면 `schema.py`와 어긋난다.
-
-프롬프트 전문은 `python tools/legacy_run.py --show-prompts`로 예시 입력과 함께 볼 수 있다.
-
-## 이 장비에서 개발할 때
+## 실행
 
 ```bash
 python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
-./venv/bin/pip install -r requirements-dashboard.txt      # 대시보드를 볼 때만
+export LLM_API_URL=http://<서버>:8000      # OpenAI 호환 서버
+export LLM_API_KEY=<키>
 
-./venv/bin/python -m pytest tests/ -q            # LLM 없이 도는 전부
-./venv/bin/python src/run.py --dry-run           # 합성 데이터로 끝까지
-./venv/bin/python src/run.py --golden            # 3단계 판정 품질
-./venv/bin/python src/run.py --legacy-regression # 회귀 기준선 23건
+./venv/bin/python src/run.py --check-llm        # 서버 · 모델 · 1회 소요시간 점검
+./venv/bin/python src/run.py --dry-run          # LLM 없이 턴 고르기까지 (로그가 없으면 합성 데이터)
+./venv/bin/python src/run.py --conv-data <로그.json> --filter-data <필터.json>
+./venv/bin/python -m pytest tests/ -q           # LLM 없이 도는 전부
 ```
 
-판정 결과는 `.cache/` 에 저장되어 재실행 시 재사용된다 — 리포트나 라우팅을 고칠 때마다
-판정을 다시 살 필요가 없다. 관측이 그대로면 taxonomy 를 바꿔도 LLM 을 안 부른다.
+| 옵션 | 뜻 |
+|---|---|
+| `--turns <목록>` | 필터 대신 고른 턴 목록 |
+| `--limit N` · `--workers N` | 앞에서 N건만 · 동시 판정 턴 수 |
+| `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
+| `--golden` · `--legacy-regression` | 판정 품질 채점 · 회귀 기준선 23건 |
+| `--output-dir` · `--out` | 결과 위치 (기본 `./output`) |
 
-케이스당 LLM 호출은 평균 2회 내외다 (형식 불만이면 1회, `sufficient` 일 때만 3회,
-서비스 오류 문구면 0회).
-
-### 구 파이프라인 (회귀 기준선)
+설정 우선순위는 **CLI > 설정 파일 > 환경변수 > 기본값**이다. 모든 키는
+`configs/env.example.yaml` 에 있고, `--config` 를 안 주면 실행 위치의 `configs/env.yaml` 을 쓴다.
 
 ```bash
-./venv/bin/python tools/legacy_run.py --check-llm     # 서버 규약 확정
-./venv/bin/python tools/legacy_run.py --show-prompts  # 프롬프트 전문
-./venv/bin/python tools/legacy_run.py --trace C-4002:3  # 케이스 하나의 통과 경로
-./venv/bin/python tools/legacy_run.py --inspect --conv data/conv_eval.json  # 데이터 실태
+cp configs/env.example.yaml configs/env.yaml   # 커밋되지 않는다
+python src/run.py --config configs/env.yaml --dry-run
 ```
 
-`--show-prompts` 가 보여주는 것은 **구 파이프라인의 Stage 1(정보 요구 추출)** 이다.
-현행 Step 1(관측 추출)은 `OBSERVE_SYSTEM` 이고 필드가 더 많다. 충족도·근거 활용
-프롬프트는 둘이 공유하므로 그 둘은 그대로 읽어도 된다.
-
-분류 자체는 `src/run.py` 로 한다. 단계별로 무엇을 주고 무엇을 감추는지는
-**[처리 흐름](docs/process_flow.md)** 에 있다.
-
-## 개인정보
-
-`user_id` / `db_login_id`는 **로딩 단계에서** 해시로 치환된다. 리포트 단계가 아니라
-로딩 단계에 둔 이유는 원본 식별자가 어떤 산출물에도 들어가지 않게 하기 위해서다.
-해시는 salt 없는 결정적 값이라 그룹핑은 그대로 되고 필요하면 역조회도 가능하다.
-집계는 부서·직급 단위로만 낸다 — "누가 못 쓰는가"가 아니라 "어디가 안 되는가"를 보는 도구다.
+- 판정 기준(인용 일치율 0.9 · "짧게" 요구의 기준 400자 · 서비스 오류 문구 · 이전 질문 개수 3)도
+  설정에서 바꾼다. 플래그가 없는 키는 `--set 키=값` 으로 준다.
+- `llm_eval` · `llm_emotion` 의 **라벨 이름과 점수는 저장소에 없다**(자리표시자만 있다). 필터가
+  라벨 · 점수 조건을 쓰면 `labels.query` · `labels.emotion` 에 taxonomy 문서(`A. 이름 -> 점수`)를
+  가리켜야 한다. 없으면 필터가 에러 없이 0건을 돌려주므로 계산 전에 멈추게 해 두었다.
+- claude CLI · Anthropic API 로 판정하려면 `tools/dev_run.py` — 인자와 코드 경로가 같다.
 
 ## 대시보드
 
 ```bash
-pip install streamlit pandas          # 분류 파이프라인에는 불필요하다
-
-python -m streamlit run log_analysis/src/dashboard.py -- \
-    --dept-class configs/dept_class.json \
-    --job-class  configs/job_class.json
+./venv/bin/pip install -r requirements-dashboard.txt
+./venv/bin/python -m streamlit run src/dashboard.py -- --dept-class <체계.json> --job-class <체계.json>
 ```
 
-`--` 가 있어야 한다. 앞은 streamlit 이 먹고 뒤가 스크립트로 넘어간다.
-
-**`streamlit run` 이 아니라 `python -m streamlit run` 이다.** 앞의 형태는 PATH 에
-실행 파일이 있어야 하는데, venv 를 activate 하지 않았거나 공용 venv 를 쓰면
-`streamlit: command not found` 가 난다. `python -m` 은 지금 쓰는 인터프리터를
-그대로 쓰므로 PATH 를 타지 않는다.
-`--dept-class` · `--job-class` 는 없어도 돌아간다 — 부서·직급이 대분류로
-접히지 않고 로그 원본 값으로 나올 뿐이다.
-
-### 실데이터 없이 화면을 볼 때
-
-화면의 쓸모는 **분량에 달려 있다.** 몇 건으로는 필터가 좁히는지, 표가 읽히는지,
-훑어보기가 버티는지 알 수 없다 - 실제로 7건으로 보다가 다 괜찮아 보였다.
-
-```bash
-python - <<'EOF'
-import json, sys; sys.path.insert(0, "src")
-from ragdiag.fixtures.synth import generate
-json.dump(generate(seed=0, cases=500), open("demo_log.json", "w"), ensure_ascii=False)
-EOF
-
-python src/run.py --conv-data demo_log.json --output-dir output
-python -m streamlit run src/dashboard.py -- --dept-class <체계> --job-class <체계>
-```
-
-`cases` 는 **판정 대상 턴 수**, 곧 화면에 뜰 행 수다. 부서별 실패 성향은 규모와
-무관하게 유지되므로 500건에서도 "해외영업팀에 검색 실패가 몰린다"가 그대로 보인다.
-
-판정 캐시(`.cache/`)가 있으면 두 번째부터는 LLM 호출이 거의 없다. 500건이 쓰는
-서로 다른 프롬프트는 113개뿐이다 - 같은 질문에 여러 사람이 부딪히는 모양이라
-그렇고, 그 반복이 곧 코퍼스 보강 화면이 세는 신호다.
-
-`src/run.py` 와 같은 이유로 **`src/` 직하**에 있다. streamlit 은 스크립트가 있는
-디렉터리를 `sys.path[0]` 에 넣으므로, `src/ragdiag/` 안에 두면 그 디렉터리가
-올라가고 `src/` 는 안 올라가서 `import ragdiag` 가 자기 자신을 못 찾는다.
-실제로 한 번 그렇게 깨졌는데 **서버는 정상으로 뜨고 헬스체크도 통과했다** —
-streamlit 이 스크립트를 브라우저 접속 시에 실행하고 예외를 화면에만 보이기
-때문이다. `tests/test_dashboard.py` 가 스크립트를 끝까지 실행해 그걸 잡는다.
+`./output` 의 가장 최근 결과를 읽어 case 분포, 팀별로 겪는 실패, 유독 많은 case, 문서 보강 목록,
+개별 케이스의 판정 근거를 보여준다. 그보다 먼저 볼 **판정 건강**(지어낸 인용 · 신뢰도 낮음 ·
+미분류 · 서비스 오류 · 정상 건수)이 맨 위에 나온다 — 여기가 나쁘면 아래 집계를 믿을 수 없다.
+조직 분류 JSON 은 없어도 돈다 — 부서 · 직급이 로그 원본 값으로 나올 뿐이다.
 
 ## 구조
 
 ```
 src/
-  run.py           본 진입점 — 분류 · --golden · --legacy-regression
-  dashboard.py     대시보드 (streamlit 이 실행)
-  ragdiag/         (복사 목록은 위 참고)
-    settings.py    배포마다 바뀌는 값을 한 곳에
-    config.py      YAML 설정 읽기 · 시작 즉시 검증
-    contracts.py   입력 계약 — 실행 환경에서 회수한 포맷이 도착하는 지점
-    pipeline.py    단계별 함수 — 노트북·다른 스크립트에서 부를 수 있게
-    summary.py     RUN SUMMARY
-
-    ── 여기 전용 (실행 환경에는 그쪽 구현이 있다) ──
-    conv.py        conv_eval 파싱, 턴 짝짓기 (N+1 불만 ↔ N 답변·문서)
-    filters.py     필터 적용, 점수 재계산, 단계별 탈락 기록
-    labels.py      llm_eval / llm_emotion 라벨 테이블과 점수
-    load.py        구 포맷 로더 (회귀셋용)
-    org.py         조직 분류 대분류/중분류/소분류 (대시보드용)
-    survey.py      데이터 실태 조사
-    golden.py      골든셋 채점 (관측 · 판정)
-    report.py      구 리포트 (회귀 기준선용)
-
-    fixtures/
-      synth.py         generate(n, seed, cases) — 가짜 데이터는 파일이 아니라 코드
-      observations.py  Step 1 관측 골든셋 44건 (필드별 양성·음성)
-      judgments.py     Step 2·3 판정 골든셋 18건 (충족도 10 · 근거 활용 8)
-      synthetic.py     구 회귀셋 23건 + 구→신 case 매핑
-
-scripts/
-  sync.sh          이식 (규격 부록 A 전문 + 안내 문구만 갈라짐)
-  legacy_run.py    구 파이프라인 (회귀 기준선)
-
-configs/env.example.yaml   모든 설정 키
-docs/insights/         실행 환경에서 본 것을 적어 오는 자리
+  run.py              진입점
+  dashboard.py        대시보드
+  ragdiag/
+    conv.py           로그 파싱 · 짝짓기
+    filters.py        필터 · 점수 재계산          labels.py   라벨 테이블 (자리표시자)
+    classify.py       턴 하나의 판정 순서         prompts.py  판정 프롬프트
+    judge.py          LLM 호출 · 캐시             backends.py 로컬 LLM 접속
+    checks.py         코드 검증기                 verify.py   인용 대조
+    route.py          라우팅 진리표               taxonomy.py case 메타데이터
+    output.py         출력 JSON                   pipeline.py 단계별 함수
+    features/         결과를 읽어 지표를 내는 기능들
+    __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
+    fixtures/         합성 데이터 · 골든셋 · 회귀셋 (코드로 생성)
+    load.py · decide.py · report.py   구 파이프라인 전용 — 새 코드에서 쓰지 않는다
+tools/                개발 장비 전용 (claude CLI · API 백엔드, 구 파이프라인)
 ```
 
-`load.py` · `decide.py` · `report.py` 는 구 파이프라인 전용이다. 새 코드에서 쓰지 말 것 —
-회귀 기준선을 그대로 두기 위해 남겨둔 것이지 현행 경로가 아니다.
+## 부록: 실행 환경으로 옮기기
+
+실데이터는 별도 실행 환경에 있고, 거기에는 이 저장소를 태그 단위로 복사해 쓴다.
+작업 폴더에서 해야 할 일은 [TODO.md](TODO.md).
+
+<!-- BEGIN 실행 환경 순서 -->
+```bash
+cd 작업 폴더
+git clone <remote> .staging/log_analysis             # 최초 1회
+bash .staging/log_analysis/scripts/sync.sh <태그>     # 매번 — log_analysis/ 를 통째로 교체
+python log_analysis/src/run.py --check-llm
+python log_analysis/src/run.py --dry-run
+```
+<!-- END 실행 환경 순서 -->
+
+로그 파싱과 필터는 실행 환경 쪽 구현을 쓰고, `Case` 부터는 아래 모듈만 가져간다
+(`tests/test_boundary.py` 가 실제 import 로 확인한다).
+
+<!-- copy-list -->
+```
+ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
+ragdiag/backends.py   ragdiag/judge.py    ragdiag/decide.py     ragdiag/verify.py
+ragdiag/checks.py     ragdiag/route.py    ragdiag/classify.py   ragdiag/output.py
+ragdiag/pipeline.py
+```
+<!-- /copy-list -->
