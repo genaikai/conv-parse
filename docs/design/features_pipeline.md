@@ -98,7 +98,12 @@ README 복사 목록을 함께 바꾼다.
   실리는 데이터 계약이라 그쪽을 두고 집계 기능 쪽을 바꾼다.
 - 실패 표시의 단계 이름이 정확해진다. 지금은 검증기에서 난 예외도 `[observe]` 로
   찍힌다 (`classify.py:117`). 바뀐 뒤에는 그 기능 이름으로 찍힌다.
-- 그 밖에 출력 JSON 과 RUN SUMMARY 는 바뀌지 않는다. `tests/test_snapshot.py` 가 잰다.
+- 출력의 `evidence.checks` 목록에서 `service_error` 가 맨 앞으로 온다. 가장 먼저 도는
+  기능(`short_circuit`)이 남기기 때문이다. 예전에는 `pii` 가 먼저였다 — `run_checks`
+  딕셔너리에 적힌 순서였을 뿐 의미는 없었다. 내용은 같다.
+- 그 밖에 출력 JSON 과 RUN SUMMARY 는 바뀌지 않는다. `tests/test_snapshot.py` 가 재고
+  (checks 는 이름 → verdict 로 접어 순서를 보지 않는다), 같은 입력을 main 과 이 브랜치로
+  돌린 출력도 checks 순서를 빼면 같다.
 
 ## 이번에 하지 않는 것
 

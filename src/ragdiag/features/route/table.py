@@ -15,10 +15,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ragdiag import taxonomy
-from ragdiag.checks import Check
-from ragdiag.results import Classification
+from ragdiag.results import Check, Classification
 from ragdiag.schema import GroundingCheck, Observation, SufficiencyJudgment
-from ragdiag.verify import CitationCheck, QuoteCheck
+from ragdiag.verify import CitationCheck, QuoteCheck, final_verdict
 
 
 def _check(checks: dict[str, Check], name: str) -> Optional[Check]:
@@ -94,27 +93,6 @@ def secondary_from(obs: Observation, checks: dict[str, Check]) -> list[str]:
                 extra.append(case_id)
     return extra
 
-
-
-def service_unavailable(check) -> Classification:
-    """case9 — 서비스가 자원을 확보하지 못해 안내 문구를 낸 턴.
-
-    관측(Step 1)을 거치지 않고 코드만으로 만든다. 확정 문구와의 대조라
-    다른 라우팅과 달리 LLM 판정이 하나도 섞이지 않는다.
-
-    주의를 함께 실어 둔다. 이 라벨이 쌓이면 "챗봇 품질이 나쁘다"가 아니라
-    "그 시간대에 자원이 모자랐다"이고, 같은 표에서 다른 case 와 나란히 읽으면
-    품질 지표가 인프라 장애에 흔들린다.
-    """
-    meta = taxonomy.get("case9")
-    return Classification(
-        primary_case="case9",
-        confidence=meta.confidence if meta else "high",
-        reason=f"서비스 자원 부족 안내 문구 — {check.detail}",
-        secondary_cases=[],
-        notes=["모델이 답을 만든 적이 없다. 검색·생성 품질 집계에서 분리할 것.",
-               "LLM 판정을 돌리지 않았다 — 관측·충족도·근거 활용이 모두 비어 있다."],
-    )
 
 
 def route(
@@ -293,11 +271,11 @@ def _route_domain(obs, judgment, citation, grounding, done) -> Classification:
     if judgment is None:
         return done(taxonomy.UNCLASSIFIED, "도메인 질문인데 충족도 판정이 없음")
 
-    kept = citation.n_kept if citation else 0
     n_chunks = citation.n_chunks if citation else None
     # 인용이 하나도 검증되지 않은 sufficient/partial 주장은 사전지식에서 나온 것으로 본다.
-    downgraded = judgment.verdict in ("sufficient", "partial") and kept == 0
-    verdict = "insufficient" if downgraded else judgment.verdict
+    # 규칙은 final_verdict 한 곳에 있다 - grounding 이 물을지 정할 때도 같은 규칙을 본다.
+    verdict = final_verdict(judgment, citation)
+    downgraded = verdict != judgment.verdict
 
     if verdict in ("insufficient", "partial"):
         note = ["인용 검증 실패로 강등됨"] if downgraded else []

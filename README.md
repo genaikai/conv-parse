@@ -236,7 +236,7 @@ python log_analysis/src/run.py --dry-run
 ```
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
 ragdiag/backends.py   ragdiag/judge.py    ragdiag/decide.py     ragdiag/verify.py
-ragdiag/checks.py     ragdiag/route.py    ragdiag/classify.py   ragdiag/output.py
+ragdiag/checks.py     ragdiag/output.py
 ragdiag/pipeline.py   ragdiag/results.py  ragdiag/features/   (폴더 통째)
 ```
 <!-- /copy-list -->

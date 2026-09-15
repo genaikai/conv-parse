@@ -17,12 +17,32 @@
 """
 
 from ._context import RunContext
-from . import classification, classify, failures, filter_fp, llm_fallback
+from . import (
+    checks,
+    citation,
+    classification,
+    complaint_quote,
+    failures,
+    filter_fp,
+    grounding,
+    llm_fallback,
+    observe,
+    route,
+    short_circuit,
+    sufficiency,
+)
 
 __all__ = ["FEATURES", "RunContext", "collect"]
 
 FEATURES = (
-    classify,          # [임시] 지금의 판정 순서를 통째로
+    short_circuit,     # LLM 전에 case 를 확정하는 규칙들 (규칙끼리의 순서는 그 안의 RULES)
+    observe,           # Step 1 관측 · LLM
+    complaint_quote,   # "불만 아님" 의 근거를 후속 발화와 대조
+    checks,            # 코드 검증기
+    sufficiency,       # Step 2 충족도 · LLM
+    citation,          # 판정자의 인용을 원문과 대조
+    grounding,         # Step 3 근거 활용 · LLM
+    route,             # 진리표 → case
     # 여기부터는 집계. 화면에 뜨는 순서다 — 사람이 사이클 사이에 눈으로 대조하므로
     # 순서를 바꾸지 않는다.
     classification,

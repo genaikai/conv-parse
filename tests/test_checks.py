@@ -16,7 +16,6 @@ from ragdiag.checks import (
     check_pii,
     check_python_syntax,
     check_quoted_spans,
-    check_service_error,
     check_truncated,
     detect_language,
     extract_quotes,
@@ -25,6 +24,7 @@ from ragdiag.checks import (
     has_format,
     script_profile,
 )
+from ragdiag.features.short_circuit.service_error import check_service_error
 
 CHUNKS = [
     "국내 출장 식비는 1일 3만원을 상한으로 한다.",

@@ -2,11 +2,10 @@
 
 import json
 
-from ragdiag.checks import Check
-from ragdiag.classify import TurnResult
 from ragdiag.conv import parse_conversations, to_case
+from ragdiag.features.route import route
 from ragdiag.output import build_output, summarize
-from ragdiag.route import route
+from ragdiag.results import Check, TurnResult
 from tests.test_route import checks, citation, judgment, obs
 
 RAW = {"users": [{
@@ -95,8 +94,11 @@ def test_failed_turn_names_the_step_it_died_in():
     단계 이름이 없으면 실데이터 한 번 돌린 뒤 어디를 고칠지 정할 수 없다.
     """
     from ragdiag.backends import Usage
-    from ragdiag.classify import classify_turn
+    from ragdiag.pipeline import judge_cases
     from tests.test_route import obs as make_obs
+
+    def classify_turn(case, judge):
+        return judge_cases([case], judge, workers=1)[0]
 
     class _Dies:
         def __init__(self, at):
@@ -123,7 +125,7 @@ def test_no_complaint_skips_the_sufficiency_step():
     없는 문서에서 인용을 지어낼 표면도 생긴다 - verify 가 잡지만 잡을 일을 안 만든다.
     """
     from ragdiag.backends import Usage
-    from ragdiag.classify import classify_turn
+    from ragdiag.pipeline import judge_cases
     from tests.test_route import obs as make_obs
 
     class _Judge:
@@ -152,7 +154,7 @@ def test_no_complaint_skips_the_sufficiency_step():
         llm_ans_on_last_q="연차는 입사일 기준으로 매년 15일이 부여됩니다. "
                           "자세한 내용은 인사규정 제12조를 확인해 주세요.")
     judge = _Judge()
-    result = classify_turn(case, judge)
+    result = judge_cases([case], judge, workers=1)[0]
 
     assert judge.asked == ["observe"], judge.asked
     assert result.classification.primary_case == "case0", result.classification

@@ -32,8 +32,6 @@ CORE = [
     "ragdiag.decide",
     "ragdiag.verify",       # 인용 대조
     "ragdiag.checks",       # 코드 검증기
-    "ragdiag.route",        # 진리표
-    "ragdiag.classify",     # 오케스트레이션
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
     "ragdiag.features",     # 기능 등록부 — 판정 순서와 집계 (폴더 통째)

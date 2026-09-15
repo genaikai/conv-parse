@@ -75,3 +75,31 @@ def test_normalize_removes_whitespace_and_normalizes_unicode():
 def test_match_ratio_bounds(quote, expected_min):
     ratio = match_ratio(quote, CHUNKS[0])
     assert ratio >= expected_min if expected_min == 1.0 else ratio < MATCH_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
+# 인용 대조를 거친 verdict — 근거 활용을 물을지와 case 를 정하는 쪽이 같이 본다
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("verdict, kept, want", [
+    ("sufficient", 0, "insufficient"),   # 인용 없는 "있다" 는 사전지식이다
+    ("partial", 0, "insufficient"),
+    ("sufficient", 1, "sufficient"),
+    ("partial", 1, "partial"),
+    ("insufficient", 0, "insufficient"),
+])
+def test_final_verdict_downgrades_claims_without_a_surviving_quote(verdict, kept, want):
+    from ragdiag.schema import SufficiencyJudgment
+    from ragdiag.verify import CitationCheck, VerifiedEvidence, final_verdict
+
+    judgment = SufficiencyJudgment(reasoning="r", evidence=[], verdict=verdict, missing="")
+    citation = CitationCheck(kept=[VerifiedEvidence(0, "q" * 12, 1.0)] * kept, n_chunks=2)
+    assert final_verdict(judgment, citation) == want
+
+
+def test_final_verdict_without_a_citation_check_counts_no_quotes():
+    from ragdiag.schema import SufficiencyJudgment
+    from ragdiag.verify import final_verdict
+
+    judgment = SufficiencyJudgment(reasoning="r", evidence=[], verdict="sufficient", missing="")
+    assert final_verdict(judgment, None) == "insufficient"

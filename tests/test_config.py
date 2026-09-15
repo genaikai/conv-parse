@@ -146,7 +146,7 @@ def test_all_problems_are_reported_at_once(tmp_path):
 
 def test_service_error_templates_reach_the_checker(tmp_path, restore_settings):
     """설정에 적은 문구로 판정이 바뀌어야 한다."""
-    from ragdiag.checks import check_service_error
+    from ragdiag.features.short_circuit.service_error import check_service_error
 
     캔드 = "지금은 응답할 수 없습니다. 관리자에게 문의하세요"
     assert not check_service_error(캔드).violated, "바꾸기 전에는 안 잡혀야 한다"

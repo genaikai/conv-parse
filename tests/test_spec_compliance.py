@@ -960,11 +960,11 @@ def test_step_numbering_means_one_thing():
     """
     import re
 
-    routing = (ROOT / "src/ragdiag/route.py").read_text(encoding="utf-8")
+    routing = (ROOT / "src/ragdiag/features/route/table.py").read_text(encoding="utf-8")
     assert not re.search(r"Step 3\s*—.*case 로 바꾼다", routing), (
-        "route.py 가 자기를 Step 3 이라 부른다. 근거 활용이 Step 3 이다.")
+        "route 가 자기를 Step 3 이라 부른다. 근거 활용이 Step 3 이다.")
 
-    for path in ["README.md", "docs/process_flow.md", "src/ragdiag/classify.py"]:
+    for path in ["README.md", "docs/process_flow.md", "src/ragdiag/features/__init__.py"]:
         text = (ROOT / path).read_text(encoding="utf-8")
         assert "Step 3  라우팅" not in text and "Step 3 · 라우팅" not in text, (
             f"{path} 가 라우팅을 Step 3 이라 부른다")
@@ -979,16 +979,21 @@ def test_process_flow_checker_inputs_match_run_checks():
     import inspect
     import re
 
-    from ragdiag import classify
+    from ragdiag.features import checks as checker
+    from ragdiag.features import short_circuit
 
-    body = inspect.getsource(classify.run_checks)
+    fields = ("llm_ans_on_last_q", "last_query", "rag_chunks")
+    body = inspect.getsource(checker.run_checks)
     real: dict[str, set[str]] = {}
     for m in re.finditer(r'"(\w+)": (check_\w+)\(([^)]*)', body):
-        real[m.group(1)] = {f for f in ("llm_ans_on_last_q", "last_query", "rag_chunks")
-                            if f in m.group(3)}
+        real[m.group(1)] = {f for f in fields if f in m.group(3)}
     for m in re.finditer(r'checks\["(\w+)"\] = (check_\w+)\(\s*case\.(\w+)', body):
         real.setdefault(m.group(1), set()).add(m.group(3))
     assert real, "run_checks 에서 검증기를 못 찾았다"
+    # LLM 전에 case 를 확정하는 규칙도 검증기다. 문서 표에 같이 있어야 한다.
+    for rule in short_circuit.RULES:
+        source = inspect.getsource(rule.check)
+        real[rule.NAME] = {f for f in fields if f"case.{f}" in source}
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     table = doc.split("| 검증기 | 입력 | 무엇을 |")[1].split("\n\n")[0]
@@ -1049,11 +1054,13 @@ def test_process_flow_documents_every_checker_verdict_rule():
     import inspect
     import re
 
-    from ragdiag import classify
+    from ragdiag.features import checks as checker
+    from ragdiag.features import short_circuit
 
-    body = inspect.getsource(classify.run_checks)
+    body = inspect.getsource(checker.run_checks)
     real = (set(re.findall(r'"(\w+)":\s*check_', body))
-            | set(re.findall(r'checks\["(\w+)"\]', body)))
+            | set(re.findall(r'checks\["(\w+)"\]', body))
+            | {rule.NAME for rule in short_circuit.RULES})
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     assert "### verdict 를 어떻게 만드나" in doc, "판정 규칙 절이 없다"
@@ -1074,9 +1081,9 @@ def test_process_flow_routing_inputs_match_route_py():
 
     from ragdiag.schema import Observation
 
-    route = (ROOT / "src/ragdiag/route.py").read_text(encoding="utf-8")
+    route = (ROOT / "src/ragdiag/features/route/table.py").read_text(encoding="utf-8")
     real = {f for f in Observation.model_fields if re.search(rf"obs\.{f}\b", route)}
-    assert real, "route.py 에서 관측 필드 참조를 못 찾았다"
+    assert real, "route 에서 관측 필드 참조를 못 찾았다"
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     table = doc.split("| 어디서 | 라우팅이 읽는 것 | 안 읽는 것 |")[1].split("\n\n")[0]
@@ -1105,18 +1112,18 @@ def test_process_flow_states_when_sufficiency_runs():
     import re
     import typing
 
-    from ragdiag import classify
+    from ragdiag.features import sufficiency
     from ragdiag.schema import Observation
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     section = doc.split("## ⑦")[1].split("## ⑧")[0]
 
     # 코드의 조건을 문서가 그대로 담고 있나
-    body = inspect.getsource(classify.classify_turn)
+    body = inspect.getsource(sufficiency)
     assert 'obs.question_domain == "domain"' in body
     for token in ("question_domain", "complaint_target", "rag_chunks"):
         assert token in section, f"⑦ 절에 {token} 조건이 없다"
-    for value in classify.CONTENT_COMPLAINTS:
+    for value in sufficiency.CONTENT_COMPLAINTS:
         assert value in section, f"⑦ 절에 {value} 가 없다"
 
     # question_domain 의 값이 전부 적혀 있나
@@ -1144,7 +1151,7 @@ def test_process_flow_truth_table_matches_routing():
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from test_route import checks, citation, ground, judgment, obs
 
-    from ragdiag.route import route
+    from ragdiag.features.route import route
 
     def run(n_chunks, verdict, kept, used_rag=None, actionable=True):
         g = ground(used_rag) if used_rag else None

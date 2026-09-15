@@ -303,8 +303,8 @@ def run_legacy_regression(args, backend=None) -> int:
     sys.path.insert(0, str(Path(__file__).parent))
     from ragdiag.fixtures.synthetic import build, expected_cases
 
-    from ragdiag.classify import classify_all
     from ragdiag.load import parse_cases
+    from ragdiag.pipeline import judge_cases
 
     data, expected = build()
     cases = parse_cases(data)
@@ -320,7 +320,7 @@ def run_legacy_regression(args, backend=None) -> int:
     judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
     print(f"구 회귀셋 {len(cases)}건 · {backend.model} · 동시 {args.workers}",
           file=sys.stderr)
-    results = classify_all(cases, judge, max_workers=args.workers)
+    results = judge_cases(cases, judge, workers=args.workers)
 
     hits, rows = 0, []
     for result in results:

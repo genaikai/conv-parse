@@ -16,7 +16,7 @@ import unicodedata
 from typing import Optional
 from dataclasses import dataclass, field
 
-from ragdiag.schema import Evidence
+from ragdiag.schema import Evidence, SufficiencyJudgment
 
 from ragdiag import settings
 from ragdiag.settings import EVIDENCE_MIN_QUOTE_CHARS, MATCH_THRESHOLD
@@ -127,3 +127,17 @@ def verify_evidence(evidence: list[Evidence], chunks: list[str]) -> CitationChec
                 {"quote": ev.quote, "reason": "not_found", "best_ratio": round(best_ratio, 3)}
             )
     return check
+
+
+def final_verdict(judgment: SufficiencyJudgment, citation: Optional[CitationCheck]) -> str:
+    """인용 대조를 거친 verdict. 문서에 답이 있다고 주장하려면 살아남은 인용이 있어야 한다.
+
+    인용이 하나도 검증되지 않은 sufficient · partial 은 판정자의 사전지식에서 나온
+    주장으로 보고 insufficient 로 내린다. 근거 활용을 물을지 정하는 쪽(grounding)과
+    case 를 정하는 쪽(route)이 같은 규칙을 봐야 해서 여기 한 곳에 둔다 - 두 곳에 적으면
+    한쪽만 고치게 된다.
+    """
+    kept = citation.n_kept if citation else 0
+    if judgment.verdict in ("sufficient", "partial") and kept == 0:
+        return "insufficient"
+    return judgment.verdict

@@ -124,3 +124,78 @@ def test_every_feature_exposes_the_agreed_shape():
     for feature in features.FEATURES:
         assert isinstance(feature.NAME, str) and feature.NAME
         assert callable(feature.process_data)
+
+
+# ---------------------------------------------------------------------------
+# 판정 순서 — 뒤 기능이 읽는 것은 앞 기능이 써 둔 것이어야 한다
+# ---------------------------------------------------------------------------
+
+def test_features_run_in_an_order_that_feeds_each_step():
+    """순서가 틀리면 뒤 기능이 아직 비어 있는 값(None)을 읽는다."""
+    from ragdiag.features import (checks, citation, classification, complaint_quote,
+                                  failures, filter_fp, grounding, llm_fallback, observe,
+                                  route, short_circuit, sufficiency)
+
+    order = {feature.NAME: i for i, feature in enumerate(features.FEATURES)}
+
+    def before(first, then):
+        assert order[first.NAME] < order[then.NAME], (
+            f"{first.NAME} 가 {then.NAME} 보다 앞이어야 한다")
+
+    before(short_circuit, observe)       # LLM 전에 확정할 턴을 닫는다
+    before(observe, complaint_quote)     # 관측의 complaint_quote 를 대조한다
+    before(observe, checks)              # language · format · length 가 요구값을 읽는다
+    before(observe, sufficiency)
+    before(sufficiency, citation)
+    before(citation, grounding)          # 강등된 verdict 로 물을지 정한다
+    before(checks, route)
+    before(grounding, route)
+    for report in (classification, llm_fallback, filter_fp, failures):
+        before(route, report)            # 집계는 판정이 끝난 뒤에 읽는다
+
+
+# ---------------------------------------------------------------------------
+# short_circuit — 규칙 하나가 파일 하나
+# ---------------------------------------------------------------------------
+
+def test_short_circuit_rules_expose_the_agreed_shape():
+    from ragdiag import taxonomy
+    from ragdiag.features import short_circuit
+
+    names = [rule.NAME for rule in short_circuit.RULES]
+    assert len(names) == len(set(names)), f"규칙 이름이 겹친다: {names}"
+    for rule in short_circuit.RULES:
+        assert isinstance(rule.NAME, str) and rule.NAME
+        assert taxonomy.get(rule.CASE) is not None, f"{rule.NAME}: {rule.CASE} 는 taxonomy 에 없다"
+        assert isinstance(rule.REASON, str) and rule.REASON
+        assert all(isinstance(note, str) for note in rule.NOTES)
+        assert callable(rule.check)
+
+
+def test_the_first_rule_that_fires_decides_and_the_rest_are_not_asked(monkeypatch):
+    """규칙 순서가 우선순위다. 걸린 뒤의 규칙까지 돌리면 두 case 가 다툰다."""
+    from types import SimpleNamespace
+
+    from ragdiag.features import short_circuit
+    from ragdiag.results import Check, TurnResult
+
+    def rule(name, case, verdict):
+        def check(turn):
+            if verdict is None:
+                raise AssertionError(f"{name} 는 불리면 안 된다")
+            return Check(name, verdict, f"{name} 판정")
+        return SimpleNamespace(NAME=name, CASE=case, REASON=f"{name} 이유",
+                               NOTES=("주의",), check=check)
+
+    monkeypatch.setattr(short_circuit, "RULES", (
+        rule("passes", "case9", "ok"),
+        rule("fires", "case8", "violated"),
+        rule("never", "case28", None),
+    ))
+    turn = TurnResult(case=SimpleNamespace())
+    short_circuit.process_data(features.RunContext(turns=[turn]))
+
+    assert turn.classification.primary_case == "case8"
+    assert turn.classification.reason == "fires 이유 — fires 판정"
+    assert turn.classification.notes == ["주의"]
+    assert set(turn.checks) == {"passes", "fires"}, "걸리기 전까지의 결과는 전부 남는다"

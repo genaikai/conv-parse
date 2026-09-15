@@ -6,8 +6,9 @@ case 를 코드가 정하므로 여기서 전 경로를 커버할 수 있다. LL
 import pytest
 
 from ragdiag import taxonomy
-from ragdiag.checks import Check
-from ragdiag.route import route, secondary_from, service_unavailable
+from ragdiag.features import short_circuit
+from ragdiag.features.route import route, secondary_from
+from ragdiag.results import Check
 from ragdiag.schema import Evidence, GroundingCheck, Observation, SufficiencyJudgment
 from ragdiag.verify import CitationCheck, QuoteCheck, VerifiedEvidence
 
@@ -379,10 +380,12 @@ def reachable_cases() -> set[str]:
             produced.add(result.primary_case)
             produced.update(result.secondary_cases)
 
-    # case9 는 route() 가 아니라 service_unavailable() 이 만든다. 관측을 거치지
-    # 않는 유일한 경로라 여기서 빠지면 "도달 불가"로 잘못 집계된다.
-    produced.add(service_unavailable(
-        Check("service_error", "violated", "확정 문구 일치")).primary_case)
+    # case9 처럼 LLM 전에 확정되는 case 는 route() 가 아니라 short_circuit 의 규칙이
+    # 만든다. 관측을 거치지 않는 경로라 여기서 빠지면 "도달 불가"로 잘못 집계된다.
+    # 규칙이 늘어도 저절로 따라가도록 RULES 를 전부 돈다.
+    for rule in short_circuit.RULES:
+        produced.add(short_circuit.decide(
+            rule, Check(rule.NAME, "violated", "규칙에 걸림")).primary_case)
     return {c for c in produced if c.startswith("case")}
 
 
