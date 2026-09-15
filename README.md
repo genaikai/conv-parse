@@ -69,9 +69,11 @@ filter    ─┴─▶ 파싱 → 턴 고르기 → 짝짓기 (불만 턴 N+1 �
                  → 라우팅              코드   관측 + 검증 → case
 ```
 
+- **단계 하나가 기능 하나다.** 위 순서는 `src/ragdiag/features/__init__.py` 의 `FEATURES` 에
+  적힌 순서 그대로 실행된다. 판정 순서가 적힌 곳은 거기뿐이다.
 - **LLM 은 턴당 최대 3회**, 대부분 1회로 끝난다. 판정은 `.cache/` 에 저장되어 재실행 시 재사용된다.
 - **case 는 LLM 이 고르지 않는다.** 30지선다는 정확도가 안 나오고, 한 번에 물으면 결론을 먼저
-  정하고 관측을 끼워 맞춘다. 좁은 관측만 LLM 에 묻고 조합은 `route.py` 의 진리표가 한다 —
+  정하고 관측을 끼워 맞춘다. 좁은 관측만 LLM 에 묻고 조합은 `features/route/` 의 진리표가 한다 —
   taxonomy 를 고쳐도 LLM 을 다시 돌리지 않는다.
 - **단계마다 입력을 일부러 뺀다.** 관측은 문서를 안 봐야 요구를 문서 쪽으로 끌어오지 않고,
   충족도는 답변을 안 봐야 답변 품질을 문서 품질로 착각하지 않는다.
@@ -142,8 +144,9 @@ case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답�
 | `llm_fallback` | 판정 LLM 의 응답이 잘려 조건을 바꿔 되살린 호출 — 다음엔 `--thinking off` |
 | `failed at` | 실패가 몰린 단계 |
 
-지표를 더하려면 `src/ragdiag/features/template/` 을 복사하고 `features/__init__.py` 의
-`FEATURES` 에 한 줄 더한다.
+기능(판정 단계 · 검증기 · 집계)을 더하려면 `src/ragdiag/features/template/` 을 복사하고
+`features/__init__.py` 의 `FEATURES` 에 한 줄 더한다. LLM 없이 case 를 바로 확정하는 규칙은
+`features/short_circuit/_template.py` 를 복사하고 그 폴더의 `RULES` 에 한 줄 더한다.
 
 ## 실행
 
@@ -200,14 +203,17 @@ src/
   run.py              진입점
   dashboard.py        대시보드
   ragdiag/
-    conv.py           로그 파싱 · 짝짓기
-    filters.py        필터 · 점수 재계산          labels.py   라벨 테이블 (자리표시자)
-    classify.py       턴 하나의 판정 순서         prompts.py  판정 프롬프트
-    judge.py          LLM 호출 · 캐시             backends.py 로컬 LLM 접속
-    checks.py         코드 검증기                 verify.py   인용 대조
-    route.py          라우팅 진리표               taxonomy.py case 메타데이터
-    output.py         출력 JSON                   pipeline.py 단계별 함수
-    features/         결과를 읽어 지표를 내는 기능들
+    features/         기능 등록부 — FEATURES 순서가 곧 판정 순서
+      short_circuit/                          LLM 전에 case 를 확정하는 규칙들 (service_error …)
+      observe/  sufficiency/  grounding/      LLM 판정 — Step 1 · 2 · 3
+      complaint_quote/  citation/             판정자가 댄 인용을 원문과 대조
+      pii/  truncated/  language/  format/ …  코드 검증기 11개
+      route/                                  진리표 → case
+      classification/  llm_fallback/  filter_fp/  failures/   집계
+    conv.py · filters.py · labels.py          로그 파싱 · 짝짓기 · 필터 (여기 전용)
+    judge.py · backends.py · prompts.py       LLM 호출 · 캐시 · 프롬프트
+    results.py · verify.py · taxonomy.py      턴 판정 결과 · 인용 대조 · case 메타데이터
+    output.py · pipeline.py                   출력 JSON · 단계별 함수
     __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
     fixtures/         합성 데이터 · 골든셋 · 회귀셋 (코드로 생성)
     load.py · decide.py · report.py   구 파이프라인 전용 — 새 코드에서 쓰지 않는다

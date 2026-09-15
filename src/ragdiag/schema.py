@@ -93,7 +93,7 @@ class GroundingCheck(BaseModel):
 # Step 1 관측 스키마  (taxonomy 30개 확장용)
 #
 # 기존 NeedAnalysis 를 일반화한 것이다. 핵심 차이는 **case를 고르지 않는다**는 점이다.
-# 관측 가능한 사실만 내고, case는 checks.py 의 결정적 검증과 함께 코드가 도출한다.
+# 관측 가능한 사실만 내고, case는 코드 검증기(features/)의 결정적 검증과 함께 코드가 도출한다.
 #
 # 이렇게 두면 taxonomy 를 고쳐도 이 값들은 그대로 재사용된다 — 관측은 taxonomy 와
 # 무관한 사실이기 때문이다. 라우팅만 다시 돌리면 된다.

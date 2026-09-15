@@ -203,7 +203,7 @@ case28(보안 정책상 답변 불가)로 보낸다 — 서버 자원 문제가 
 
 조용히 사라진 케이스가 없음을 확인하기 위한 표다.
 
-`route.py` 가 실제로 도달할 수 있는 case 를 전수 열거해 확인한 결과다
+`features/route/` 가 실제로 도달할 수 있는 case 를 전수 열거해 확인한 결과다
 (`tests/test_route.py::test_routing_never_produces_an_undiagnosable_case`).
 
 | | 케이스 |

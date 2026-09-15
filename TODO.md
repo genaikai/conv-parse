@@ -212,5 +212,5 @@ python log_analysis/src/run.py --conv-data <실데이터> --turns <목록> --lim
 | `llm_fallback` · `filter FP` · `failed at` 줄 | 다음 실행의 `--thinking` · 필터 · 프롬프트 |
 | "코드 한 줄만 고치면 되는데" 했던 순간 | 그 값을 설정이나 인자로 승격 |
 | 의존성 충돌 메시지 | `requirements.txt` |
-| 라벨이 틀린 표본 (case 와 이유) | `route.py` 의 순서, `prompts.py` 의 관측 정의 |
+| 라벨이 틀린 표본 (case 와 이유) | `features/route/table.py` 의 순서, `prompts.py` 의 관측 정의 |
 

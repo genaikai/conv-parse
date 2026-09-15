@@ -21,7 +21,7 @@ from ragdiag.schema import Evidence, SufficiencyJudgment
 from ragdiag import settings
 from ragdiag.settings import EVIDENCE_MIN_QUOTE_CHARS, MATCH_THRESHOLD
 
-# 옛 이름. checks.py 에도 같은 이름의 다른 값(답변이 제시한 인용의 최소 길이)이
+# 옛 이름. features/quoted_spans 에도 같은 이름의 다른 값(답변이 제시한 인용의 최소 길이)이
 # 있어서 한쪽만 고치고 양쪽을 고쳤다고 착각하기 쉬웠다. settings 에서 이름을
 # 갈랐고, 여기 별칭은 기존 호출부를 위해 남긴다.
 MIN_QUOTE_CHARS = EVIDENCE_MIN_QUOTE_CHARS

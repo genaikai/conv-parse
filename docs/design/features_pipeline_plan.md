@@ -10,6 +10,21 @@
 
 **Spec:** [features_pipeline.md](features_pipeline.md)
 
+## 실행 기록 — 계획과 달라진 것
+
+0~4 단계 전부 끝났다 (브랜치 `features-pipeline`). 아래 코드 블록은 계획 당시 그대로 두고,
+실제와 달라진 것만 여기 적는다.
+
+- **Task 0** — 스냅숏을 JSON 이 아니라 파이썬(`tests/snapshots/judgment.py`, `EXPECTED = {…}`,
+  시나리오 하나가 한 줄)으로 뜬다. 이 저장소는 JSON 추적을 테스트로 막는다
+  (`test_no_json_fixtures_are_tracked`). 검증기에 하나도 안 걸리는 `clean` 텍스트를 더했다 —
+  없으면 case0 에 도달하는 시나리오가 없었다. 246개 시나리오.
+- **Task 1** — `failures` 기능이 단계마다 같은 이름으로 지표를 내서, 두 단계 이상에서 깨지면
+  등록부의 이름 겹침 검사에 걸려 요약 전체가 죽는 결함이 드러났다 (스냅숏의 실패 시나리오가
+  잡았다). 첫 줄에만 이름을 붙이도록 고쳤다.
+- **Task 2** — 출력의 `evidence.checks` 에서 `service_error` 가 맨 앞으로 온다. 내용은 같다.
+  main 과 같은 입력을 돌려 checks 순서를 빼면 출력이 같은 것을 확인했다.
+
 ## Global Constraints
 
 - 출력 JSON 과 RUN SUMMARY 는 바뀌지 않는다. 예외 둘 — RUN SUMMARY 의 `truncated` 줄 이름이 `llm_fallback` 으로, 실패 표시의 단계 이름이 그 기능 이름으로.
@@ -45,7 +60,7 @@ src/ragdiag/
     classification/ filter_fp/ failures/   ~  turns 에서 센다
     llm_fallback/           →  ← truncated/
 tests/
-  test_snapshot.py · snapshots/judgment.json   +
+  test_snapshot.py · snapshots/judgment.py   +
   test_features.py · test_route.py · test_output.py · test_checks.py
   test_config.py · test_boundary.py · test_spec_compliance.py   ~
 ```
@@ -58,7 +73,7 @@ tests/
 
 **Files:**
 - Create: `tests/test_snapshot.py`
-- Create: `tests/snapshots/judgment.json` (생성)
+- Create: `tests/snapshots/judgment.py` (생성)
 
 **Interfaces:**
 - Consumes: `ragdiag.pipeline.judge_cases(cases, judge, workers)` · `ragdiag.output.build_turn(result, source_turn_no)`
