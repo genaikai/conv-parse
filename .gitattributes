@@ -19,6 +19,9 @@ requirements-dev.txt   export-ignore
 # 운영 환경에서 가져온 인사이트 기록
 docs/insights/         export-ignore
 
+# 개발 중 설계 · 계획 기록. 프로그램이 어떻게 도는지가 아니라 어떻게 바꿨는지다
+docs/design/           export-ignore
+
 # AI 도구 설정
 .claude/               export-ignore
 .cursor/               export-ignore
