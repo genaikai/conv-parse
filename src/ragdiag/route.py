@@ -12,32 +12,13 @@ category 는 case 에서 계산되므로 따로 분류하지 않는다.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Optional
 
 from ragdiag import taxonomy
 from ragdiag.checks import Check
+from ragdiag.results import Classification
 from ragdiag.schema import GroundingCheck, Observation, SufficiencyJudgment
 from ragdiag.verify import CitationCheck, QuoteCheck
-
-
-@dataclass
-class Classification:
-    primary_case: str
-    confidence: str
-    reason: str
-    secondary_cases: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
-
-    def as_dict(self) -> dict:
-        payload = taxonomy.describe(self.primary_case)
-        payload.update(
-            confidence=self.confidence,
-            reason=self.reason,
-            secondary_cases=[taxonomy.describe(c) for c in self.secondary_cases],
-            notes=self.notes,
-        )
-        return payload
 
 
 def _check(checks: dict[str, Check], name: str) -> Optional[Check]:

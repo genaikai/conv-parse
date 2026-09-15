@@ -23,10 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from ragdiag import settings
-from ragdiag.classify import TurnResult, classify_all
+from ragdiag import features, settings
 from ragdiag.judge import Judge
 from ragdiag.output import build_output, summarize
+from ragdiag.results import TurnResult
 from ragdiag.schema import Case
 
 # ---------------------------------------------------------------------------
@@ -65,13 +65,21 @@ class Outcome:
 
 def judge_cases(cases: list[Case], judge: Judge,
                 workers: Optional[int] = None) -> list[TurnResult]:
-    """Case 목록을 판정한다. 3스텝 판정이 도는 곳이다.
+    """Case 목록을 판정한다. features.FEATURES 를 처음부터 끝까지 돌린다.
 
     한 턴이 실패해도 나머지는 계속 간다 - 결과의 error 필드로 확인할 것.
+    집계 기능도 함께 돌지만 그 지표는 여기서 버린다. 지표가 필요하면
+    RunContext 를 직접 만들어 features.collect 를 부른다 (__main__.py 가 그렇게 한다).
     """
-    # 기본 인자는 def 시점에 굳어 --config 적용이 안 먹는다. 여기서 푼다.
-    return classify_all(cases, judge,
-                        max_workers=workers or settings.DEFAULT_WORKERS)
+    ctx = features.RunContext(
+        turns=[TurnResult(case=c) for c in cases],
+        judge=judge,
+        # 기본 인자는 def 시점에 굳어 --config 적용이 안 먹는다. 여기서 푼다.
+        workers=workers or settings.DEFAULT_WORKERS,
+        backend=getattr(judge, "backend", None),
+    )
+    features.collect(ctx)
+    return ctx.turns
 
 
 def build_outcome(owners: list, results: list[TurnResult],

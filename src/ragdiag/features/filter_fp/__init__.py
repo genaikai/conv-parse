@@ -13,13 +13,18 @@ NAME = "filter FP"
 
 
 def process_data(ctx) -> tuple[list, list]:
-    normal = [sel for sel, r in zip(ctx.selection.selected, ctx.results)
-              if r.classification and r.classification.primary_case == "case0"]
+    # 턴 목록만 받아 판정한 경우(pipeline.judge_cases)에는 필터가 고른 원본이 없다.
+    selected = getattr(ctx.selection, "selected", None)
+    if not selected:
+        return [], []
+
+    normal = [sel for sel, t in zip(selected, ctx.turns)
+              if t.classification and t.classification.primary_case == "case0"]
     if not normal:
         return [], []
 
-    share = 100 * len(normal) / max(1, len(ctx.results))
-    metrics = [(NAME, f"{len(normal):,} / {len(ctx.results):,} ({share:.0f}%) case0")]
+    share = 100 * len(normal) / max(1, len(ctx.turns))
+    metrics = [(NAME, f"{len(normal):,} / {len(ctx.turns):,} ({share:.0f}%) case0")]
     metrics += [("", f"{label[:20]:<20} {n:,}") for label, n
                 in Counter(s.turn.eval_result for s in normal).most_common(3)]
     notes = [f"필터 오탐 후보 {len(normal)}건. 챗봇이 아니라 필터를 볼 것."]

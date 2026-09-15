@@ -47,11 +47,11 @@ from ragdiag.config import load as load_config
 from ragdiag.judge import Judge
 from ragdiag.pipeline import (
     build_outcome,
-    judge_cases,
     load_and_select,
     select_turns,
     make_judge,
 )
+from ragdiag.results import TurnResult
 from ragdiag.summary import (
     Conditions,
     RunSummary,
@@ -748,18 +748,22 @@ def main(argv=None, backend=None) -> int:
     summary.metrics.append(("model", f"{backend.model}"))
     summary.setup = conditions.compact()
 
-    judge = make_judge(backend, use_cache=use_cache)
-    results = judge_cases(selection.cases, judge, workers=workers)
-    outcome = build_outcome(selection.owners, results, selection.report)
+    # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도
+    # 여기서 하나씩 부르지 않는다 - 기능이 늘 때마다 진입점을 고치게 된다.
+    ctx = features.RunContext(
+        selection=selection,
+        turns=[TurnResult(case=c) for c in selection.cases],
+        judge=make_judge(backend, use_cache=use_cache),
+        workers=workers or settings.DEFAULT_WORKERS,
+        backend=backend,
+    )
+    got, said = features.collect(ctx)
+    outcome = build_outcome(selection.owners, ctx.turns, selection.report)
 
     outcome.save(out_path)
     print(outcome.summary())
     print(f"\n결과: {out_path}", file=sys.stderr)
 
-    # 지표는 features/ 가 낸다. 여기서 하나씩 붙이면 지표를 더할 때마다 진입점을
-    # 고쳐야 하고, 진입점은 기능이 늘어도 손대지 않아야 하는 파일이다.
-    got, said = features.collect(features.RunContext(
-        selection=selection, results=results, outcome=outcome, backend=backend))
     summary.metrics += got
     summary.notes += said
 

@@ -6,11 +6,7 @@ taxonomy의 절반 이상은 LLM이 필요 없다. 언어가 맞는지, 길이 �
 
 여기 있는 함수는 전부 순수 함수다. 입력 JSON 포맷이 바뀌어도 영향받지 않는다.
 
-각 검증기는 Check를 돌려준다. verdict의 네 값이 서로 다른 뜻이라는 게 중요하다:
-  ok            요구를 지켰다
-  violated      요구를 어겼다
-  not_applicable  그런 요구가 애초에 없었다  (위반 아님)
-  undetermined  요구는 있었지만 판정 근거가 부족하다  (조용히 ok로 넘기면 안 된다)
+각 검증기는 Check를 돌려준다. verdict 네 값의 뜻은 ragdiag.results.Check 에 있다.
 """
 
 from __future__ import annotations
@@ -20,29 +16,16 @@ import json
 import re
 import unicodedata
 from datetime import date
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Optional
 
 from ragdiag import settings
+from ragdiag.results import Check, Verdict  # noqa: F401  (옮겨 간 자리. 기존 import 경로용)
 from ragdiag.verify import match_ratio, normalize
-
-Verdict = Literal["ok", "violated", "not_applicable", "undetermined"]
 
 RequestedFormat = Literal[
     "numbered_list", "bullet_list", "table", "code_block", "json", "prose"
 ]
-
-
-@dataclass
-class Check:
-    name: str
-    verdict: Verdict
-    detail: str = ""
-    evidence: list[str] = field(default_factory=list)
-
-    @property
-    def violated(self) -> bool:
-        return self.verdict == "violated"
 
 
 # ---------------------------------------------------------------------------

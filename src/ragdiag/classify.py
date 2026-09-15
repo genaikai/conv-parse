@@ -16,8 +16,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from typing import Optional
 
 from ragdiag import prompts
 from ragdiag.backends import Usage
@@ -38,33 +36,16 @@ from ragdiag.checks import (
     check_truncated,
 )
 from ragdiag.judge import Judge
-from ragdiag.route import Classification, route, service_unavailable
-from ragdiag.schema import Case, GroundingCheck, Observation, SufficiencyJudgment
+from ragdiag.results import TurnResult
+from ragdiag.route import route, service_unavailable
+from ragdiag.schema import Case, Observation, SufficiencyJudgment
 from ragdiag.verify import (
-    CitationCheck,
-    QuoteCheck,
     verify_complaint_quote,
     verify_evidence,
 )
 
 # 내용에 대한 불만일 때만 문서 충족도를 따진다. 형식 불만에 그걸 묻는 건 무의미하다.
 CONTENT_COMPLAINTS = {"content_missing", "content_wrong"}
-
-
-@dataclass
-class TurnResult:
-    case: Case
-    observation: Optional[Observation] = None
-    checks: dict[str, Check] = field(default_factory=dict)
-    judgment: Optional[SufficiencyJudgment] = None
-    citation: Optional[CitationCheck] = None
-    grounding: Optional[GroundingCheck] = None
-    # complaint_target="none" 주장의 인용 검증 결과. 그 외에는 None.
-    complaint: Optional[QuoteCheck] = None
-    classification: Optional[Classification] = None
-    error: Optional[str] = None
-    usage: Usage = field(default_factory=Usage)
-    n_calls: int = 0
 
 
 def run_checks(case: Case, obs: Observation) -> dict[str, Check]:

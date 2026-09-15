@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = [
     "ragdiag.settings",     # 배포마다 바뀌는 값
     "ragdiag.schema",       # Case · 판정 결과 모델
+    "ragdiag.results",      # 턴 판정 결과 (Check · Classification · TurnResult)
     "ragdiag.taxonomy",     # 케이스 29개
     "ragdiag.prompts",      # 시스템 프롬프트 4종
     "ragdiag.backends",     # LLM 접속
@@ -35,6 +36,7 @@ CORE = [
     "ragdiag.classify",     # 오케스트레이션
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
+    "ragdiag.features",     # 기능 등록부 — 판정 순서와 집계 (폴더 통째)
 ]
 
 # 여기 남는 것. 실행 환경에는 그쪽 구현이 있다.
@@ -108,8 +110,9 @@ def test_readme_copy_list_matches_this_test():
     if "<!-- copy-list -->" not in text:
         pytest.skip("README 에 복사 목록 표시가 없음")
     block = text.split("<!-- copy-list -->")[1].split("<!-- /copy-list -->")[0]
+    # 모듈(ragdiag/x.py)과 패키지(ragdiag/x/)를 둘 다 센다. features 는 폴더째 간다.
     listed = {f"ragdiag.{name}" for name in
-              __import__("re").findall(r"(?:src/)?ragdiag/(\w+)\.py", block)}
+              __import__("re").findall(r"(?:src/)?ragdiag/(\w+)(?:\.py|/)", block)}
     assert listed == set(CORE), (
         f"README 에만 있음: {sorted(listed - set(CORE))} / "
         f"테스트에만 있음: {sorted(set(CORE) - listed)}"

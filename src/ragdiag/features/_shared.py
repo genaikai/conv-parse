@@ -5,10 +5,55 @@
 """
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 
-def top_cases(outcome, limit: int = 5):
+def top_cases(turns, limit: int = 5):
     """상위 case 몇 개. 지표 이름은 사이클 사이에 바뀌지 않아야 한다."""
-    counts = Counter(r.classification.primary_case
-                     for r in outcome.results if r.classification)
+    counts = Counter(t.classification.primary_case for t in turns if t.classification)
     return counts.most_common(limit)
+
+
+def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
+    """열린 턴 중 where 에 맞는 턴마다 fn(turn) 을 돌린다.
+
+    턴 하나의 실패가 나머지를 날리면 안 된다. 실패한 턴은 그 자리에서 닫는다
+    (error="[이름] 예외") — 뒤 기능은 건너뛰고, 이름이 남아서 어느 단계에서 몰려
+    깨졌는지 셀 수 있다. failures 기능이 이 접두어를 읽는다.
+
+    parallel 은 LLM 을 부르는 기능만 켠다. 턴 하나는 한 스레드만 만지므로 락이
+    필요 없다.
+    """
+    turns = [t for t in ctx.open_turns() if where is None or where(t)]
+
+    def run(turn):
+        try:
+            fn(turn)
+        except Exception as e:
+            # 타입명을 남겨서 예상 못 한 예외가 조용히 묻히지 않게 한다.
+            turn.error = f"[{name}] {type(e).__name__}: {e}"
+
+    if parallel and len(turns) > 1:
+        with ThreadPoolExecutor(max_workers=max(1, ctx.workers)) as pool:
+            list(pool.map(run, turns))
+    else:
+        for turn in turns:
+            run(turn)
+
+
+def call_llm(turn, pair):
+    """(결과, 사용량) 을 받아 사용량을 그 턴에 쌓고 결과만 돌려준다.
+
+    캐시 적중은 사용량이 0 이라 호출로 세지 않는다. 공유 카운터에 쌓으면 스레드가
+    섞여 사용량이 부풀려지므로 턴 객체에 쌓는다.
+    """
+    value, used = pair
+    turn.usage.add(used)
+    turn.n_calls += bool(used.input_tokens or used.output_tokens or used.cost_usd)
+    return value
+
+
+def run_check(ctx, name, check) -> tuple[list, list]:
+    """코드 검증기 하나를 열린 턴마다 돌려 turn.checks[name] 에 남긴다."""
+    each_turn(ctx, name, lambda t: t.checks.__setitem__(name, check(t)))
+    return [], []

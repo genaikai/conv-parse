@@ -139,7 +139,7 @@ case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답�
 |---|---|
 | `classified` · `llm calls` | 분류 성공 · 실패 건수, 상위 case, LLM 호출 수 |
 | `filter FP` | case0(정상) 비율과 몰린 eval 라벨 — 챗봇이 아니라 필터를 좁힐 신호 |
-| `truncated` | 추론이 잘려 조건을 바꿔 되살린 호출 — 다음엔 `--thinking off` |
+| `llm_fallback` | 판정 LLM 의 응답이 잘려 조건을 바꿔 되살린 호출 — 다음엔 `--thinking off` |
 | `failed at` | 실패가 몰린 단계 |
 
 지표를 더하려면 `src/ragdiag/features/template/` 을 복사하고 `features/__init__.py` 의
@@ -237,6 +237,6 @@ python log_analysis/src/run.py --dry-run
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
 ragdiag/backends.py   ragdiag/judge.py    ragdiag/decide.py     ragdiag/verify.py
 ragdiag/checks.py     ragdiag/route.py    ragdiag/classify.py   ragdiag/output.py
-ragdiag/pipeline.py
+ragdiag/pipeline.py   ragdiag/results.py  ragdiag/features/   (폴더 통째)
 ```
 <!-- /copy-list -->
