@@ -80,8 +80,6 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "thresholds.vague_short_max_chars": (int, False),
 
     "service_error.templates": (list, False),
-    "service_error.markers": (list, False),
-    "service_error.max_chars": (int, False),
 
     # 라벨 실값 파일 경로. 실제 코드값이라 저장소에 두지 않고 설정으로 가리킨다.
     "labels.query": (str, False),
@@ -89,6 +87,16 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 
     "org.candidate_fields": (list, False),
     "filter.any_values": (list, False),
+}
+
+# 없어진 키 → 왜 없어졌나. 판정에 더 이상 쓰지 않는다.
+#
+# 작업 폴더의 env.yaml 은 예시를 복사해 만들어져서 이 줄이 남아 있다. 모르는 키로
+# 막으면 코드를 못 고치는 쪽에서 실행이 시작도 못 하므로 받아는 둔다. 대신 아무것도
+# 바꾸지 않는다고 화면과 RUN SUMMARY 에 남긴다 - 적어 둔 값이 조용히 무시되는 것도 결함이다.
+RETIRED = {
+    "service_error.markers": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
+    "service_error.max_chars": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
 }
 
 CHOICES = {
@@ -109,8 +117,6 @@ TO_SETTINGS = {
     "thresholds.answer_quote_min_chars": "ANSWER_QUOTE_MIN_CHARS",
     "thresholds.vague_short_max_chars": "VAGUE_SHORT_MAX_CHARS",
     "service_error.templates": "SERVICE_ERROR_TEMPLATES",
-    "service_error.markers": "SERVICE_ERROR_MARKERS",
-    "service_error.max_chars": "SERVICE_ERROR_MAX_CHARS",
     "org.candidate_fields": "ORG_CANDIDATE_FIELDS",
     "filter.any_values": "FILTER_ANY_VALUES",
 }
@@ -155,12 +161,20 @@ class Config:
     def __contains__(self, key: str) -> bool:
         return self.values.get(key) is not None
 
+    def retired(self) -> list[str]:
+        """적혀 있지만 아무것도 바꾸지 않는 키. 화면과 요약에 그대로 싣는다."""
+        # 할 일을 앞에 둔다. RUN SUMMARY 는 한 줄 폭에서 잘린다.
+        return [f"{key}: 쓰지 않는 키 — 지워도 된다 ({why})"
+                for key, why in RETIRED.items() if key in self.values]
+
 
 def validate(values: dict[str, Any]) -> list[str]:
     """설정 문제를 전부 모아 돌려준다. 하나씩 던지면 왕복이 늘어난다."""
     problems: list[str] = []
 
     for key, value in sorted(values.items()):
+        if key in RETIRED:
+            continue                    # 받아 두되 쓰지 않는다 - Config.retired() 가 알린다
         if key not in SPEC:
             near = difflib.get_close_matches(key, SPEC, n=1, cutoff=0.6)
             hint = f" — 혹시 {near[0]} ?" if near else ""
@@ -358,6 +372,9 @@ def apply_overrides(config: Config, pairs: Optional[list[str]]) -> Config:
             continue
         key, raw = pair.split("=", 1)
         key = key.strip()
+        if key in RETIRED:
+            values[key], origins[key] = raw, "--set"
+            continue
         if key not in SPEC:
             near = difflib.get_close_matches(key, SPEC, n=1, cutoff=0.6)
             problems.append(f"--set {key}: 모르는 키다"

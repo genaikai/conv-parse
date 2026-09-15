@@ -399,20 +399,32 @@ def test_service_error_survives_whitespace_and_prefix():
                                "서버에 부하가 걸리고 있어요.").violated
     assert check_service_error("서비스에 문제가있거나, 사용자분들이 많아서 "
                                "서버에 부하가 걸리고 있어요.").violated
+    assert check_service_error("서비스에  문제가\t있거나 ,\n\n사용자 분들이   많아서\r\n"
+                               "서버에 부하가 걸리고 있어요").violated
     assert check_service_error("안녕하세요. " + CANNED).violated
 
 
+def test_service_error_does_not_look_at_length_once_the_phrase_is_there():
+    """확정 문구가 들어 있으면 뒤에 안내가 길게 붙어도 case9 다."""
+    assert check_service_error(CANNED + " 자세한 안내는 다음과 같습니다. " * 40).violated
+
+
 @pytest.mark.parametrize("text", [
+    # 확정 문구와 글자가 다르면 비슷해도 잡지 않는다 — 판정은 확정 문구 대조 하나다.
     "서비스에 문제가 있거나, 사용자 분들이 많아서 서버에 부하가 걸리고 있습니다.",
     "서비스에 장애가 있거나, 사용자 분들이 많아서 서버에 부하가 걸리고 있어요.",
     "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+    # 예전 보조 표지 경로에서 case9 로 잘못 가던 정상 답변 (표지 두 개가 겹쳤다)
+    "서버에 부하가 걸리면 잠시 후 다시 시도하세요.",
 ])
-def test_service_error_falls_back_to_markers(text):
-    """문구가 조금 달라도 표지 두 개 이상이면 잡는다.
+def test_service_error_matches_only_the_fixed_phrase(text):
+    """비슷한 문구는 잡지 않는다. 배포 문구가 다르면 설정의 templates 에 더한다.
 
-    배포마다 문구가 다를 수 있고, 확정 문구 목록이 최신이 아닐 수 있다.
+    예전에는 문구가 조금 달라도 보조 표지 두 개가 겹치면 잡았는데, 서버 부하를
+    주제로 한 짧은 정상 답변까지 case9 로 보냈다. case9 는 LLM 판정을 건너뛰므로
+    오탐이 나면 그 턴의 진짜 원인이 통째로 사라진다.
     """
-    assert check_service_error(text).violated
+    assert not check_service_error(text).violated
 
 
 @pytest.mark.parametrize("text", [

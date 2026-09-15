@@ -536,6 +536,8 @@ def main(argv=None, backend=None) -> int:
     changed = apply_config(config)
     if changed:
         print(f"설정 {config.source} 적용: {', '.join(changed)}", file=sys.stderr)
+    for note in config.retired():
+        print(f"설정 {note}", file=sys.stderr)
 
     if args.check_llm:
         return check_llm(args, config)
@@ -587,6 +589,7 @@ def main(argv=None, backend=None) -> int:
 
     summary = RunSummary(version=version(),
                          args=" ".join(argv if argv is not None else sys.argv[1:]))
+    summary.notes += config.retired()
     timer = Timer().__enter__()
 
     # 무엇을 읽어 무엇으로 돌리는지. **계산을 시작하기 전에** 찍는다 - 다 돌고

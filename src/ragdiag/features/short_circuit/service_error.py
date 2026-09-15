@@ -8,7 +8,14 @@
 정책 문제로 세면 고칠 곳을 정반대로 가리킨다 - 한쪽은 인프라 증설이고
 다른 쪽은 권한 정책이다.
 
-문구는 배포마다 다르므로 아래 목록에 줄을 추가해 쓴다. 공백 차이는 무시한다.
+**판정은 확정 문구 대조 하나다.** 공백 · 줄바꿈을 전부 지운 답변 안에 확정 문구가
+(역시 공백을 지운 채로) 들어 있으면 case9 다. 앞뒤에 무엇이 붙었든, 답변이 얼마나
+길든 상관없다.
+
+비슷한 문구는 잡지 않는다. 예전에는 보조 표지("서버에 부하" · "잠시 후 다시" …)가 두 개
+겹치면 잡았는데, 서버 부하를 주제로 한 짧은 정상 답변까지 case9 로 보냈다. case9 는
+LLM 판정을 건너뛰므로 오탐이 나면 그 턴의 진짜 원인이 통째로 사라진다. 배포마다
+문구가 다르면 설정의 service_error.templates 에 줄을 더한다.
 """
 
 import re
@@ -24,19 +31,8 @@ NOTES = (
     "LLM 판정을 돌리지 않았다 — 관측·충족도·근거 활용이 모두 비어 있다.",
 )
 
-SERVICE_ERROR_TEMPLATES = settings.SERVICE_ERROR_TEMPLATES
-
-# 템플릿이 조금 바뀌어도 놓치지 않도록 두는 보조 표지. 단독으로는 쓰지 않고
-# 두 개 이상 겹칠 때만 인정한다 - "서버" 한 단어로 잡으면 서버 관련 질문에
-# 정상적으로 답한 것까지 오탐한다.
-_SERVICE_ERROR_MARKERS = settings.SERVICE_ERROR_MARKERS
-
-# 확정 문구는 짧고, 그 문구가 답변의 전부다. 길면 서버 장애를 '주제로' 답한
-# 정상 답변일 가능성이 높다. 길이로 한 번 더 거른다.
-MAX_SERVICE_ERROR_LEN = settings.SERVICE_ERROR_MAX_CHARS
-
-
 def _squeeze(text: str) -> str:
+    """공백 · 탭 · 줄바꿈을 전부 지운다. 확정 문구의 띄어쓰기가 배포마다 조금씩 다르다."""
     return re.sub(r"\s+", "", text)
 
 
@@ -50,17 +46,7 @@ def check_service_error(answer: str) -> Check:
         if _squeeze(template) in packed:
             return Check("service_error", "violated",
                          f"서비스 자원 부족 확정 문구와 일치: {template[:30]}…")
-
-    if len(packed) > settings.SERVICE_ERROR_MAX_CHARS:
-        return Check("service_error", "ok",
-                     f"확정 문구 없음 · 답변이 길어({len(packed)}자) 안내 문구가 아님")
-
-    hits = [m for m in settings.SERVICE_ERROR_MARKERS if _squeeze(m) in packed]
-    if len(hits) >= 2:
-        return Check("service_error", "violated",
-                     f"확정 문구는 아니나 표지 {len(hits)}개 일치: {', '.join(hits)}")
-
-    return Check("service_error", "ok", "서비스 안내 문구 아님")
+    return Check("service_error", "ok", "확정 문구 없음")
 
 
 def check(turn) -> Check:

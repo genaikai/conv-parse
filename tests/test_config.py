@@ -34,8 +34,8 @@ yaml = pytest.importorskip("yaml")
 def restore_settings():
     """설정 적용은 모듈 전역을 바꾼다. 테스트끼리 새지 않게 되돌린다."""
     names = ["MATCH_THRESHOLD", "EVIDENCE_MIN_QUOTE_CHARS", "ANSWER_QUOTE_MIN_CHARS",
-             "VAGUE_SHORT_MAX_CHARS", "SERVICE_ERROR_TEMPLATES", "SERVICE_ERROR_MARKERS",
-             "SERVICE_ERROR_MAX_CHARS", "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
+             "VAGUE_SHORT_MAX_CHARS", "SERVICE_ERROR_TEMPLATES",
+             "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
              "ORG_CANDIDATE_FIELDS", "FILTER_ANY_VALUES", "CACHE_DIR"]
     saved = {n: getattr(settings, n) for n in names}
     yield
@@ -158,6 +158,35 @@ def test_service_error_templates_reach_the_checker(tmp_path, restore_settings):
     """)
     apply(load(path))
     assert check_service_error(캔드).violated, "설정이 검증기까지 도달하지 않았다"
+
+
+def test_retired_keys_are_accepted_but_change_nothing(tmp_path, restore_settings):
+    """없어진 키가 남은 설정으로도 돈다. 대신 아무것도 안 바꾼다고 알린다.
+
+    작업 폴더의 env.yaml 은 예시를 복사해 만들어져서 없어진 키가 남아 있다.
+    모르는 키로 막으면 코드를 못 고치는 쪽에서 실행이 시작도 못 한다.
+    """
+    path = write(tmp_path, """
+        service_error:
+          templates:
+            - "지금은 응답할 수 없습니다"
+          markers:
+            - "서버에 부하"
+          max_chars: 400
+    """)
+    config = load(path)
+    changed = apply(config)
+
+    assert any("SERVICE_ERROR_TEMPLATES" in c for c in changed)
+    assert not any("markers" in c or "max_chars" in c for c in changed)
+    notes = config.retired()
+    assert [n.split(":")[0] for n in notes] == ["service_error.markers",
+                                                 "service_error.max_chars"]
+    assert all("지워도 된다" in n for n in notes)
+
+    # --set 으로 줘도 같다 — 막지 않고, 안 쓴다고 알린다.
+    over = apply_overrides(Config(), ["service_error.max_chars=300"])
+    assert [n.split(":")[0] for n in over.retired()] == ["service_error.max_chars"]
 
 
 def test_match_threshold_reaches_the_verifier(tmp_path, restore_settings):
