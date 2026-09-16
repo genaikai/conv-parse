@@ -356,14 +356,19 @@ def run_legacy_regression(args, backend=None) -> int:
 
 
 def run_golden(args, backend=None) -> int:
-    """Step 1 관측만 돌려 필드별 일치율을 잰다. Step 2·3 은 호출하지 않는다."""
+    """Step 1 관측을 돌려 필드별 일치율을 잰다. 케이스에 expect_case 가 있으면 라우팅도 잰다.
+
+    --golden-set messy 는 실제 로그 모양(오탈자 · 띄어쓰기 없음 · 단답 · 긴 발화 · 고유명사 ·
+    긴 대화)의 셋이다. 그쪽은 관측만이 아니라 판정 끝의 case 까지 본다.
+    """
     sys.path.insert(0, str(Path(__file__).parent))
-    from ragdiag.fixtures.observations import build
+    from ragdiag.fixtures import messy, observations
 
     from ragdiag.conv import parse_conversations, to_case
     from ragdiag.golden import FieldScore, render, score_observation
 
-    raw, expected = build()
+    fixture = messy if args.golden_set == "messy" else observations
+    raw, expected = fixture.build()
     conversations = parse_conversations(raw)
 
     cases = []
@@ -426,7 +431,47 @@ def run_golden(args, backend=None) -> int:
         per_case[meta["id"]] = score_observation(meta["id"], meta["expect"], obs, scores)
 
     print(render(scores, per_case, errors))
+
+    routed = [(case, meta) for case, meta in cases if meta.get("expect_case")]
+    if routed:
+        run_routing_golden(routed, judge, args.workers)
+    if args.golden_set == "messy":
+        return 0
     return run_judge_golden(args, judge)
+
+
+def run_routing_golden(cases, judge, workers) -> None:
+    """관측이 조합되어 case 로 가는 끝까지 돌려 기대 case 와 대조한다.
+
+    관측 필드가 다 맞아도 라우팅 순서가 틀리면 case 가 샌다 - 층이 달라 따로 잰다.
+    """
+    from ragdiag.pipeline import judge_cases
+
+    results = judge_cases([case for case, _ in cases], judge, workers=workers)
+    rows, hits = [], 0
+    for (case, meta), result in zip(cases, results):
+        want = meta["expect_case"]
+        got = (result.classification.primary_case if result.classification
+               else f"ERROR:{result.error}")
+        ok = got in want
+        hits += ok
+        rows.append((ok, meta["id"], want, got, result))
+
+    print("=" * 78)
+    print(f"라우팅 채점   일치 {hits}/{len(rows)}")
+    print("=" * 78)
+    for ok, cid, want, got, result in rows:
+        extra = ""
+        if result.classification and result.classification.secondary_cases:
+            extra = "  +" + ",".join(result.classification.secondary_cases)
+        mark = "OK " if ok else "X  "
+        line = f"{mark}{cid:<10} -> {got}{extra}"
+        if not ok:
+            line += f"   기대 {sorted(want)}"
+            if result.classification:
+                line += f"   ({result.classification.reason[:60]})"
+        print(line)
+    print(f"\nLLM 호출 {sum(r.n_calls for r in results)}회")
 
 
 def run_judge_golden(args, judge) -> int:
@@ -496,6 +541,8 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--conv-data", help="conv_eval JSON 경로 (설정을 덮어쓴다)")
     p.add_argument("--golden", action="store_true",
                    help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
+    p.add_argument("--golden-set", choices=["observations", "messy"], default="observations",
+                   help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다")
     p.add_argument("--legacy-regression", action="store_true",
                    help="구 회귀셋 23건을 새 파이프라인으로 돌려 대조한다")
     p.add_argument("--turns", metavar="FILE",
