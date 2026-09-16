@@ -203,3 +203,116 @@ list01 · deep04 는 둘 다 맞는 애매한 발화라 기대값을 집합으�
 주석). 다시 재니 messy 관측 46/48 · 라우팅 **25/27**, 기존 셋 100/102 그대로 (LLM 호출 없이
 캐시로 재채점). 남은 둘(repeat01 · proper02)은 문서에 답이 있는데 Step 2 가 `partial` 로 본
 것 - 판정 모델의 약점이다.
+
+## 5차 — 골든셋을 taxonomy 전체로 넓힌다
+
+기존 65건 + messy 27건이 한 번도 겨냥하지 않는 case 가 셋(6 · 21 · 24), messy 에 0건인
+case 가 열(1 · 3 · 4 · 11 · 15 · 16 · 25 · 26 · 28 · 29) 있었다. messy 에 44건을 더해 71건.
+정상 · 필터 오탐이 21건으로 가장 많고(실제 로그 분포처럼), 인젝션 · 개인정보 · 잘림 · 계산 ·
+SQL/파이썬 · 일본어/영어/중국어 · 서비스 오류 · 복합 질문 · 8~10턴 대화가 들어갔다.
+지저분함(오탈자 · 띄어쓰기 없음 · 반말 · 영어 혼용 · 단답)은 유지. 코드 검증기가 잡는
+case(6 · 24 · 26 · 27)는 부가 case 까지 채점한다 (`expect_secondary`).
+`tests/test_golden_sets.py` 가 판정 가능한 case 전부에 겨냥 케이스가 있는지 지킨다.
+
+### Haiku 4.5 · 71건 — 틀린 것의 분류
+
+| | 건 | 무엇 | 처리 |
+|---|---|---|---|
+| (a) 코드 결함 | 1 | **code03** — "쿼리가 안 돌아요" 를 `no_answer` 로 읽었고 답변은 온전해서 미분류. SQL 은 GROUP BY 뒤가 비어 있었다 | 고침: 코드 질문에서 코드가 깨졌으면 `no_answer` 라도 case27 로 |
+| (b) 판정 모델 약점 | 5 | **unsup02** "파일 첨부는 지원하지 않습니다" 를 정책 거절로 읽음 → case28 · **vague01** "아니 그냥 그거요" 를 말투 불만으로 → case16 · **repeat01** unmet_need 에 "필요한 서류 · 처리 기간" 을 덧붙여 Step 2 가 partial · **ok01** "ㄱㅅ" 를 "ㄱㅂ" 로 인용 · **code01** 쿼리 요청을 domain 으로 | 제안만 (아래) |
+| (c) 애매한 정답 | 4 | **ok07** 교통비가 빠진 표 (새 질문 / 표의 빈틈) · **vague02** "규정 다 알려줘" (vague / 범위만 넓은 clear) · **ref01** "아까 그거요" (불만 / 되풀이) · **proper02** HR-08 어디서 (청크에 발급처만 있어 partial 도 됨) | 집합으로 넓힘, 이유는 케이스 주석 |
+
+(b) 에 대한 프롬프트 제안 — 골든셋에 맞춰 예시를 넣는 것이라 과대평가 위험이 있어 적용은
+따로 정한다:
+- `answer_refused` 의 false 예시에 "기능상 지원하지 않는다는 안내(파일 첨부 · 그림 생성)" 를
+  더한다. 지금은 "인사팀에 문의" · "정보가 없습니다" 만 있어 기능 한계 안내가 거절로 읽힌다.
+  그러면 requests_unsupported_output 과 짝이 맞는다 (case2 가 case28 에 가로채인다).
+- `unmet_need` 규칙은 이미 "요구하지 않은 것을 덧붙이지 마라" 인데 Haiku 가 어겼다.
+  프롬프트로 더 밀어붙이기보다 Step 2 입력에서 unmet_need 대신 resolved_question 만 주는
+  변형을 재 볼 가치가 있다 - 판정 모델이 약할수록 unmet_need 부풀림이 partial 을 만든다.
+- `complaint_target=tone` 은 "말투 · 어조 · 용어" 로만 정의돼 있다. "짜증 섞인 되풀이는 어조
+  불만이 아니다" 를 none/other 쪽 예시로 두면 vague01 류를 막을 수 있다.
+- ok01 · code01 은 모델 판단 자체가 흔들린 것이라 프롬프트로 고칠 수 없다.
+
+### 전후 (Haiku 4.5)
+
+| | 확장 직후 | (a) 고침 · (c) 넓힘 |
+|---|---|---|
+| messy 71건 관측 | 98/103 · 66/71 | **101/103 · 69/71** |
+| messy 71건 라우팅 | 63/71 | **68/71** |
+| 기존 65건 | 100/102 | 100/102 (회귀 없음) |
+
+남은 셋은 전부 (b) 다.
+
+## 6차 — 검증 보강: 흔들림 기준선 · 실데이터 형식 · 검증기 테스트
+
+### 흔들림 (Haiku 4.5 · messy 71건 · 캐시 없이 3회)
+
+약한 모델에서는 더 심해질 것이라 지금 기준선을 둔다. 관측이 있는 69건 기준(2건은 case9 로
+LLM 전에 닫힘).
+
+| 관측 필드 | 3회 중 값이 둘 이상 | 라우팅 영향 |
+|---|---|---|
+| answer_used_history | **27/69 (39%)** | 전부 `used ↔ not_needed`. 라우팅은 `ignored` 만 보므로 **없음** |
+| answer_actionable | **14/69 (20%)** | case13 ↔ case17 |
+| complaint_target | **11/69 (16%)** | none ↔ content_missing · missing ↔ wrong — 가장 큰 갈림길 |
+| answer_covers_all_intents | 6/69 (9%) | case15 |
+| question_domain | 3/69 | code ↔ domain (code01 · cut03) |
+| question_multi_intent · requested_format | 2/69 | |
+| answer_refused · requested_length_kind | 1/69 | answer_refused 1건이 case28 오탐 (pii02) |
+| question_clarity · requests_unsupported_output · requested_language | **0/69** | 새 필드와 요구 인용은 흔들리지 않았다 |
+
+| 판정 층 | 3회 중 둘 이상 |
+|---|---|
+| 주 case | **10/71 (14%)** |
+| 부가 case | 3/71 |
+| Step 2 verdict | 12/71 · Step 3 3/71 |
+| 라우팅 일치 | run1 66 · run2 68 · run3 70 / 71 → **3회 다수결 68/71** |
+
+한 번 잰 "68/71" 에는 ±2건의 운이 섞여 있다. 3회 모두 기대 밖인 케이스는 없다.
+case 가 바뀐 10건: table01 · deep04 · ref01 · calc01 은 기대 집합 안에서만 움직였고(정답이
+둘 이상인 발화), code01 · proper03 · repeat01 · vague01 · vague02 · pii02 는 한 번 이상 밖 —
+전부 (b).
+
+읽을 것 셋.
+- **`answer_used_history` 의 `used`/`not_needed` 구분은 결과에 영향이 없는데 가장 크게
+  흔들린다.** "이전 조건을 어겼나" bool 하나로 줄이면 판정자가 채울 선택지가 줄고
+  흔들림이 사라진다 - 다음 스키마 정리 후보.
+- `complaint_target` · `answer_actionable` 의 흔들림은 프롬프트로 줄이기 어렵다. 약한 모델로
+  갈 때는 같은 턴을 2~3회 판정해 다수결하는 쪽이 맞다 (호출 2~3배).
+- `answer_refused` 오탐(pii02 "메일 발송은 지원하지 않습니다" · unsup02 "파일 첨부는 지원하지
+  않습니다")은 방향이 일정하다 - 5차의 프롬프트 제안(기능 한계 안내는 거절이 아니다) 근거가
+  하나 더 쌓였다.
+
+### 실데이터 형식 — (a) 계약 검사 결함
+
+pseudo_input 은 지금도 0건으로 읽힌다(users → turns 2단계 · `llm_eval_alternatives`). 계약
+검사가 이걸 못 잡고 사용자 키 3개 없음만 찍은 뒤 "필터 조건을 확인하라" 로 끝나던 것을
+고쳤다 - 2단계 구조와 이름 다른 키를 위반으로 적고, 2단계여도 턴 필드는 그대로 대조한다
+(`tests/test_contracts.py`). 파서가 2단계를 받게 할지는 정하지 않았다 - 실행 로그(9월 1일)는
+3단계였다.
+
+### 검증기 단위 테스트
+
+arithmetic · sql_shape · injection 에 테스트가 없었다 (커버리지 32~37%). 채워서 전 검증기
+88~98%. 남은 줄은 `process_data` 한 줄(파이프라인 테스트가 덮음)과 도달 불가 분기뿐이다.
+
+### 7차 — `answer_used_history` 를 bool 로
+
+`not_needed · used · ignored` 셋 중 라우팅이 보는 것은 `ignored` 뿐인데, `used ↔ not_needed`
+사이에서 실행마다 39% 가 흔들렸다. 결과에 영향 없는 선택지가 판정자를 흔들 뿐이라
+`answer_ignored_history: bool` 하나로 줄였다. `history_quote` 대조에 떨어지면 false 로 되돌린다.
+프롬프트가 바뀌어 관측 캐시는 무효 - Haiku 로 두 셋을 다시 쟀다 (아래).
+
+재측정 (Haiku 4.5, 캐시 없이 관측을 새로 부름):
+
+| | 전 (셋 값) | 후 (bool) |
+|---|---|---|
+| messy 71건 관측 · 라우팅 | 101/103 · 68/71 | 100/103 · **69/71** |
+| 기존 65건 관측 | 100/102 · 63/65 | 97/102 · 60/65 |
+
+`answer_ignored_history` 와 `history_quote_verified` 는 두 셋 모두 전부 맞았다 (deep02 · deep05 ·
+hist01 · hq04). 새로 틀린 것은 전부 다른 칸이고 흔들림 기준선 안이다 — lang01 은
+`requested_language=en` 을 내고도 `requested_quote` 를 비워 요구가 지워졌고(모델이 인용을
+빠뜨림 · 대조는 설계대로 동작), ctx04 · code02 · long02 · cite01 은 clarity · domain ·
+complaint_target 이 한 번 흔들린 것 (b). 변경 자체의 회귀는 없다.
