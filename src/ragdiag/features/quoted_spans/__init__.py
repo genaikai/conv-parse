@@ -9,6 +9,7 @@ from ragdiag.results import Check
 from ragdiag.verify import match_ratio, normalize
 
 from .._shared import run_check
+from .._text import _CODE_BLOCK
 
 NAME = "quoted_spans"
 
@@ -45,24 +46,39 @@ ANSWER_QUOTE_MIN_CHARS = settings.ANSWER_QUOTE_MIN_CHARS
 MIN_QUOTE_CHARS = ANSWER_QUOTE_MIN_CHARS
 
 
+# 인라인 코드 `...`. 코드펜스는 _text._CODE_BLOCK 이 잡는다.
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
+
+
+def _prose_only(answer: str) -> str:
+    """코드 블록과 인라인 코드를 걷어낸 본문. 인용 대조는 산문에서만 한다.
+
+    SQL 의 `'2026-04-01'` 같은 문자열 리터럴이 인용문으로 잡혀 "검색 결과 0건인데 인용"
+    위반이 났다 (지저분한 골든셋 code01). 코드 안의 따옴표는 문서를 인용한 것이 아니다.
+    """
+    return _INLINE_CODE.sub(" ", _CODE_BLOCK.sub(" ", answer))
+
+
 def extract_quotes(answer: str) -> list[str]:
-    """답변이 인용부호로 제시한 **문장**. 제목 부호 안의 문서명은 빼고 센다."""
+    """답변이 인용부호로 제시한 **문장**. 제목 부호 안의 문서명과 코드 안은 빼고 센다."""
+    prose = _prose_only(answer)
     quotes = []
     for pattern in _QUOTE_PATTERNS:
-        quotes += [q.strip() for q in pattern.findall(answer)]
+        quotes += [q.strip() for q in pattern.findall(prose)]
     return [q for q in quotes if len(normalize(q)) >= settings.ANSWER_QUOTE_MIN_CHARS]
 
 
 def extract_sources(answer: str) -> list[str]:
-    """답변이 제목 부호로 댄 **문서 이름**.
+    """답변이 제목 부호로 댄 **문서 이름**. 코드 안은 빼고 센다.
 
     길이 하한이 문장 인용보다 훨씬 낮다. 「휴가규정」은 정규화하면 4자인데,
     문장 기준(10자)을 그대로 쓰면 짧은 문서명이 조용히 빠진다 - 실제로
     「연차휴가 운영지침」(8자)이 그래서 검증을 통째로 건너뛰고 있었다.
     """
+    prose = _prose_only(answer)
     names = []
     for pattern in _SOURCE_PATTERNS:
-        names += [n.strip() for n in pattern.findall(answer)]
+        names += [n.strip() for n in pattern.findall(prose)]
     return [n for n in names if len(normalize(n)) >= 2]
 
 

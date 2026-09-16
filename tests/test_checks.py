@@ -566,6 +566,26 @@ def test_an_apostrophe_is_not_a_quote():
     assert extract_quotes("'연차 사용'과 '반차 사용'을 구분하세요") == []
 
 
+def test_string_literals_inside_code_are_not_quotes():
+    """SQL 의 '2026-04-01' 이 인용문으로 잡혀 "검색 0건인데 인용" 위반이 났다 (골든셋 code01).
+
+    코드 안의 따옴표는 문서를 인용한 것이 아니다. 코드펜스 안과 인라인 코드를 걷어낸
+    산문에서만 인용을 찾는다 — 산문의 진짜 인용은 그대로 잡혀야 한다.
+    """
+    sql = ("다음 쿼리를 쓰시면 됩니다.\n\n```sql\nSELECT emp_no FROM trip_expense "
+           "WHERE settled_at >= '2026-04-01' AND status = \"settled_done\";\n```")
+    assert extract_quotes(sql) == []
+    assert check_quoted_spans(sql, []).verdict == "not_applicable"
+
+    inline = "`WHERE region = '국내 출장 식비 한도'` 처럼 조건을 주세요."
+    assert extract_quotes(inline) == []
+
+    mixed = ('규정에 "국내 출장 식비는 1일 3만원을 상한으로 한다"고 되어 있습니다.\n'
+             "```python\nprint('이 문장은 코드 안이라 인용이 아닙니다')\n```")
+    assert extract_quotes(mixed) == ["국내 출장 식비는 1일 3만원을 상한으로 한다"]
+    assert extract_sources("```sql\n-- 「출장비 규정」 참고\nSELECT 1\n```") == []
+
+
 def test_quoting_with_no_search_results_is_a_violation():
     """검색 결과가 0건인데 답변이 문서를 인용했다.
 
