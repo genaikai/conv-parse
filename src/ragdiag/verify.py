@@ -127,16 +127,41 @@ def verify_complaint_quote(quote: str, current_query: str) -> QuoteCheck:
     return verify_quote_in(quote, [current_query], settings.UTTERANCE_MIN_QUOTE_CHARS)
 
 
+def _edits_to_substring(quote: str, text: str) -> int:
+    """quote 와 text 의 어떤 부분 문자열 사이의 최소 편집 거리 (Sellers). 둘 다 정규화된 것."""
+    n, m = len(quote), len(text)
+    prev = [0] * (m + 1)                      # 첫 행이 0 - text 어디서든 시작할 수 있다
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        for j in range(1, m + 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                         prev[j - 1] + (quote[i - 1] != text[j - 1]))
+        prev = cur
+    return min(prev)
+
+
 def verify_quote_in(quote: str, texts: list[str], min_chars: int) -> QuoteCheck:
     """판정자가 발화에서 댄 구절이 주어진 문장들 중 하나에 실제로 있는지.
 
-    문서 인용(verify_evidence)과 임계값이 다르다 - 발화는 짧아 오탈자 한 글자가 비율을
+    문서 인용(verify_evidence)과 규칙이 다르다 - 발화는 짧아 오탈자 한 글자가 비율을
     크게 깎고, 떨어졌을 때의 처리가 안전한 방향이라 조금 느슨하다 (settings 참고).
+
+    두 갈래로 통과한다. 연속 일치 비율이 QUOTE_MATCH_THRESHOLD 이상이거나, 인용이
+    QUOTE_EDIT_TOLERANT_MIN_CHARS 이상이고 원문의 어느 부분과 한 글자 차이 이내이거나.
+    뒤 갈래는 비율 규칙의 사각지대를 메운다 - 끝에서 두 번째 글자가 다르면 꼬리 한 글자가
+    일치로 안 세어져 8~10자 인용이 떨어졌다. 재서술 · 영어 혼용 · 위치 오류의 통과율은
+    이 갈래로 바뀌지 않는다 (tests/test_quote_robustness.py).
     """
-    if len(_plain(quote)) < min_chars:
+    plain = _plain(quote)
+    if len(plain) < min_chars:
         return QuoteCheck(quote, 0.0, False)
     ratio = max((_coverage(quote, t) for t in texts), default=0.0)
-    return QuoteCheck(quote, ratio, ratio >= settings.QUOTE_MATCH_THRESHOLD)
+    if ratio >= settings.QUOTE_MATCH_THRESHOLD:
+        return QuoteCheck(quote, ratio, True)
+    if len(plain) >= settings.QUOTE_EDIT_TOLERANT_MIN_CHARS and any(
+            _edits_to_substring(plain, _plain(t)) <= 1 for t in texts):
+        return QuoteCheck(quote, ratio, True)
+    return QuoteCheck(quote, ratio, False)
 
 
 def verify_request_quote(quote: str, questions: list[str]) -> QuoteCheck:

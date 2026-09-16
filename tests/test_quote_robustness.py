@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ragdiag.fixtures.observations import CASES  # noqa: E402
 from ragdiag.verify import (  # noqa: E402
     _coverage,
+    _edits_to_substring,
+    _plain,
     verify_complaint_quote,
     verify_history_quote,
     verify_request_quote,
@@ -191,12 +193,15 @@ def test_request_quotes_may_be_short():
     assert verify_request_quote("표로", ["항목별 상한을 표로 정리해 주세요."]).verified
 
 
-def chance_rates(seed: int = 0) -> dict[int, float]:
-    """다른 케이스 원문의 k자 조각이 이 케이스의 앞 질문들에 우연히 있을 확률."""
+def chance_rates(seed: int = 0, edits: int = 0) -> dict[int, float]:
+    """다른 케이스 원문의 k자 조각이 이 케이스의 앞 질문들에 우연히 있을 확률.
+
+    edits=1 이면 한 글자 차이까지 허용했을 때의 확률이다.
+    """
     rng = random.Random(seed)
     all_q = [q for c in CASES for q in c["pre_queries"]]
     out = {}
-    for k in (2, 3, 4, 5, 6):
+    for k in (2, 3, 4, 5, 6, 8):
         hit = tot = 0
         for c in CASES:
             own = c["pre_queries"][:-1] if len(c["pre_queries"]) >= 2 else c["pre_queries"]
@@ -207,7 +212,11 @@ def chance_rates(seed: int = 0) -> dict[int, float]:
                     frag = plain[i:i + k]
                     if len(frag) == k:
                         tot += 1
-                        hit += any(_coverage(frag, s) >= 0.9 for s in own)
+                        if edits:
+                            hit += any(_edits_to_substring(_plain(frag), _plain(s)) <= edits
+                                       for s in own)
+                        else:
+                            hit += any(_coverage(frag, s) >= 0.9 for s in own)
         out[k] = hit / tot
     return out
 
@@ -219,6 +228,45 @@ def test_the_floor_sits_where_chance_matches_drop_below_five_percent():
     chance = chance_rates()
     assert chance[2] > 0.10, "2자 조각의 우연 일치가 낮아졌다면 하한을 다시 볼 것"
     assert chance[settings.UTTERANCE_MIN_QUOTE_CHARS] < 0.06
+
+
+def test_the_edit_tolerant_floor_keeps_chance_matches_at_the_same_level():
+    """한 글자 차이를 받는 길이(6자)의 근거 — 그 우연 일치율이 4자 하한의 수준과 같아야 한다."""
+    from ragdiag import settings
+
+    loose = chance_rates(edits=1)
+    strict = chance_rates()
+    assert loose[settings.QUOTE_EDIT_TOLERANT_MIN_CHARS] < 0.06
+    assert loose[4] > strict[4] * 1.5, "4자에서 한 글자 차이를 받으면 우연 일치가 두 배가 된다"
+
+
+def _one_typo(fragment: str, at: int) -> str:
+    return fragment[:at] + "ㅇ" + fragment[at + 1:]
+
+
+@pytest.mark.parametrize("length", [6, 8, 10])
+def test_a_request_quote_with_one_typo_passes_wherever_the_typo_is(length):
+    """짧은 요구 구절은 한 글자 차이가 비율을 크게 깎는다. 특히 끝에서 두 번째 글자.
+
+    골든셋 rq03 — 모델이 질문의 오탈자("주새요")를 "주세요" 로 고쳐 인용했고 8자 인용이
+    0.75 로 떨어졌다. 비율 규칙의 사각지대라 편집 거리 1 을 따로 받는다.
+    """
+    hits = total = 0
+    for kind, src, sources, _ in targets():
+        if kind != "request":
+            continue
+        plain = src.replace(" ", "")
+        if len(plain) < length:
+            continue
+        for at in (length // 2, length - 2, length - 1):
+            total += 1
+            hits += verify_request_quote(_one_typo(plain[:length], at), sources).verified
+    assert hits / total >= 0.95, f"{length}자 + 오탈자 1: {hits}/{total}"
+
+
+def test_a_short_quote_does_not_get_the_typo_allowance():
+    """4~5자에서 한 글자 차이를 받으면 우연 일치가 두 배가 된다 — 거기서는 받지 않는다."""
+    assert not verify_request_quote("표로ㅇ리", ["항목별 상한을 표로 정리해 주세요."]).verified
 
 
 def render() -> str:
