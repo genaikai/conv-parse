@@ -106,6 +106,12 @@ TURN_SCHEMA = (
 # 로그 최상위에서 사용자 배열이 들어 있을 수 있는 키. 배포마다 다르다.
 USER_ROOT_KEYS = ("users", "analysis_results", "data")
 
+# 계약의 이름 → 배포에서 본 다른 이름. 없다고만 하면 "새 필드인지 확인할 것" 이 옆 줄에
+# 따로 뜨고, 사람은 둘이 같은 필드인 줄 모른다. 파서는 계약의 이름만 읽는다.
+ALIASES = {
+    "llm_alternatives": ("llm_eval_alternatives",),
+}
+
 SCHEMAS = {
     "user": USER_SCHEMA,
     "conversation": CONVERSATION_SCHEMA,
@@ -174,7 +180,11 @@ def validate(rows: list[dict], schema: tuple[Field, ...], layer: str) -> list[Mi
     for field in schema:
         present = [r for r in rows if field.name in r]
         if rows and not present:
-            add(field.name, "missing", "로그에 이 키가 하나도 없다")
+            alias = next((a for a in ALIASES.get(field.name, ()) if any(a in r for r in rows)),
+                         None)
+            add(field.name, "missing",
+                f"{alias} 로 와 있다 — 파서는 {field.name} 만 읽어 비어 들어간다. 이름을 맞출 것"
+                if alias else "로그에 이 키가 하나도 없다")
             continue
 
         nulls = sum(1 for r in present if r.get(field.name) in (None, ""))
@@ -213,7 +223,7 @@ def validate(rows: list[dict], schema: tuple[Field, ...], layer: str) -> list[Mi
                     f"허용값 {field.allowed} 밖 {out:,}건")
 
     # 계약에 없는 키. 새 필드가 생겼다는 신호이고, 그게 관찰가 된다.
-    known = {f.name for f in schema}
+    known = {f.name for f in schema} | {a for names in ALIASES.values() for a in names}
     extra: dict[str, int] = {}
     for r in rows:
         for key in r:
@@ -265,9 +275,22 @@ def check_log(payload: dict) -> ContractReport:
 
     report = ContractReport(
         checked=len(USER_SCHEMA) + len(CONVERSATION_SCHEMA) + len(TURN_SCHEMA))
-    found = (validate(users, USER_SCHEMA, "user")
-             + validate(convs, CONVERSATION_SCHEMA, "conversation")
-             + validate(turns, TURN_SCHEMA, "turn"))
+    found = validate(users, USER_SCHEMA, "user")
+
+    # 턴이 conversations 없이 user 바로 아래 오는 배포가 있다 (pseudo_input). 파서는
+    # conversations 아래만 읽어 0건이 되는데, 층마다 따로 대조하면 conversation 과 turn
+    # 층이 빈 목록이라 아무 줄도 안 뜬다 - "필터 조건을 확인하라" 는 엉뚱한 안내만 남는다.
+    flat = [t for u in users for t in (u.get("turns") or []) if isinstance(t, dict)]
+    if users and not convs and flat:
+        found.append(Mismatch(
+            "user", "conversations", "structure",
+            f"turns 가 user 바로 아래라 파서가 0건으로 읽는다 ({len(flat):,}건) — "
+            f"users → conversations → turns 로 묶을 것 (턴의 conversation_id 기준)", count=1))
+        # 턴 필드는 그대로 대조한다 - 구조를 고친 뒤 무엇이 더 어긋나는지 미리 보인다.
+        turns = flat
+    else:
+        found += validate(convs, CONVERSATION_SCHEMA, "conversation")
+    found += validate(turns, TURN_SCHEMA, "turn")
     skip = {f.name for schema in SCHEMAS.values() for f in schema if f.unused}
     report.mismatches = [m for m in found if m.field not in skip]
     report.notes = [m for m in found if m.field in skip]
