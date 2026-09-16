@@ -453,14 +453,16 @@ def run_routing_golden(cases, judge, workers) -> None:
         want = meta["expect_case"]
         got = (result.classification.primary_case if result.classification
                else f"ERROR:{result.error}")
-        ok = got in want
+        secondary = set(result.classification.secondary_cases) if result.classification else set()
+        # 부가 case 는 코드 검증기가 잡는 것(개인정보 · 인용 표기 · 계산 · 코드)을 확인하는 자리다.
+        ok = got in want and meta.get("expect_secondary", set()) <= secondary
         hits += ok
         rows.append((ok, meta["id"], want, got, result))
 
     print("=" * 78)
     print(f"라우팅 채점   일치 {hits}/{len(rows)}")
     print("=" * 78)
-    for ok, cid, want, got, result in rows:
+    for (ok, cid, want, got, result), (_, meta) in zip(rows, cases):
         extra = ""
         if result.classification and result.classification.secondary_cases:
             extra = "  +" + ",".join(result.classification.secondary_cases)
@@ -468,6 +470,8 @@ def run_routing_golden(cases, judge, workers) -> None:
         line = f"{mark}{cid:<10} -> {got}{extra}"
         if not ok:
             line += f"   기대 {sorted(want)}"
+            if meta_secondary := meta.get("expect_secondary"):
+                line += f" +{sorted(meta_secondary)}"
             if result.classification:
                 line += f"   ({result.classification.reason[:60]})"
         print(line)

@@ -178,9 +178,15 @@ def route(
     if truncated is not None and truncated.violated:
         return done("case8", f"답변이 중간에 끊김 — {truncated.detail}")
     if obs.complaint_target == "no_answer":
-        return done(taxonomy.UNCLASSIFIED,
-                    "답이 없다는 불만인데 답변은 온전함",
-                    ["서비스 끊김일 수 있으나 로그로는 판정 불가 — 별도 텔레메트리 필요"])
+        # "쿼리가 안 돌아요" 도 '답이 없다' 로 읽힌다. 답변이 온전한데 코드가 깨져 있으면
+        # 그게 답이다 - 아래 code 분기가 case27 로 보낸다 (지저분한 골든셋 code03).
+        broken_code = obs.question_domain in ("code", "tool_usage") and any(
+            _check(checks, n) is not None and _check(checks, n).violated
+            for n in ("python_syntax", "sql_shape"))
+        if not broken_code:
+            return done(taxonomy.UNCLASSIFIED,
+                        "답이 없다는 불만인데 답변은 온전함",
+                        ["서비스 끊김일 수 있으나 로그로는 판정 불가 — 별도 텔레메트리 필요"])
 
     # --- 3. 형식·언어·길이 요청 불이행 -----------------------------------------
     #

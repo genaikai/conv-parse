@@ -87,6 +87,17 @@ def test_no_answer_complaint_but_answer_is_intact():
     assert any("서비스 끊김" in n for n in result.notes)
 
 
+def test_no_answer_complaint_with_broken_code_is_the_code_defect():
+    """"쿼리가 안 돌아요" 는 '답이 없다' 로 읽힌다. 코드가 깨져 있으면 그게 답이다.
+
+    지저분한 골든셋 code03 — GROUP BY 뒤가 빈 SQL 을 두고 미분류로 갔다.
+    """
+    result = route(obs(complaint_target="no_answer", question_domain="code"),
+                   checks(truncated=Check("truncated", "ok", "정상"),
+                          sql_shape=Check("sql_shape", "violated", "GROUP BY 뒤가 비어 있음")))
+    assert result.primary_case == "case27"
+
+
 # ---------------------------------------------------------------------------
 # 요청 불이행 — 코드 검증이 판정을 확정한다
 # ---------------------------------------------------------------------------

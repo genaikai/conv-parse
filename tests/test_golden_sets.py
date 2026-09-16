@@ -53,7 +53,7 @@ def test_messy_set_expects_real_fields_and_reachable_cases():
         unknown = set(case["expect"]) - graded
         assert not unknown, f"{case['id']}: 관측에 없는 필드 {unknown}"
         assert case["expect_case"], f"{case['id']}: expect_case 가 없다"
-        for cid in case["expect_case"]:
+        for cid in case["expect_case"] | case.get("expect_secondary", set()):
             assert cid in (taxonomy.UNCLASSIFIED, taxonomy.OUT_OF_TAXONOMY) or (
                 taxonomy.get(cid) and taxonomy.get(cid).diagnosable), f"{case['id']}: {cid}"
 
@@ -68,3 +68,30 @@ def test_messy_set_looks_like_the_operational_log():
             "llm_eval_result", "llm_eval_score", "llm_eval_score_top1", "llm_alternatives",
             "llm_emotion_result", "llm_emotion_alternatives"} <= set(turn)
     assert turn["conversation_id"].endswith("_conv_1")
+
+
+def coverage() -> dict[str, int]:
+    """messy 셋이 case 마다 몇 건을 겨냥하는가 (expect_case ∪ expect_secondary)."""
+    counts = {cid: 0 for cid in taxonomy.CASES}
+    for case in messy.CASES:
+        for cid in case["expect_case"] | case.get("expect_secondary", set()):
+            if cid in counts:
+                counts[cid] += 1
+    return counts
+
+
+def test_messy_set_reaches_every_diagnosable_case():
+    """판정 가능한 case 는 전부 라우팅 골든셋에 겨냥하는 케이스가 있어야 한다.
+
+    없으면 그 case 로 가는 경로는 한 번도 실제로 돌아본 적이 없는 것이다 — case6 · 21 · 24 가
+    그랬다. 판정 불가 넷(5 · 7 · 19 · 23)은 라우팅이 만들지 않으므로 제외한다.
+    """
+    missing = [cid for cid, n in coverage().items()
+               if n == 0 and taxonomy.get(cid).diagnosable]
+    assert not missing, f"라우팅 골든셋이 한 번도 겨냥하지 않는 case: {missing}"
+
+
+if __name__ == "__main__":
+    for cid, n in coverage().items():
+        meta = taxonomy.get(cid)
+        print(f"{cid:<8}{meta.name:<24}{n:>3}" + ("" if meta.diagnosable else "   (판정 불가)"))
