@@ -52,8 +52,8 @@ def secondary_from(obs: Observation, checks: dict[str, Check]) -> list[str]:
     하나만 고르면 정보가 사라지고 tie-break 가 자의적이 된다.
     """
     extra = []
-    if not obs.question_self_contained:
-        extra.append("case4")          # 참조가 모호한 질문
+    if obs.question_clarity == "unresolved_reference":
+        extra.append("case4")          # 앞 질문들로도 지시 대상이 안 풀린 질문
     if obs.question_multi_intent:
         extra.append("case3")          # 복합 질문
     pii = _check(checks, "pii")
@@ -140,14 +140,6 @@ def route(
     # 모호함은 실제로 문제가 되지 않았다는 뜻이고, 신호는 secondary(case4·case3)로
     # 남는다.
     if obs.complaint_target == "none":
-        # 인용을 못 대면 통과시키지 않는다. "문제 없음"은 가장 쉬운 답이라
-        # 열어두면 애매한 턴이 전부 그리로 샌다.
-        if complaint is not None and not complaint.verified:
-            result = done(taxonomy.UNCLASSIFIED,
-                          "불만이 아니라고 했으나 후속 발화에서 근거를 인용하지 못함",
-                          ["인용 검증 실패 — 판정자가 관용 쪽으로 기울었을 수 있다"])
-            result.confidence = "low"
-            return result
         # 불만이 없다고 결함이 없는 건 아니다. 코드가 잡은 위반이 있으면
         # 사용자가 지적하지 않았을 뿐이다.
         violated = sorted(name for name, c in checks.items() if c.violated)
@@ -155,17 +147,25 @@ def route(
             return done(taxonomy.UNCLASSIFIED,
                         f"불만은 없으나 코드 검증이 위반을 잡음 ({', '.join(violated)})",
                         ["사용자가 지적하지 않은 결함 — 표본 검토 대상"])
-        return done("case0", "후속 발화가 앞 답변을 문제 삼지 않음",
-                    ["실패율 분모에서 뺄 것.",
-                     "쌓이면 챗봇이 아니라 필터를 좁힐 신호다."])
+        notes = ["실패율 분모에서 뺄 것.", "쌓이면 챗봇이 아니라 필터를 좁힐 신호다."]
+        # 근거로 든 구절을 후속 발화에서 그대로 찾지 못했다. 판정을 버리지는 않는다 -
+        # 약한 모델은 짧은 발화를 일부만 따오거나 말을 바꿔 적어서, 버리면 맞는 판정까지
+        # 사라진다. 대신 신뢰도를 낮춰 "신뢰도 낮음 제외" 로 걸러 볼 수 있게 한다.
+        if complaint is not None and not complaint.verified:
+            result = done("case0", "후속 발화가 앞 답변을 문제 삼지 않음 — 근거는 원문에서 확인 못 함",
+                          ["판정자가 댄 근거를 후속 발화에서 그대로 찾지 못했다 — 표본 검토 대상",
+                           *notes])
+            result.confidence = "low"
+            return result
+        return done("case0", "후속 발화가 앞 답변을 문제 삼지 않음", notes)
 
     # --- 1b. 질문 쪽 문제가 먼저다 --------------------------------------------
     # 챗봇이 낼 수 없는 형태를 요구했으면 답변을 탓할 수 없다.
     if obs.requests_unsupported_output:
         return done("case2", "챗봇이 낼 수 없는 형태를 요구함 (링크·이미지 등)")
     # 질문 자체가 답을 특정할 수 없으면 그 뒤 판정이 전부 의미를 잃는다.
-    if not obs.question_answerable_as_asked:
-        return done("case1", "질문만으로 답을 특정할 수 없음")
+    if obs.question_clarity == "vague":
+        return done("case1", "앞 대화를 알아도 무엇을 묻는지 특정되지 않음")
 
     # --- 2. 답이 끊겼나 --------------------------------------------------------
     #

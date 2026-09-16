@@ -82,20 +82,85 @@ class QuoteCheck:
     verified: bool
 
 
+def _plain(text: str) -> str:
+    """normalize 에 더해 문장부호까지 지운다. 짧은 발화는 부호 하나가 대조를 가른다."""
+    return "".join(ch for ch in normalize(text)
+                   if not unicodedata.category(ch).startswith("P"))
+
+
+def _coverage(quote: str, text: str) -> float:
+    """인용 글자 중 원문에 **순서대로** 들어 있는 비율.
+
+    원문 쪽에 조사가 더 끼어 있어도("숙박비 얼마" ↔ "숙박비는 얼마") 1.0 이다. 한 글자짜리
+    일치는 세지 않는다 - 흩어진 글자가 우연히 맞아 말을 바꾼 인용이 통과하는 것을 막는다.
+    """
+    q, t = _plain(quote), _plain(text)
+    if not q:
+        return 0.0
+    if q in t:
+        return 1.0
+    blocks = difflib.SequenceMatcher(None, q, t, autojunk=False).get_matching_blocks()
+    return sum(b.size for b in blocks if b.size >= 2) / len(q)
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?。])\s+|\n+")
+
+
 def verify_complaint_quote(quote: str, current_query: str) -> QuoteCheck:
     """그 구절이 후속 발화에 실제로 있는지 대조한다.
 
-    "문제 없음"은 판정자가 낼 수 있는 가장 쉬운 답이다. 그냥 열어두면 애매한 턴이
-    전부 그리로 새고, 모든 집계가 조용히 줄어든다. 어디를 보고 그렇게 읽었는지
+    "문제 없음"은 판정자가 낼 수 있는 가장 쉬운 답이다. 어디를 보고 그렇게 읽었는지
     원문에서 따오게 하면 근거 없이 넘어갈 수 없다 - verify_evidence 가 sufficient
     주장에 대해 하는 일과 같다.
 
-    프롬프트로 "관대하게 판단하지 마라"라고 쓰는 것과 달리 이건 검증 가능하다.
+    문서 인용과 다르게 대조 대상이 짧은 발화라 규칙이 셋이다.
+    - 발화 전체나 그 한 문장을 그대로 따왔으면 짧아도 받는다 ("네 감사합니다")
+    - 그 밖의 조각은 4자 이상이어야 한다. 짧은 조각("그럼")은 아무 발화에나 맞는다
+    - 조사 · 문장부호가 빠진 것은 받고, 말을 바꾼 것은 받지 않는다
+    약한 모델이 짧은 발화를 일부만 따오는 일이 잦아서 예전의 8자 · 연속 90% 규칙이
+    맞는 판정을 떨어뜨렸다 (Haiku 로 재 보니 none 6건 중 3건).
     """
-    if len(normalize(quote)) < settings.EVIDENCE_MIN_QUOTE_CHARS:
+    plain = _plain(quote)
+    whole = {_plain(s) for s in [current_query, *_SENTENCE_END.split(current_query.strip())]}
+    if plain and plain in whole:
+        return QuoteCheck(quote, 1.0, True)
+    return verify_quote_in(quote, [current_query], settings.UTTERANCE_MIN_QUOTE_CHARS)
+
+
+def verify_quote_in(quote: str, texts: list[str], min_chars: int) -> QuoteCheck:
+    """판정자가 발화에서 댄 구절이 주어진 문장들 중 하나에 실제로 있는지.
+
+    문서 인용(verify_evidence)과 임계값이 다르다 - 발화는 짧아 오탈자 한 글자가 비율을
+    크게 깎고, 떨어졌을 때의 처리가 안전한 방향이라 조금 느슨하다 (settings 참고).
+    """
+    if len(_plain(quote)) < min_chars:
         return QuoteCheck(quote, 0.0, False)
-    ratio = match_ratio(quote, current_query)
-    return QuoteCheck(quote, ratio, ratio >= settings.MATCH_THRESHOLD)
+    ratio = max((_coverage(quote, t) for t in texts), default=0.0)
+    return QuoteCheck(quote, ratio, ratio >= settings.QUOTE_MATCH_THRESHOLD)
+
+
+def verify_request_quote(quote: str, questions: list[str]) -> QuoteCheck:
+    """판정자가 적은 요구의 구절이 이전 질문들 안에 실제로 있는지.
+
+    요구는 비판받은 답변이 따를 수 있었던 것 - 그 답변을 부른 질문과 그 앞에 적힌 것만
+    요구다. 후속 발화에서 처음 꺼낸 요구를 세면 답할 때는 없던 요구를 어긴 것이 된다.
+    요구 구절은 짧으므로("표로", "영어로") 하한을 두 글자로 둔다.
+    """
+    return verify_quote_in(quote, questions, settings.REQUEST_MIN_QUOTE_CHARS)
+
+
+def verify_history_quote(quote: str, earlier_questions: list[str]) -> QuoteCheck:
+    """"이전 턴의 조건을 어겼다"는 주장의 근거가 앞 질문들에 실제로 있는지.
+
+    ignored 는 case14 로 가는데, 약한 모델은 답변이 부실하기만 해도 ignored 로 읽는다
+    (골든셋 halo02 에서 Haiku 가 실행마다 흔들렸다). 어긴 조건이 적힌 앞 질문을 대게 하고
+    여기서 대조한다 - 마지막 질문은 뺀다. 거기 적힌 조건을 어긴 것은 히스토리 문제가 아니라
+    의도를 잘못 읽은 것이다.
+
+    하한이 4자인 이유: 2자 조각("국내")은 앞 질문들에 우연히 있을 확률이 14% 라
+    근거를 대충 짧게 적어도 ignored 가 살아남는다. 4자면 5% 아래로 내려간다.
+    """
+    return verify_quote_in(quote, earlier_questions, settings.UTTERANCE_MIN_QUOTE_CHARS)
 
 
 def verify_evidence(evidence: list[Evidence], chunks: list[str]) -> CitationCheck:

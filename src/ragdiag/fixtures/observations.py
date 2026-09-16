@@ -75,7 +75,7 @@ CASES = [
         complaint="표로 정리해 달라고 했는데 또 줄글로 주셨네요.",
         chunks=RULES,
         expect=dict(complaint_target="format", question_domain="domain",
-                    requested_format="table", question_self_contained=True),
+                    requested_format="table", question_clarity="clear"),
     ),
     dict(
         id="fmt02", note="번호 목록 요구",
@@ -159,14 +159,14 @@ CASES = [
         expect=dict(complaint_target="no_answer"),
     ),
 
-    # ---------- complaint_target: refusal ----------
+    # ---------- 거절 — answer_refused 가 정한다 (complaint_target 에는 refusal 이 없다) ----------
     dict(
         id="ref01", note="정책상 거절",
         pre_queries=["임원 급여 테이블을 보여주세요."],
         answer="죄송합니다. 보안 정책상 해당 정보는 안내해 드릴 수 없습니다.",
         complaint="왜 못 알려주시죠? 저도 알 권한이 있는데요.",
         chunks=[],
-        expect=dict(complaint_target="refusal", answer_refused=True),
+        expect=dict(answer_refused=True),
     ),
 
     # ---------- complaint_target: inconsistency ----------
@@ -249,25 +249,28 @@ CASES = [
         expect=dict(question_domain="tool_usage"),
     ),
 
-    # ---------- question_self_contained ----------
+    # ---------- question_clarity ----------
+    #
+    # 챗봇은 이전 질문들을 함께 받는다. 지시어가 앞 질문으로 풀리면 clear 이고, 앞 질문을
+    # 봐도 안 풀릴 때만 unresolved_reference(case4) 다.
     dict(
-        id="ctx01", note="지시대명사 의존",
+        id="ctx01", note="지시대명사 — 앞 질문으로 풀린다",
         pre_queries=["해외 지사 파견 제도가 어떻게 되나요?",
                      "파견 기간은 보통 얼마나 되나요?",
                      "그거 연장도 가능한가요?"],
         answer="연장 관련해서는 별도 규정을 확인해 주시기 바랍니다.",
         complaint="파견 기간 연장 얘기였는데 엉뚱한 답이 나왔네요.",
         chunks=["해외 지사 파견 대상자는 부서장 추천 후 인사위원회에서 선정한다."],
-        expect=dict(question_self_contained=False, question_domain="domain"),
+        expect=dict(question_clarity="clear", question_domain="domain"),
     ),
     dict(
-        id="ctx02", note="대상 명사 생략",
+        id="ctx02", note="대상 명사 생략 — 앞 질문으로 풀린다",
         pre_queries=["실행 환경 GPU 서버 사용 신청 어떻게 하나요?",
                      "신청하면 얼마나 쓸 수 있어요?"],
         answer="GPU 서버는 신청 후 승인을 받아 사용하실 수 있습니다.",
         complaint="사용 가능 시간을 물었습니다.",
         chunks=["GPU 서버 사용은 사전 신청 및 팀장 승인을 필요로 한다."],
-        expect=dict(question_self_contained=False),
+        expect=dict(question_clarity="clear"),
     ),
     dict(
         id="ctx03", note="자립 질문",
@@ -276,7 +279,24 @@ CASES = [
         answer="식비는 실비로 정산합니다.",
         complaint="상한 금액을 물었는데요.",
         chunks=RULES,
-        expect=dict(question_self_contained=True),
+        expect=dict(question_clarity="clear"),
+    ),
+    dict(
+        id="ctx04", note="가리키는 것이 앞에 없다 — 앞 질문을 봐도 안 풀린다",
+        pre_queries=["출장비 정산 기한 알려주세요.",
+                     "아까 말한 그 양식은 어디서 받아요?"],
+        answer="양식은 그룹웨어 자료실에서 받으실 수 있습니다.",
+        complaint="어떤 양식인지 알고 답하신 건가요?",
+        chunks=RULES,
+        expect=dict(question_clarity="unresolved_reference"),
+    ),
+    dict(
+        id="ctx05", note="첫 질문부터 지시어 — 가리킬 앞 질문이 없다",
+        pre_queries=["그거 신청 기한이 언제예요?"],
+        answer="신청 기한은 항목마다 다릅니다.",
+        complaint="그러니까 언제냐고요.",
+        chunks=LEAVE,
+        expect=dict(question_clarity="unresolved_reference"),
     ),
 
     # ---------- question_multi_intent ----------
@@ -299,7 +319,7 @@ CASES = [
 
     # ---------- 요구 없음 (오탐 확인) ----------
     dict(
-        id="none01", note="아무 요구도 없는 평범한 질문",
+        id="plain01", note="아무 요구도 없는 평범한 질문",
         pre_queries=["연차 신청은 어디서 하나요?"],
         answer="그룹웨어에서 신청하시면 됩니다.",
         complaint="승인은 누가 하나요?",
@@ -307,11 +327,11 @@ CASES = [
         expect=dict(requested_format="none", requested_language="",
                     requested_length_kind="none", answer_refused=False,
                     question_multi_intent=False,
-                    question_answerable_as_asked=True,
+                    question_clarity="clear",
                     requests_unsupported_output=False),
     ),
     dict(
-        id="none02", note="정보가 없어 못 답한 것은 거절이 아니다",
+        id="noref01", note="정보가 없어 못 답한 것은 거절이 아니다",
         pre_queries=["2027년 임금 인상률이 얼마인가요?"],
         answer="해당 정보는 아직 확정되지 않아 안내해 드릴 수 없습니다.",
         complaint="언제쯤 알 수 있나요?",
@@ -325,7 +345,9 @@ CASES = [
         answer="출장 관련 문의는 총무팀으로 연락 주시기 바랍니다.",
         complaint="아니 그게 아니라요.",
         chunks=RULES,
-        expect=dict(question_answerable_as_asked=False),
+        # '그거' 는 "출장 관련 궁금한 것" 을 가리키지만 그게 무엇인지는 어디에도 없다.
+        # 지시어가 안 풀린 것으로도, 질문 자체가 모호한 것으로도 읽힌다 - 둘 다 받는다.
+        expect=dict(question_clarity={"vague", "unresolved_reference"}),
     ),
     dict(
         id="vague02", note="범위는 넓지만 무엇을 묻는지는 분명함",
@@ -333,7 +355,7 @@ CASES = [
         answer="식비와 숙박비 상한이 있습니다.",
         complaint="항목별로 다 알려주세요.",
         chunks=RULES,
-        expect=dict(question_answerable_as_asked=True),
+        expect=dict(question_clarity="clear"),
     ),
 
     # ---------- case2: 챗봇이 낼 수 없는 형태를 요구 ----------
@@ -458,6 +480,151 @@ CASES = [
         expect=dict(answer_used_history="not_needed"),
     ),
 
+    # ---------- 요구의 출처 — 답변이 따를 수 있었던 요구만 요구다 ----------
+    #
+    # 요구는 비판받은 답변을 부른 질문(과 그 앞)에 있어야 한다. 후속 발화에서 새로
+    # 꺼낸 요구를 그 답변이 어겼다고 세면, 답할 때는 없던 요구를 어긴 것이 되어
+    # case10 · case12 가 high 신뢰도로 잘못 나간다.
+    dict(
+        id="req01", note="표 요구가 후속 발화에만 있다 — 답변 당시엔 없던 요구",
+        pre_queries=["국내 출장비 항목별 상한을 알려주세요."],
+        answer="국내 출장 식비는 1일 3만원, 숙박비는 1박 8만원을 상한으로 합니다.",
+        complaint="표로 정리해 주세요.",
+        chunks=RULES,
+        expect=dict(requested_format="none"),
+    ),
+    dict(
+        id="req02", note="언어 요구가 후속 발화에만 있다",
+        pre_queries=["연차 신청은 어떻게 하나요?"],
+        answer="연차유급휴가는 사전에 그룹웨어를 통해 신청하시면 됩니다.",
+        complaint="영어로 다시 설명해 주세요.",
+        chunks=LEAVE,
+        expect=dict(requested_language=""),
+    ),
+    dict(
+        id="req03", note="'표'가 들어간 낱말일 뿐 형식 요구가 아니다",
+        pre_queries=["출장 정산서 표준 양식은 어디서 받나요?"],
+        answer="출장 정산서 양식은 그룹웨어 자료실에서 받으실 수 있습니다.",
+        complaint="자료실 어느 메뉴인가요?",
+        chunks=RULES,
+        expect=dict(requested_format="none"),
+    ),
+    dict(
+        id="req04", note="부정형 — 표가 아니라 줄글을 요구했다",
+        pre_queries=["표 말고 줄글로 연차 신청 절차를 설명해 주세요."],
+        answer="| 단계 | 내용 |\n|---|---|\n| 1 | 그룹웨어 신청 |\n| 2 | 팀장 승인 |",
+        complaint="줄글로 달라고 했잖아요.",
+        chunks=LEAVE,
+        expect=dict(requested_format="prose", complaint_target="format"),
+    ),
+
+    # ---------- 한 인상이 여러 칸을 켜는지 ----------
+    #
+    # 답변이 나쁘다는 인상 하나가 질문 쪽 관측과 다른 답변 관측까지 끌고 가는지 본다.
+    dict(
+        id="halo01", note="질문은 분명한데 답이 엉뚱해 되묻는다 — 질문 탓이 아니다",
+        pre_queries=["국내 출장 숙박비 상한이 얼마인가요?"],
+        answer="숙박비는 지역과 직급에 따라 달라질 수 있습니다.",
+        complaint="무슨 말이에요? 얼마냐고요.",
+        chunks=RULES,
+        expect=dict(question_clarity="clear"),
+    ),
+    dict(
+        id="halo02", note="부실한 답변이지만 앞에서 정한 조건을 어긴 것은 아니다",
+        pre_queries=["출장비 규정을 알려주세요.", "숙박비 상한은요?"],
+        answer="출장비는 회사 규정에 따라 지급됩니다.",
+        complaint="숙박비 금액을 알려달라니까요.",
+        chunks=RULES,
+        expect=dict(answer_used_history={"not_needed", "used"},
+                    complaint_target="content_missing"),
+    ),
+    dict(
+        id="halo03", note="다른 부서로 안내한 회피 — 정책상 거절이 아니다",
+        pre_queries=["연차 승인 기준이 뭔가요?"],
+        answer="연차 승인 기준은 인사팀에 문의하시기 바랍니다.",
+        complaint="인사팀 말고 기준을 알려주세요.",
+        chunks=LEAVE,
+        expect=dict(answer_refused=False, complaint_target="content_missing"),
+    ),
+
+    # ---------- 인용 대조 — 약한 모델이 틀린 곳에서 따오게 유혹하는 사례 ----------
+    #
+    # 인용 세 칸(complaint · request · history)은 "LLM 의 주장을 코드가 원문으로 확인"
+    # 하는 장치다. 여기서는 인용을 못 따오는 경우가 아니라(그건 LLM 으로 재현할 수 없어
+    # tests/test_quote_robustness.py 가 변형으로 잰다) **엉뚱한 곳에 그럴듯한 구절이
+    # 있는** 경우를 둔다. expect 의 *_quote_verified 는 대조 결과다.
+    dict(
+        id="hq01", note="조건이 답변에만 되풀이됨 — 앞 질문엔 없다. ignored 면 근거를 댈 수 없다",
+        pre_queries=["출장비 상한을 알고 싶어요.", "식비는 얼마인가요?"],
+        answer="국내 기준으로 말씀드리면 식비는 1일 3만원입니다.",
+        complaint="국내만 물은 게 아닌데요.",
+        chunks=RULES,
+        expect=dict(answer_used_history={"not_needed", "used"}),
+    ),
+    dict(
+        id="hq02", note="조건이 마지막 질문에만 있다 — 지금 규칙은 마지막 질문을 대조에서 뺀다",
+        pre_queries=["출장비 규정을 알려주세요.", "국내 기준으로 식비 상한을 알려주세요."],
+        answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
+        complaint="국내 기준이라고 했잖아요.",
+        chunks=RULES,
+        # 마지막 질문의 조건을 어긴 것은 맥락 상실이 아니라 의도 오독이라는 정의에 따라
+        # ignored 는 철회된다. 같은 조건을 매 턴 반복하는 사용자가 실데이터에 얼마나
+        # 흔한지 몰라 이 정의는 열린 과제다 (docs/design/observe_step.md).
+        expect=dict(answer_used_history={"not_needed", "used"}),
+    ),
+    dict(
+        id="hq03", note="조건이 히스토리 창(3턴) 밖에 있다 — 판정자는 볼 수 없다",
+        pre_queries=["국내 기준으로만 알려주세요.", "출장 신청은 어디서 하나요?",
+                     "승인은 누가 하나요?", "정산 기한은 언제인가요?", "식비는 얼마인가요?"],
+        answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
+        complaint="국내 기준이라고 했는데요.",
+        chunks=RULES,
+        # 실제로는 ignored 가 맞다. 그러나 조건이 창 밖이라 판정자에게 보이지 않고,
+        # 보이지 않는 조건을 인용할 수 없으므로 철회된다 - 창 3턴의 비용이 여기 드러난다.
+        expect=dict(answer_used_history={"not_needed", "used"}),
+    ),
+    dict(
+        id="hq04", note="조건이 짧은 어절 하나 — 4자 하한을 정당한 조건이 넘는지",
+        pre_queries=["출장비 상한 알려주세요.", "국내만요.", "식비는요?"],
+        answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
+        complaint="국내만 물었는데요.",
+        chunks=RULES,
+        expect=dict(answer_used_history="ignored", history_quote_verified=True),
+    ),
+    dict(
+        id="rq01", note="후속 발화가 원래 질문을 되풀이하며 요구를 덧붙인다",
+        pre_queries=["국내 출장비 항목별 상한을 알려주세요."],
+        answer="국내 출장 식비는 1일 3만원, 숙박비는 1박 8만원을 상한으로 합니다.",
+        complaint="출장비 항목별 상한, 표로요.",
+        chunks=RULES,
+        expect=dict(requested_format="none"),
+    ),
+    dict(
+        id="rq02", note="요구 표현이 영어 혼용 — 원문 그대로 따와야 통과",
+        pre_queries=["출장비 항목별 상한을 table로 정리해 주세요."],
+        answer="국내 출장 식비는 1일 3만원, 숙박비는 1박 8만원을 상한으로 합니다.",
+        complaint="table로 달라고 했잖아요.",
+        chunks=RULES,
+        expect=dict(requested_format="table", request_quote_verified=True),
+    ),
+    dict(
+        id="rq03", note="질문에 오탈자 — 고쳐서 인용하면 대조가 흔들린다",
+        pre_queries=["출장비 항목별 상한을 표로 정리해 주새요."],
+        answer="국내 출장 식비는 1일 3만원, 숙박비는 1박 8만원을 상한으로 합니다.",
+        complaint="표로 달라고 했는데요.",
+        chunks=RULES,
+        expect=dict(requested_format="table", request_quote_verified=True),
+    ),
+    dict(
+        id="cq01", note="후속 발화가 길고 영어가 섞임 — 부분 인용이 통과해야 한다",
+        pre_queries=["연차 신청은 어떻게 하나요?"],
+        answer="연차유급휴가는 사전에 그룹웨어를 통해 신청하시면 됩니다.",
+        complaint="OK, thanks. 그러면 approval은 팀장이 하는 건가요? 아니면 부서장까지 "
+                  "올라가나요? 그리고 반차도 같은 절차인지 궁금합니다.",
+        chunks=LEAVE,
+        expect=dict(complaint_target="none", complaint_quote_verified=True),
+    ),
+
     # ---------- 코드 검증기: 인젝션 (case29) ----------
     dict(
         id="inj01", note="문서에 모델을 겨냥한 지시가 있고 답변이 수행함",
@@ -486,7 +653,9 @@ CASES = [
         answer="5일 × 30000 = 120000 원입니다.",
         complaint="15만원 아닌가요?",
         chunks=[],
-        expect=dict(question_domain="calculation"),
+        # 일일 식비 기준(3만원)은 회사 규정이라 "회사마다 답이 달라지는가"로는 domain 이다.
+        # 답변에 적힌 30000 을 보면 calculation 으로도 읽힌다. calc02 처럼 둘 다 받는다.
+        expect=dict(question_domain={"calculation", "domain"}),
     ),
 ]
 
@@ -498,6 +667,8 @@ def build() -> tuple[dict, dict]:
     turn 2 가 불만이다. 실제 파이프라인이 짝짓는 방식과 같다.
     """
     import json as _json
+
+    from ragdiag.labels import EMOTION_LABELS, QUERY_LABELS
 
     users, expected = [], {}
     for index, case in enumerate(CASES):

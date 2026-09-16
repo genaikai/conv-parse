@@ -75,9 +75,9 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "run.history_turns": (int, False),
 
     "thresholds.match_threshold": ((int, float), False),
+    "thresholds.quote_match_threshold": ((int, float), False),
     "thresholds.evidence_min_quote_chars": (int, False),
     "thresholds.answer_quote_min_chars": (int, False),
-    "thresholds.vague_short_max_chars": (int, False),
 
     "service_error.templates": (list, False),
 
@@ -95,6 +95,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 # 막으면 코드를 못 고치는 쪽에서 실행이 시작도 못 하므로 받아는 둔다. 대신 아무것도
 # 바꾸지 않는다고 화면과 RUN SUMMARY 에 남긴다 - 적어 둔 값이 조용히 무시되는 것도 결함이다.
 RETIRED = {
+    "thresholds.vague_short_max_chars": "길이는 재기만 하고 판정하지 않는다. 기준값을 쓰는 곳이 없다",
     "service_error.markers": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
     "service_error.max_chars": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
 }
@@ -113,9 +114,9 @@ TO_SETTINGS = {
     "llm.max_tokens": "DEFAULT_MAX_TOKENS",
     "llm.timeout_sec": "DEFAULT_TIMEOUT_SEC",
     "thresholds.match_threshold": "MATCH_THRESHOLD",
+    "thresholds.quote_match_threshold": "QUOTE_MATCH_THRESHOLD",
     "thresholds.evidence_min_quote_chars": "EVIDENCE_MIN_QUOTE_CHARS",
     "thresholds.answer_quote_min_chars": "ANSWER_QUOTE_MIN_CHARS",
-    "thresholds.vague_short_max_chars": "VAGUE_SHORT_MAX_CHARS",
     "service_error.templates": "SERVICE_ERROR_TEMPLATES",
     "org.candidate_fields": "ORG_CANDIDATE_FIELDS",
     "filter.any_values": "FILTER_ANY_VALUES",
@@ -205,10 +206,10 @@ def validate(values: dict[str, Any]) -> list[str]:
     workers = values.get("run.workers")
     if isinstance(workers, int) and workers < 1:
         problems.append("run.workers: 1 이상이어야 한다")
-    threshold = values.get("thresholds.match_threshold")
-    if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
-        problems.append("thresholds.match_threshold: 0 과 1 사이여야 한다 "
-                        "(연속 일치 비율이다)")
+    for key in ("thresholds.match_threshold", "thresholds.quote_match_threshold"):
+        threshold = values.get(key)
+        if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
+            problems.append(f"{key}: 0 과 1 사이여야 한다 (연속 일치 비율이다)")
     templates = values.get("service_error.templates")
     if isinstance(templates, list) and any(not str(t).strip() for t in templates):
         problems.append("service_error.templates: 빈 문자열이 있다. "

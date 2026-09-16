@@ -17,11 +17,11 @@ def obs(**kw) -> Observation:
     base = dict(
         reasoning="r", resolved_question="q", unmet_need="n",
         complaint_target="content_missing", question_domain="domain",
-        question_self_contained=True, question_multi_intent=False,
+        question_clarity="clear", question_multi_intent=False,
         answer_refused=False, requested_language="",
         requested_length_kind="none", requested_length_value=0,
         requested_format="none",
-        question_answerable_as_asked=True, requests_unsupported_output=False,
+        requests_unsupported_output=False,
         answer_covers_all_intents=True, answer_actionable=True,
         answer_used_history="not_needed",
     )
@@ -234,11 +234,25 @@ def test_domain_without_sufficiency_judgment_is_unclassified():
 # 부가 케이스 — 주 라벨과 독립적으로 성립한다
 # ---------------------------------------------------------------------------
 
-def test_context_dependent_question_adds_case4():
-    result = route(obs(question_self_contained=False), checks(),
+def test_unresolved_reference_adds_case4():
+    """챗봇이 받은 히스토리로도 지시 대상이 안 풀린 질문."""
+    result = route(obs(question_clarity="unresolved_reference"), checks(),
                    judgment("insufficient"), citation(0))
     assert result.primary_case == "case20"
     assert "case4" in result.secondary_cases
+
+
+def test_a_reference_the_history_resolves_is_not_case4():
+    """챗봇은 이전 질문들을 함께 받는다. '그거' 가 앞 질문으로 풀리면 사용자 쪽 문제가 아니다."""
+    result = route(obs(question_clarity="clear"), checks(),
+                   judgment("insufficient"), citation(0))
+    assert "case4" not in result.secondary_cases
+
+
+def test_a_vague_question_is_case1():
+    """앞 대화를 다 알아도 무엇을 묻는지 특정되지 않으면 답변을 탓할 수 없다."""
+    assert route(obs(question_clarity="vague"), checks()).primary_case == "case1"
+    assert "case4" not in route(obs(question_clarity="vague"), checks()).secondary_cases
 
 
 def test_multi_intent_adds_case3():
@@ -257,7 +271,7 @@ def test_pii_and_citation_problems_are_secondary():
 
 
 def test_secondary_never_duplicates_the_primary():
-    result = route(obs(complaint_target="no_answer", question_self_contained=False),
+    result = route(obs(complaint_target="no_answer", question_clarity="unresolved_reference"),
                    checks(truncated=Check("truncated", "violated", "끊김")))
     assert result.primary_case not in result.secondary_cases
 
@@ -279,7 +293,7 @@ def test_routing_never_produces_an_undiagnosable_case():
     """
     produced = set()
     targets = ["tone", "format", "language", "length", "content_missing",
-               "content_wrong", "no_answer", "refusal", "inconsistency", "other"]
+               "content_wrong", "no_answer", "inconsistency", "other"]
     domains = ["domain", "general_knowledge", "calculation", "code", "tool_usage", "unclear"]
     for target in targets:
         for domain in domains:
@@ -323,7 +337,7 @@ def reachable_cases() -> set[str]:
 
     produced = set()
     targets = ["tone", "format", "language", "length", "content_missing",
-               "content_wrong", "no_answer", "refusal", "inconsistency", "other"]
+               "content_wrong", "no_answer", "inconsistency", "other"]
     domains = ["domain", "general_knowledge", "calculation", "code", "tool_usage", "unclear"]
     outcomes = [
         (None, None, None),
@@ -351,19 +365,18 @@ def reachable_cases() -> set[str]:
     ]
     # 관측 필드를 늘릴 때마다 여기도 늘려야 한다. 안 그러면 도달 범위를 실제보다
     # 적게 세고, 드리프트 테스트가 통과하면서 문서가 뒤처진다.
-    flags = list(itertools.product((True, False), (True, False),
+    flags = list(itertools.product(("clear", "unresolved_reference", "vague"), (True, False),
                                    ("not_needed", "used", "ignored"),
                                    (True, False), (True, False)))
     variants = variants + [checks(injection=Check("injection", "violated", "x")),
                            checks(arithmetic=Check("arithmetic", "violated", "x"))]
 
     for target, domain, refused, (j, c, g), ck, \
-            (answerable, unsupported, history, covers, actionable) in \
+            (clarity, unsupported, history, covers, actionable) in \
             itertools.product(targets, domains, (True, False), outcomes, variants, flags):
         result = route(
             obs(complaint_target=target, question_domain=domain, answer_refused=refused,
-                question_self_contained=False, question_multi_intent=True,
-                question_answerable_as_asked=answerable,
+                question_clarity=clarity, question_multi_intent=True,
                 requests_unsupported_output=unsupported,
                 answer_covers_all_intents=covers, answer_actionable=actionable,
                 answer_used_history=history),
@@ -405,12 +418,18 @@ def test_no_complaint_with_a_verified_quote_is_case0():
     assert any("분모" in n for n in result.notes), result.notes
 
 
-def test_no_complaint_without_a_verified_quote_does_not_pass():
-    """근거를 못 대면 통과시키지 않는다. 인용 강제가 여기서 값을 한다."""
+def test_no_complaint_without_a_verified_quote_is_case0_with_low_confidence():
+    """근거를 원문에서 그대로 찾지 못해도 판정을 버리지 않는다 — 신뢰도를 낮추고 표시한다.
+
+    약한 모델은 짧은 발화를 일부만 따오거나 말을 바꿔 적는다. 그걸 미분류로 보내면
+    맞는 판정까지 사라진다 - Haiku 로 재 보니 맞게 none 이라 한 6건 중 3건이 그랬다.
+    대신 low 로 두어 대시보드의 "신뢰도 낮음 제외" 로 걸러 볼 수 있게 한다.
+    """
     result = route(obs(complaint_target="none"), checks(),
                    complaint=QuoteCheck("지어낸 구절", 0.2, False))
-    assert result.primary_case == taxonomy.UNCLASSIFIED
+    assert result.primary_case == "case0"
     assert result.confidence == "low"
+    assert any("근거" in n for n in result.notes), result.notes
 
 
 def test_no_complaint_but_a_code_violation_does_not_pass():
@@ -437,8 +456,8 @@ def test_case0_beats_question_side_problems():
 
     신호는 secondary 로 남는다 - 지워버리면 되묻기 유도를 고칠 근거가 사라진다.
     """
-    result = route(obs(complaint_target="none", question_answerable_as_asked=False,
-                       question_self_contained=False, question_multi_intent=True),
+    result = route(obs(complaint_target="none", question_clarity="unresolved_reference",
+                       question_multi_intent=True),
                    checks(), complaint=QuoteCheck("그럼 반차는", 1.0, True))
     assert result.primary_case == "case0"
     assert "case4" in result.secondary_cases and "case3" in result.secondary_cases

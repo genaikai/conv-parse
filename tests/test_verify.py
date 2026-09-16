@@ -103,3 +103,44 @@ def test_final_verdict_without_a_citation_check_counts_no_quotes():
 
     judgment = SufficiencyJudgment(reasoning="r", evidence=[], verdict="sufficient", missing="")
     assert final_verdict(judgment, None) == "insufficient"
+
+
+
+# ---------------------------------------------------------------------------
+# 판정자의 인용 — 불만 아님의 근거(후속 발화) · 요구(이전 질문들)
+#
+# 문서 인용과 달리 대조 대상이 짧은 발화다. 발화 전체를 인용했으면 짧아도 받고,
+# 조사 · 문장부호가 빠진 것은 받되, 말을 바꾼 것은 받지 않는다.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("quote, utterance", [
+    ("네 감사합니다", "네 감사합니다"),               # 발화 전체 — 짧아도 받는다
+    ("네 감사합니다", "네 감사합니다. 승인은 누가 하나요?"),  # 발화의 한 문장 그대로
+    ("숙박비는요", "숙박비는요?"),                     # 문장부호 차이
+    ("숙박비 얼마인가요", "그럼 숙박비는 얼마인가요?"),  # 조사가 빠짐
+    ("그럼 숙박비는 얼마인가요", "그럼 숙박비는 얼마인가요?"),
+])
+def test_complaint_quote_accepts_the_utterance_itself(quote, utterance):
+    from ragdiag.verify import verify_complaint_quote
+    assert verify_complaint_quote(quote, utterance).verified
+
+
+@pytest.mark.parametrize("quote, utterance", [
+    ("숙박비가 궁금하다", "그럼 숙박비는 얼마인가요?"),  # 말을 바꿈
+    ("그럼", "그럼 숙박비는 얼마인가요?"),               # 짧은 조각 — 무엇이든 맞는다
+    ("", "그럼 숙박비는 얼마인가요?"),
+])
+def test_complaint_quote_rejects_what_is_not_in_the_utterance(quote, utterance):
+    from ragdiag.verify import verify_complaint_quote
+    assert not verify_complaint_quote(quote, utterance).verified
+
+
+def test_request_quote_must_come_from_the_questions():
+    """요구는 비판받은 답변이 따를 수 있었던 것 — 이전 질문들에 적힌 것만이다."""
+    from ragdiag.verify import verify_request_quote
+
+    questions = ["출장비 규정 알려주세요.", "항목별 상한을 표로 정리해 주세요."]
+    assert verify_request_quote("표로", questions).verified
+    assert verify_request_quote("표로 정리해 주세요", questions).verified
+    assert not verify_request_quote("영어로 답해줘", questions).verified   # 후속 발화에만 있던 요구
+    assert not verify_request_quote("", questions).verified

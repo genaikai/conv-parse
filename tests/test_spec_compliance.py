@@ -801,8 +801,8 @@ def test_steps_withhold_what_the_document_claims():
     obs = Observation(
         reasoning="r", resolved_question="연차 이월 예외 조건", unmet_need="예외 조건",
         complaint_target="content_missing", question_domain="domain",
-        question_self_contained=True, question_multi_intent=False, answer_refused=False,
-        question_answerable_as_asked=True, answer_covers_all_intents=False,
+        question_clarity="clear", question_multi_intent=False, answer_refused=False,
+        answer_covers_all_intents=False,
         answer_actionable=False, answer_used_history="used",
         requests_unsupported_output=False, requested_language="none",
         requested_length_kind="none", requested_length_value=0, requested_format="none")

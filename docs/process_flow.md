@@ -264,7 +264,7 @@ case 를 고르지 않는다.
 "문서가 충분했다"는 결론이 거의 자동으로 나온다. 순환이다.
 사용자가 무엇을 원했는지는 **사용자의 말만 보고** 정해야 한다.
 
-**출력** — 관측 17개
+**출력** — 관측 19개
 
 | 필드 | 값 | 무엇을 |
 |---|---|---|
@@ -272,46 +272,51 @@ case 를 고르지 않는다.
 | `reasoning` | 자유 문장 | 불만과 질문을 어떻게 읽었는지 2~3문장 |
 | `resolved_question` | 자유 문장 | 대명사·생략을 푼, 그 자체로 이해되는 질문 |
 | `unmet_need` | 자유 문장 | 원했는데 못 받은 것. **요구하지 않은 것을 덧붙이지 않는다** |
-| `complaint_target` | `none` `tone` `format` `language` `length` `content_missing` `content_wrong` `no_answer` `refusal` `inconsistency` `other` | 불만이 무엇을 향하나. `none` 은 불만이 아니라는 뜻 |
+| `complaint_target` | `none` `tone` `format` `language` `length` `content_missing` `content_wrong` `no_answer` `inconsistency` `other` | 불만이 무엇을 향하나. `none` 은 불만이 아니라는 뜻. 거절은 여기 없다 — `answer_refused` 가 정한다 |
 | `complaint_quote` | 후속 발화에서 따온 구절 | 그렇게 읽은 근거. `none` 일 때 필수이며 원문 대조를 거친다 |
 | `question_domain` | `domain` `general_knowledge` `calculation` `code` `tool_usage` `unclear` | 질문의 성격 |
-| `question_self_contained` | `true` / `false` | 그 문장만으로 검색 쿼리가 되나 (case4의 반대) |
+| `question_clarity` | `clear` `unresolved_reference` `vague` | 무엇을 묻는지 분명한가. 챗봇은 이전 질문들을 함께 받으므로 지시어가 앞 질문으로 풀리면 `clear` — 안 풀리면 `unresolved_reference`(case4), 질문 자체가 모호하면 `vague`(case1) |
 | `question_multi_intent` | `true` / `false` | 요구가 둘 이상 섞였나 (case3) |
 | `answer_refused` | `true` / `false` | 정책·권한을 이유로 거절했나 (case28) |
-| `question_answerable_as_asked` | `true` / `false` | 질문이 답을 특정할 만큼 분명한가 (case1) |
 | `answer_covers_all_intents` | `true` / `false` | 복합 질문의 모든 요구를 다뤘나 (case15) |
 | `answer_actionable` | `true` / `false` | 다음에 무엇을 할지 알 수 있나 (case17) |
 | `answer_used_history` | `not_needed` `used` `ignored` | 이전 턴을 이어받았나 (case14) |
+| `history_quote` | 앞 질문들에서 따온 구절 · `ignored` 가 아니면 빈 문자열 | 답변이 어긴 조건이 적힌 곳. 원문 대조를 거쳐 없으면 `ignored` 는 무효 |
 | `requests_unsupported_output` | `true` / `false` | 낼 수 없는 형태를 요구했나 (case2) |
 | `requested_language` | `ko` `en` `ja` `zh` · 없으면 빈 문자열 | 요구 언어 |
 | `requested_length_kind` | `none` `max_chars` `max_sentences` `max_lines` `vague_short` | 길이 요구의 종류 |
 | `requested_length_value` | 정수 · 수치가 없으면 `0` | 길이 요구의 값 |
 | `requested_format` | `none` `numbered_list` `bullet_list` `table` `code_block` `json` `prose` | 요구 형식 |
+| `requested_quote` | 이전 질문들에서 따온 구절 · 없으면 빈 문자열 | 요구가 적힌 곳. 원문 대조를 거친다 |
 
-`requested_*` 셋은 **관측이지 판정이 아니다.** "요구했다"까지만 적고 "지켰나"는 ⑥이 코드로 본다.
-`vague_short`("짧게 답해줘")처럼 수치가 없는 요구는 임계값(기본 400자)으로 재고,
-그 임계값은 설정으로 바꿀 수 있다.
+`requested_*` 는 **관측이지 판정이 아니다.** "요구했다"까지만 적고 "지켰나"는 ⑥이 코드로 본다.
+길이 요구는 재기만 하고 판정하지 않는다 — 기준이 사용자마다 달라서다.
 
-29지선다 대신 좁은 질문 17개로 나눈 이유가 둘이다. 어떤 모델이든 29지선다는 정확도가
+**요구는 이전 질문들에 적힌 것만이다.** 비판받은 답변이 따를 수 있었던 것이어야 하므로,
+후속 발화에서 처음 나온 요구("표로 정리해 주세요")는 요구가 아니다. 판정자가 요구의 구절을
+`requested_quote` 로 이전 질문들에서 따오고, `request_quote` 기능이 원문과 대조해 없으면
+요구를 지운다 — 그래야 답할 때는 없던 요구를 어긴 것이 case10 · case12 로 나가지 않는다.
+
+29지선다 대신 좁은 질문 여러 개로 나눈 이유가 둘이다. 어떤 모델이든 29지선다는 정확도가
 안 나오고, 무엇보다 **판정자가 원인을 먼저 정하고 사실을 끼워 맞추는 것**을 막는다.
 
-### 17개에 대해 헷갈리기 쉬운 세 가지
+### 관측에 대해 헷갈리기 쉬운 세 가지
 
 **(1) 모든 턴이 ⑤를 거치지는 않는다.**
 
 | 어떤 턴 | observation |
 |---|---|
-| 보통의 턴 | 17개 전부 |
+| 보통의 턴 | 19개 전부 |
 | `case9` (④에서 코드로 끊김) | **없음.** LLM 을 한 번도 안 불렀다 |
 | 판정 실패(`error`) | 없음 |
 
 `case9` 인 턴의 `evidence` 에는 `checks` 만 있고 `observation` 이 없다. 그게
 "LLM 을 안 거쳤다"는 표시이기도 하다.
 
-**(2) 18개를 내지만 결과 파일에는 8개만 실린다.**
+**(2) 19개를 내지만 결과 파일에는 8개만 실린다.**
 
 ```
-Step 1 이 내는 것        18개 (complaint_quote 만 기본값이 있고 나머지는 필수)
+Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머지는 필수)
 결과 파일에 실리는 것      8개
 ```
 
@@ -322,12 +327,15 @@ Step 1 이 내는 것        18개 (complaint_quote 만 기본값이 있고 나�
 | `resolved_question` `unmet_need` | 무엇을 물었고 무엇을 못 받았나 |
 | `complaint_target` `question_domain` | 불만의 방향과 질문 성격 |
 | `complaint_quote` | 판정자가 그 불만 방향을 고른 근거. 인용 검증 결과와 함께 남는다 |
-| `question_self_contained` `question_multi_intent` `answer_refused` | 라우팅의 주요 갈림길 |
+| `question_clarity` `question_multi_intent` `answer_refused` | 라우팅의 주요 갈림길 |
 
-나머지 10개(`answer_actionable` · `answer_used_history` · `answer_covers_all_intents` ·
-`question_answerable_as_asked` · `requests_unsupported_output` · `requested_language` ·
-`requested_length_kind` · `requested_length_value` · `requested_format` · `reasoning`)는
+나머지 11개(`answer_actionable` · `answer_used_history` · `answer_covers_all_intents` ·
+`requests_unsupported_output` · `requested_language` · `requested_length_kind` ·
+`requested_length_value` · `requested_format` · `requested_quote` · `history_quote` ·
+`reasoning`)는
 **⑥ 검증기와 ⑩ 라우팅이 쓰고 버린다.** 결과는 `checks` 와 `case_id` 에 반영돼 있다.
+다만 요구가 있었던 턴에는 `requested_quote` 와 그 대조 결과(`request_quote_verified`)가,
+`none` 인 턴에는 근거 인용의 대조 결과가 함께 실린다 — 그 판정을 되짚을 첫 단서다.
 
 > **한계**: 그래서 `case12`(요구 포맷 불이행)가 나왔을 때 **무슨 포맷을 요구했는지**를
 > 결과 파일에서 알 수 없다. `checks.format` 의 `detail` 에 일부 남지만 요구값 자체는
@@ -496,9 +504,9 @@ question_domain == "domain"                          ⑤가 정한다 (LLM)
 ### `complaint_target` 은 둘만 통과한다
 
 `content_missing`(필요한 정보가 없음)과 `content_wrong`(담긴 정보가 틀림)뿐이다.
-`none` `tone` `format` `language` `length` `no_answer` `refusal` `inconsistency`
-`other` 아홉은 ⑦을 거치지 않는다 — `none` 은 애초에 불만이 아니라 문서 충족도를
-따질 이유가 없고(그래서 LLM 호출도 아낀다), 나머지 여덟은 문서가 아니라 답변의
+`none` `tone` `format` `language` `length` `no_answer` `inconsistency` `other`
+여덟은 ⑦을 거치지 않는다 — `none` 은 애초에 불만이 아니라 문서 충족도를
+따질 이유가 없고(그래서 LLM 호출도 아낀다), 나머지 일곱은 문서가 아니라 답변의
 형태를 향해서 ⑥의 코드 검증기가 이미 판정한다.
 
 **입력**
@@ -617,7 +625,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 
 | 어디서 | 라우팅이 읽는 것 | 안 읽는 것 |
 |---|---|---|
-| ⑤ 관측 (18개 중 **10개**) | `complaint_target` `question_domain` `question_self_contained` `question_multi_intent` `question_answerable_as_asked` `answer_refused` `answer_covers_all_intents` `answer_actionable` `answer_used_history` `requests_unsupported_output` | `resolved_question` `unmet_need` `reasoning` `requested_language` `requested_length_kind` `requested_length_value` `requested_format` `complaint_quote` |
+| ⑤ 관측 (19개 중 **9개**) | `complaint_target` `question_domain` `question_clarity` `question_multi_intent` `answer_refused` `answer_covers_all_intents` `answer_actionable` `answer_used_history` `requests_unsupported_output` | `resolved_question` `unmet_need` `reasoning` `requested_language` `requested_length_kind` `requested_length_value` `requested_format` `requested_quote` `history_quote` `complaint_quote` |
 | ⑥ 검증기 (12종 중 **12종**) | `service_error` `truncated` `pii` `quoted_spans` `arithmetic` `dates` `injection` + `language` `length` `format` `python_syntax` `sql_shape` | — |
 | ⑦ 충족도 | `verdict` | `evidence` `missing` `reasoning` |
 | ⑧ 인용 | `n_kept` `n_chunks` | `kept` `dropped` 의 내용 |

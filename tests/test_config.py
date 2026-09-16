@@ -33,8 +33,9 @@ yaml = pytest.importorskip("yaml")
 @pytest.fixture
 def restore_settings():
     """설정 적용은 모듈 전역을 바꾼다. 테스트끼리 새지 않게 되돌린다."""
-    names = ["MATCH_THRESHOLD", "EVIDENCE_MIN_QUOTE_CHARS", "ANSWER_QUOTE_MIN_CHARS",
-             "VAGUE_SHORT_MAX_CHARS", "SERVICE_ERROR_TEMPLATES",
+    names = ["MATCH_THRESHOLD", "QUOTE_MATCH_THRESHOLD", "EVIDENCE_MIN_QUOTE_CHARS",
+             "ANSWER_QUOTE_MIN_CHARS",
+             "SERVICE_ERROR_TEMPLATES",
              "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
              "ORG_CANDIDATE_FIELDS", "FILTER_ANY_VALUES", "CACHE_DIR"]
     saved = {n: getattr(settings, n) for n in names}

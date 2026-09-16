@@ -110,8 +110,8 @@ case28(보안 정책상 답변 불가)로 보낸다 — 서버 자원 문제가 
 
 | 라벨 | 원본 | 판정 근거 | 신뢰도 | 상태 |
 |---|---|---|---|---|
-| `q_context_dependent` | case4 | 관측 `question_self_contained` 의 반대 | 중간 | **구현됨** |
-| `q_ambiguous` | case1 | 관측 `question_answerable_as_asked` | 중간 | **구현됨** |
+| `q_context_dependent` | case4 | 관측 `question_clarity` 가 `unresolved_reference` — 앞 질문들로도 지시 대상이 안 풀림 | 중간 | **구현됨** |
+| `q_ambiguous` | case1 | 관측 `question_clarity` 가 `vague` | 중간 | **구현됨** |
 | `q_multi_intent` | case3 | 관측 `question_multi_intent` | 중간 | **구현됨** |
 | `q_unsupported_format` | case2 | 관측 `requests_unsupported_output` | 중간 | **구현됨** |
 | `q_contains_pii` | case6 | 질문 텍스트에 개인·민감정보 패턴 | 높음 | **구현됨** |

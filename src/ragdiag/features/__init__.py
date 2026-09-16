@@ -27,6 +27,7 @@ from . import (
     filter_fp,
     format,
     grounding,
+    history_quote,
     injection,
     language,
     length,
@@ -35,6 +36,7 @@ from . import (
     pii,
     python_syntax,
     quoted_spans,
+    request_quote,
     route,
     short_circuit,
     sql_shape,
@@ -65,6 +67,8 @@ FEATURES = (
     short_circuit,     # LLM 전에 case 를 확정하는 규칙들 (규칙끼리의 순서는 그 안의 RULES)
     observe,           # Step 1 관측 · LLM
     complaint_quote,   # "불만 아님" 의 근거를 후속 발화와 대조
+    request_quote,     # 요구의 인용을 이전 질문들과 대조 — 없으면 요구를 지운다
+    history_quote,     # "이전 조건을 어겼다" 의 인용을 앞 질문들과 대조 — 없으면 무효
     *CHECKS,           # 코드 검증기
     sufficiency,       # Step 2 충족도 · LLM
     citation,          # 판정자의 인용을 원문과 대조

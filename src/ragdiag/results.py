@@ -67,6 +67,10 @@ class TurnResult:
     grounding: Optional[GroundingCheck] = None
     # complaint_target="none" 주장의 인용 검증 결과. 그 외에는 None.
     complaint: Optional[QuoteCheck] = None
+    # 요구(언어 · 형식 · 길이)의 인용 검증 결과. 요구가 없었으면 None.
+    request: Optional[QuoteCheck] = None
+    # "이전 조건을 어겼다"(ignored) 주장의 인용 검증 결과. 그 주장이 없었으면 None.
+    history: Optional[QuoteCheck] = None
     classification: Optional[Classification] = None
     error: Optional[str] = None
     usage: Usage = field(default_factory=Usage)

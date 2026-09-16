@@ -41,7 +41,7 @@ def _evidence_payload(result: TurnResult) -> dict:
             "unmet_need": obs.unmet_need,
             "complaint_target": obs.complaint_target,
             "question_domain": obs.question_domain,
-            "question_self_contained": obs.question_self_contained,
+            "question_clarity": obs.question_clarity,
             "question_multi_intent": obs.question_multi_intent,
             "answer_refused": obs.answer_refused,
             # complaint_target 을 그렇게 읽은 근거. 어느 값이든 남긴다 - 라벨이
@@ -54,6 +54,13 @@ def _evidence_payload(result: TurnResult) -> dict:
             if result.complaint:
                 payload["observation"]["quote_verified"] = result.complaint.verified
                 payload["observation"]["quote_ratio"] = round(result.complaint.ratio, 3)
+        if result.request is not None:
+            # 요구를 인정했는지(또는 지웠는지)와 그 근거. 검증기 결과를 되짚을 때 첫 단서다.
+            payload["observation"]["requested_quote"] = obs.requested_quote
+            payload["observation"]["request_quote_verified"] = result.request.verified
+        if result.history is not None:
+            payload["observation"]["history_quote"] = obs.history_quote
+            payload["observation"]["history_quote_verified"] = result.history.verified
     if result.judgment:
         payload["sufficiency"] = {
             "verdict": result.judgment.verdict,

@@ -177,8 +177,7 @@ cp configs/env.example.yaml configs/env.yaml   # 커밋되지 않는다
 python src/run.py --config configs/env.yaml --dry-run
 ```
 
-- 판정 기준(인용 일치율 0.9 · "짧게" 요구의 기준 400자 · 서비스 오류 문구 · 이전 질문 개수 3)도
-  설정에서 바꾼다. 플래그가 없는 키는 `--set 키=값` 으로 준다.
+- 판정 기준(인용 일치율 0.9 · 서비스 오류 확정 문구 · 이전 질문 개수 3)도 설정에서 바꾼다. 플래그가 없는 키는 `--set 키=값` 으로 준다.
 - `llm_eval` · `llm_emotion` 의 **라벨 이름과 점수는 저장소에 없다**(자리표시자만 있다). 필터가
   라벨 · 점수 조건을 쓰면 `labels.query` · `labels.emotion` 에 taxonomy 문서(`A. 이름 -> 점수`)를
   가리켜야 한다. 없으면 필터가 에러 없이 0건을 돌려주므로 계산 전에 멈추게 해 두었다.
@@ -206,7 +205,7 @@ src/
     features/         기능 등록부 — FEATURES 순서가 곧 판정 순서
       short_circuit/                          LLM 전에 case 를 확정하는 규칙들 (service_error …)
       observe/  sufficiency/  grounding/      LLM 판정 — Step 1 · 2 · 3
-      complaint_quote/  citation/             판정자가 댄 인용을 원문과 대조
+      complaint_quote/  request_quote/  citation/   판정자가 댄 인용을 원문과 대조
       pii/  truncated/  language/  format/ …  코드 검증기 11개
       route/                                  진리표 → case
       classification/  llm_fallback/  filter_fp/  failures/   집계

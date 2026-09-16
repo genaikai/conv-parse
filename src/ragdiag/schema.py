@@ -103,37 +103,48 @@ class GroundingCheck(BaseModel):
 # 평평한 스칼라만 쓰면 어느 백엔드에서도 안전하다.
 # ---------------------------------------------------------------------------
 
+# 오른쪽은 route 가 실제로 보내는 곳이다 (features/route/table.py). 거절 · 인젝션 ·
+# 답변 잘림처럼 route 가 먼저 보는 조건에 안 걸렸을 때 기준.
 ComplaintTarget = Literal[
-    "none",              # 불만이 아니다 — 새 질문이거나 수긍   -> case0
-    "tone",              # 말투·어조·용어가 마음에 안 듦    -> case16
-    "format",            # 형식·구성이 마음에 안 듦        -> case12
-    "language",          # 요구한 언어가 아님              -> case10
-    "length",            # 너무 길다/짧다                  -> case11
-    "content_missing",   # 필요한 정보가 없음              -> case3·case14·case18
-    "content_wrong",     # 담긴 정보가 틀림                -> case18·case19·case23~case25
-    "no_answer",         # 답이 안 왔거나 끊김             -> case8
-    "refusal",           # 거절당함                        -> case28 (권한 부족 거절이 섞여 들어옴)
-    "inconsistency",     # 이전 답변과 다름                -> case19
-    "other",
+    "none",              # 불만이 아니다 — 새 질문이거나 수긍  -> case0 (근거 인용이 원문에 있고
+                         #                                        코드 위반이 없을 때. 아니면 미분류)
+    "tone",              # 말투·어조·용어가 마음에 안 듦     -> case16
+    "format",            # 형식·구성이 마음에 안 듦         -> case12 (요구를 지켰으면 case13)
+    "language",          # 요구한 언어가 아님               -> case10 (요구를 지켰으면 case13)
+    "length",            # 너무 길다/짧다                   -> case11 (코드가 판정 안 해 늘 medium)
+    "content_missing",   # 필요한 정보가 없음               -> question_domain 으로 갈린다. domain 이면
+    "content_wrong",     # 담긴 정보가 틀림                    Step 2·3 을 거쳐 case20·21·22·18·17·13
+    "no_answer",         # 답이 안 왔거나 끊김              -> 답변이 실제로 끊겼으면 case8, 아니면 미분류
+    "inconsistency",     # 이전 답변과 다름                 -> 미분류 (case19 는 턴 하나로 판정 불가)
+    "other",             #                                  -> out_of_taxonomy
 ]
 
 QuestionDomain = Literal[
-    "domain",            # 업무 문서를 찾아야 답할 수 있는 질문
+    "domain",            # 업무 문서를 찾아야 답할 수 있는 질문 -> 내용 불만이면 Step 2·3
     "general_knowledge", # 상식                            -> case25
     "calculation",       # 수식·날짜·산수                  -> case26
     "code",              # SQL/Python 등                   -> case27
-    "tool_usage",        # Excel/Spotfire 등 도구 사용법
-    "unclear",
+    "tool_usage",        # Excel/Spotfire 등 도구 사용법    -> case27
+    "unclear",           #                                 -> 대개 미분류
 ]
 
 HistoryUse = Literal[
     "not_needed",   # 히스토리 없이도 답할 수 있는 질문
     "used",         # 답변이 이전 턴 내용을 반영함
-    "ignored",      # 이전 턴에 나온 내용을 잊었거나 잘못 연결함  -> case14
+    "ignored",      # 이전 턴에 명시적으로 정한 조건을 어김  -> case14 (부가. 남은 게 없으면 주 case)
 ]
 
 LengthRequestKind = Literal[
     "none", "max_chars", "max_sentences", "max_lines", "vague_short"
+]
+
+# 챗봇은 이전 질문들을 함께 받아 답한다. 그래서 "그거" 같은 지시어도 앞 질문들로 풀리면
+# 문제가 아니다 - 예전에는 "그 문장 하나만으로 알 수 있나" 로 재서, 챗봇이 멀쩡히 풀었을
+# 지시어까지 사용자 쪽 문제(case4)로 셌다.
+QuestionClarity = Literal[
+    "clear",                 # 무엇을 묻는지 안다. 지시어가 있어도 앞 질문들로 풀리면 여기다
+    "unresolved_reference",  # 앞 질문들을 봐도 지시 대상이 정해지지 않는다  -> case4 (부가)
+    "vague",                 # 지시어 문제가 아니라 질문 자체가 답을 특정할 수 없다  -> case1
 ]
 
 FormatRequest = Literal[
@@ -168,8 +179,9 @@ class Observation(BaseModel):
     question_domain: QuestionDomain
 
     # --- 질문 쪽 관측 ---
-    question_self_contained: bool = Field(
-        description="마지막 질문 문장만으로 검색 쿼리를 만들 수 있는가 (case4의 반대)"
+    question_clarity: QuestionClarity = Field(
+        description="마지막 질문이 무엇을 묻는지 분명한가. 챗봇은 이전 질문들을 함께 받는다 — "
+                    "지시어가 앞 질문들로 풀리면 clear (unresolved_reference: case4, vague: case1)"
     )
     question_multi_intent: bool = Field(
         description="한 질문에 서로 다른 요구가 둘 이상 섞여 있는가 (case3)"
@@ -178,10 +190,6 @@ class Observation(BaseModel):
     # --- 답변 쪽 관측 ---
     answer_refused: bool = Field(
         description="답변이 정책·권한을 이유로 거절했는가 (case28)"
-    )
-    question_answerable_as_asked: bool = Field(
-        description="질문이 그 자체로 답을 특정할 수 있을 만큼 분명한가. "
-                    "무엇을 묻는지 알 수 없으면 false (case1)"
     )
     answer_covers_all_intents: bool = Field(
         description="복합 질문이었다면 답변이 모든 요구를 다뤘는가. "
@@ -192,6 +200,11 @@ class Observation(BaseModel):
     )
     answer_used_history: HistoryUse = Field(
         description="답변이 이전 턴의 내용을 제대로 이어받았는가 (case14)"
+    )
+    history_quote: str = Field(
+        default="",
+        description="ignored 일 때, 답변이 어긴 조건이 적힌 구절을 이전 질문들에서 글자 그대로. "
+                    "그 외에는 빈 문자열. 대조에서 걸러지면 ignored 는 무효다",
     )
     requests_unsupported_output: bool = Field(
         description="챗봇이 낼 수 없는 형태를 요구했는가 — 외부 링크, 이미지·그림 생성, "
@@ -207,3 +220,8 @@ class Observation(BaseModel):
         description="수치 요구의 값. 수치가 없으면 0"
     )
     requested_format: FormatRequest
+    requested_quote: str = Field(
+        default="",
+        description="위 요구가 적힌 구절을 이전 질문들에서 글자 그대로. 요구가 없으면 빈 문자열. "
+                    "후속 발화에서 처음 나온 요구는 요구가 아니다 — 대조에서 걸러진다",
+    )

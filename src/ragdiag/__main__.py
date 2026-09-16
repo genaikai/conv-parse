@@ -369,7 +369,9 @@ def run_golden(args, backend=None) -> int:
     cases = []
     for conv in conversations:
         followup = max(t.turn for t in conv.turns)
-        case = to_case(conv, followup, args.history_turns or 10**6)
+        # 파이프라인과 같은 창으로 본다. 창 밖의 조건을 어긴 것은 판정자가 볼 수 없다 -
+        # 그 비용이 골든셋(hq03)에 드러나야 창 크기를 정할 근거가 된다.
+        case = to_case(conv, followup, args.history_turns or settings.MAX_HISTORY_TURNS)
         if case and case.case_id in expected:
             cases.append((case, expected[case.case_id]))
     if args.limit:
@@ -387,11 +389,27 @@ def run_golden(args, backend=None) -> int:
 
     from concurrent.futures import ThreadPoolExecutor
 
+    from types import SimpleNamespace
+
+    from ragdiag.features import history_quote, request_quote
+    from ragdiag.verify import verify_complaint_quote
+
     def observe(entry):
         case, meta = entry
         try:
             obs, _ = judge.observe(case)
-            return meta, obs, None
+            # 파이프라인과 같은 값을 채점한다 - 인용 대조에 떨어진 주장은 지운다.
+            # 대조 결과도 필드처럼 채점한다 (expect 에 *_quote_verified 를 적을 수 있다).
+            obs, request = request_quote.corrected(obs, case.pre_queries)
+            obs, history = history_quote.corrected(obs, case.pre_queries)
+            complaint = (verify_complaint_quote(obs.complaint_quote, case.current_query)
+                         if obs.complaint_target == "none" else None)
+            graded = SimpleNamespace(
+                **obs.model_dump(),
+                complaint_quote_verified=complaint.verified if complaint else None,
+                request_quote_verified=request.verified if request else None,
+                history_quote_verified=history.verified if history else None)
+            return meta, graded, None
         except Exception as e:
             return meta, None, f"{type(e).__name__}: {e}"
 
