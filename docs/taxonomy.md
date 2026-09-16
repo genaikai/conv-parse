@@ -146,7 +146,7 @@ case28(보안 정책상 답변 불가)로 보낸다 — 서버 자원 문제가 
 | `gen_citation_wrong` | case24 | 답변의 인용·출처가 `rag_data`와 불일치 | 높음 | **구현됨** |
 | `gen_intent_missed` | case13 | 문서도 충분하고 썼는데 물은 것과 다른 걸 답함 | 중간 | **구현됨** |
 | `gen_too_shallow` | 원본에 없음 | 맞지만 사용자가 요구한 깊이에 못 미침 | 낮음 | 부분 |
-| `gen_lost_turn_context` | case14 | 관측 `answer_used_history` (추가 호출 없음) | 중간 | **구현됨** |
+| `gen_lost_turn_context` | case14 | 관측 `answer_ignored_history` + 앞 질문 인용 대조 (추가 호출 없음) | 중간 | **구현됨** |
 | `gen_truncated` | case8 | 답변이 문장 중간에서 끊김 | 높음 | **구현됨** |
 | `service_error` | case9 | 서비스 자원 부족 확정 문구와 대조 | 높음 | **구현됨** |
 

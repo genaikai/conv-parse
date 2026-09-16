@@ -85,7 +85,7 @@ OBSERVATIONS = {
     "wrong": lambda c: dict(complaint_target="content_wrong"),
     "vague": lambda c: dict(answer_actionable=False),
     # history_quote 는 "conditioned" 의 앞 질문에만 있다 — 다른 텍스트에서는 ignored 가 무효가 된다
-    "history": lambda c: dict(answer_used_history="ignored", history_quote="국내 기준으로만",
+    "history": lambda c: dict(answer_ignored_history=True, history_quote="국내 기준으로만",
                               question_multi_intent=True, answer_covers_all_intents=False,
                               question_clarity="unresolved_reference"),
     "none-quoted": lambda c: dict(complaint_target="none",
@@ -139,7 +139,7 @@ def observation(key: str, case: Case) -> Observation:
         requested_length_value=0, requested_format="none",
         requests_unsupported_output=False,
         answer_covers_all_intents=True, answer_actionable=True,
-        answer_used_history="not_needed",
+        answer_ignored_history=False,
     )
     base.update(OBSERVATIONS[key](case))
     return Observation(**base)

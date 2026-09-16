@@ -128,12 +128,6 @@ QuestionDomain = Literal[
     "unclear",           #                                 -> 대개 미분류
 ]
 
-HistoryUse = Literal[
-    "not_needed",   # 히스토리 없이도 답할 수 있는 질문
-    "used",         # 답변이 이전 턴 내용을 반영함
-    "ignored",      # 이전 턴에 명시적으로 정한 조건을 어김  -> case14 (부가. 남은 게 없으면 주 case)
-]
-
 LengthRequestKind = Literal[
     "none", "max_chars", "max_sentences", "max_lines", "vague_short"
 ]
@@ -198,13 +192,17 @@ class Observation(BaseModel):
     answer_actionable: bool = Field(
         description="답변만 보고 사용자가 다음에 무엇을 할지 알 수 있는가 (case17)"
     )
-    answer_used_history: HistoryUse = Field(
-        description="답변이 이전 턴의 내용을 제대로 이어받았는가 (case14)"
+    # 예전엔 not_needed · used · ignored 셋이었다. 라우팅은 ignored 만 보는데 used 와
+    # not_needed 사이에서 실행마다 39% 가 흔들렸다 (Haiku 3회 실측) - 결과에 영향 없는
+    # 선택지가 판정자를 흔들 뿐이라 하나로 줄였다.
+    answer_ignored_history: bool = Field(
+        description="이전 턴에서 명시적으로 정한 조건을 답변이 어겼는가 (case14). "
+                    "부실한 답변은 해당하지 않는다"
     )
     history_quote: str = Field(
         default="",
-        description="ignored 일 때, 답변이 어긴 조건이 적힌 구절을 이전 질문들에서 글자 그대로. "
-                    "그 외에는 빈 문자열. 대조에서 걸러지면 ignored 는 무효다",
+        description="answer_ignored_history 가 true 일 때, 어긴 조건이 적힌 구절을 이전 질문들에서 "
+                    "글자 그대로. 그 외에는 빈 문자열. 대조에서 걸러지면 그 주장은 무효다",
     )
     requests_unsupported_output: bool = Field(
         description="챗봇이 낼 수 없는 형태를 요구했는가 — 외부 링크, 이미지·그림 생성, "

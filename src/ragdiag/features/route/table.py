@@ -68,7 +68,7 @@ def secondary_from(obs: Observation, checks: dict[str, Check]) -> list[str]:
         wrong = _check(checks, name)
         if wrong is not None and wrong.violated and "case26" not in extra:
             extra.append("case26")     # 계산 오류 — 날짜도 계산이다
-    if obs.answer_used_history == "ignored":
+    if obs.answer_ignored_history:
         extra.append("case14")         # 이전 턴 맥락 상실
     # 복합 질문인데 일부만 답한 것은 다른 원인과 함께 성립한다.
     if obs.question_multi_intent and not obs.answer_covers_all_intents:
@@ -252,7 +252,7 @@ def route(
     # case14 는 여기서만 주 라벨이 된다. 앞에 두면 case20/case22 을 가로챈다 —
     # 검색이 실패해 답변이 부실하면 모델은 그걸 "히스토리를 못 이어받았다"로도
     # 읽기 때문이다. 인용으로 검증된 문서 증거가 LLM 의 인상보다 강하다.
-    if obs.answer_used_history == "ignored":
+    if obs.answer_ignored_history:
         return done("case14", "답변이 이전 턴의 내용을 잊거나 잘못 연결함",
                     ["더 구체적인 원인을 찾지 못해 맥락 상실로 판정"])
 

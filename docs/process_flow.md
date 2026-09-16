@@ -280,7 +280,7 @@ case 를 고르지 않는다.
 | `answer_refused` | `true` / `false` | 정책·권한을 이유로 거절했나 (case28) |
 | `answer_covers_all_intents` | `true` / `false` | 복합 질문의 모든 요구를 다뤘나 (case15) |
 | `answer_actionable` | `true` / `false` | 다음에 무엇을 할지 알 수 있나 (case17) |
-| `answer_used_history` | `not_needed` `used` `ignored` | 이전 턴을 이어받았나 (case14) |
+| `answer_ignored_history` | `true` / `false` | 이전 턴에서 정한 조건을 어겼나 (case14). 부실한 답변은 해당 없음 |
 | `history_quote` | 앞 질문들에서 따온 구절 · `ignored` 가 아니면 빈 문자열 | 답변이 어긴 조건이 적힌 곳. 원문 대조를 거쳐 없으면 `ignored` 는 무효 |
 | `requests_unsupported_output` | `true` / `false` | 낼 수 없는 형태를 요구했나 (case2) |
 | `requested_language` | `ko` `en` `ja` `zh` · 없으면 빈 문자열 | 요구 언어 |
@@ -329,7 +329,7 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 | `complaint_quote` | 판정자가 그 불만 방향을 고른 근거. 인용 검증 결과와 함께 남는다 |
 | `question_clarity` `question_multi_intent` `answer_refused` | 라우팅의 주요 갈림길 |
 
-나머지 11개(`answer_actionable` · `answer_used_history` · `answer_covers_all_intents` ·
+나머지 11개(`answer_actionable` · `answer_ignored_history` · `answer_covers_all_intents` ·
 `requests_unsupported_output` · `requested_language` · `requested_length_kind` ·
 `requested_length_value` · `requested_format` · `requested_quote` · `history_quote` ·
 `reasoning`)는
@@ -625,7 +625,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 
 | 어디서 | 라우팅이 읽는 것 | 안 읽는 것 |
 |---|---|---|
-| ⑤ 관측 (19개 중 **9개**) | `complaint_target` `question_domain` `question_clarity` `question_multi_intent` `answer_refused` `answer_covers_all_intents` `answer_actionable` `answer_used_history` `requests_unsupported_output` | `resolved_question` `unmet_need` `reasoning` `requested_language` `requested_length_kind` `requested_length_value` `requested_format` `requested_quote` `history_quote` `complaint_quote` |
+| ⑤ 관측 (19개 중 **9개**) | `complaint_target` `question_domain` `question_clarity` `question_multi_intent` `answer_refused` `answer_covers_all_intents` `answer_actionable` `answer_ignored_history` `requests_unsupported_output` | `resolved_question` `unmet_need` `reasoning` `requested_language` `requested_length_kind` `requested_length_value` `requested_format` `requested_quote` `history_quote` `complaint_quote` |
 | ⑥ 검증기 (12종 중 **12종**) | `service_error` `truncated` `pii` `quoted_spans` `arithmetic` `dates` `injection` + `language` `length` `format` `python_syntax` `sql_shape` | — |
 | ⑦ 충족도 | `verdict` | `evidence` `missing` `reasoning` |
 | ⑧ 인용 | `n_kept` `n_chunks` | `kept` `dropped` 의 내용 |

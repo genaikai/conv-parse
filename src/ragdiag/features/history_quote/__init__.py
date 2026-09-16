@@ -5,8 +5,7 @@ ignored 는 case14(이전 턴 맥락 상실) 로 간다. 그런데 약한 모델
 칸을 켜는 전형이다. 어긴 조건이 적힌 앞 질문을 글자 그대로 대게 하고 여기서 대조한다.
 request_quote 가 요구에 하는 일과 같다.
 
-대조에 실패하면 ignored 를 used 로 되돌린다. 라우팅은 ignored 만 보므로 not_needed 와
-used 의 구분은 결과에 영향이 없다.
+대조에 실패하면 주장을 false 로 되돌린다.
 """
 
 from ragdiag.verify import verify_history_quote
@@ -17,7 +16,7 @@ NAME = "history_quote"
 
 
 def claimed(obs) -> bool:
-    return obs.answer_used_history == "ignored"
+    return obs.answer_ignored_history
 
 
 def corrected(obs, questions: list[str]):
@@ -28,7 +27,7 @@ def corrected(obs, questions: list[str]):
     check = verify_history_quote(obs.history_quote, questions[:-1])
     if check.verified:
         return obs, check
-    return obs.model_copy(update=dict(answer_used_history="used")), check
+    return obs.model_copy(update=dict(answer_ignored_history=False)), check
 
 
 def process_data(ctx) -> tuple[list, list]:

@@ -147,7 +147,7 @@ def test_features_run_in_an_order_that_feeds_each_step():
     before(observe, complaint_quote)     # 관측의 complaint_quote 를 대조한다
     before(observe, request_quote)       # 관측의 requested_quote 를 대조한다
     before(observe, history_quote)       # 관측의 history_quote 를 대조한다
-    before(history_quote, route)         # 대조를 거친 answer_used_history 를 읽는다
+    before(history_quote, route)         # 대조를 거친 answer_ignored_history 를 읽는다
     for check in (language, format, length):
         before(request_quote, check)     # 대조를 거친 요구값을 읽는다
     before(observe, sufficiency)
@@ -262,7 +262,7 @@ def test_no_request_means_nothing_to_check():
 # history_quote — "이전 조건을 어겼다" 는 앞 질문에 적힌 조건을 대야 한다
 # ---------------------------------------------------------------------------
 
-def _turn_with_history(questions, used, quote):
+def _turn_with_history(questions, ignored, quote):
     from ragdiag.results import TurnResult
     from ragdiag.schema import Case
     from tests.test_route import obs
@@ -271,16 +271,16 @@ def _turn_with_history(questions, used, quote):
                 position_name="p", conversation_id="c", turn=len(questions) + 1,
                 pre_queries=questions, llm_ans_on_last_q="해외 출장 식비는 1일 80달러입니다.",
                 current_query="국내 기준이라고 했잖아요.", rag_chunks=[])
-    return TurnResult(case=case, observation=obs(answer_used_history=used, history_quote=quote))
+    return TurnResult(case=case, observation=obs(answer_ignored_history=ignored, history_quote=quote))
 
 
 def test_an_ignored_condition_the_earlier_questions_contain_is_kept():
     from ragdiag.features import history_quote
 
     turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는 얼마인가요?"],
-                              "ignored", "국내 기준으로만")
+                              True, "국내 기준으로만")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_used_history == "ignored"
+    assert turn.observation.answer_ignored_history is True
     assert turn.history.verified
 
 
@@ -289,9 +289,9 @@ def test_ignored_without_a_condition_in_earlier_questions_is_withdrawn():
     from ragdiag.features import history_quote
 
     turn = _turn_with_history(["출장비 규정을 알려주세요.", "숙박비 상한은요?"],
-                              "ignored", "숙박비 금액을 알려달라")
+                              True, "숙박비 금액을 알려달라")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_used_history == "used"
+    assert turn.observation.answer_ignored_history is False
     assert not turn.history.verified
 
 
@@ -299,14 +299,14 @@ def test_a_condition_in_the_last_question_is_not_history():
     """마지막 질문에 적힌 조건을 어긴 것은 의도를 잘못 읽은 것이지 맥락 상실이 아니다."""
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["국내 기준으로 식비는 얼마인가요?"], "ignored", "국내 기준으로")
+    turn = _turn_with_history(["국내 기준으로 식비는 얼마인가요?"], True, "국내 기준으로")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_used_history == "used"
+    assert turn.observation.answer_ignored_history is False
 
 
 def test_no_ignored_claim_means_nothing_to_check():
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는?"], "used", "")
+    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는?"], False, "")
     history_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.history is None

@@ -803,7 +803,7 @@ def test_steps_withhold_what_the_document_claims():
         complaint_target="content_missing", question_domain="domain",
         question_clarity="clear", question_multi_intent=False, answer_refused=False,
         answer_covers_all_intents=False,
-        answer_actionable=False, answer_used_history="used",
+        answer_actionable=False, answer_ignored_history=False,
         requests_unsupported_output=False, requested_language="none",
         requested_length_kind="none", requested_length_value=0, requested_format="none")
 

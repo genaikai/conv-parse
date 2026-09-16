@@ -23,7 +23,7 @@ def obs(**kw) -> Observation:
         requested_format="none",
         requests_unsupported_output=False,
         answer_covers_all_intents=True, answer_actionable=True,
-        answer_used_history="not_needed",
+        answer_ignored_history=False,
     )
     base.update(kw)
     return Observation(**base)
@@ -377,7 +377,7 @@ def reachable_cases() -> set[str]:
     # 관측 필드를 늘릴 때마다 여기도 늘려야 한다. 안 그러면 도달 범위를 실제보다
     # 적게 세고, 드리프트 테스트가 통과하면서 문서가 뒤처진다.
     flags = list(itertools.product(("clear", "unresolved_reference", "vague"), (True, False),
-                                   ("not_needed", "used", "ignored"),
+                                   (True, False),
                                    (True, False), (True, False)))
     variants = variants + [checks(injection=Check("injection", "violated", "x")),
                            checks(arithmetic=Check("arithmetic", "violated", "x"))]
@@ -390,7 +390,7 @@ def reachable_cases() -> set[str]:
                 question_clarity=clarity, question_multi_intent=True,
                 requests_unsupported_output=unsupported,
                 answer_covers_all_intents=covers, answer_actionable=actionable,
-                answer_used_history=history),
+                answer_ignored_history=history),
             ck, j, c, g,
         )
         produced.add(result.primary_case)

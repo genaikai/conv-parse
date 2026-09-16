@@ -448,7 +448,7 @@ CASES = [
         expect=dict(answer_actionable=True),
     ),
 
-    # ---------- answer_used_history (case14) ----------
+    # ---------- answer_ignored_history (case14) ----------
     dict(
         id="hist01", note="앞에서 정한 조건을 답변이 어김",
         pre_queries=["출장비 상한을 알고 싶어요.",
@@ -457,7 +457,7 @@ CASES = [
         answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
         complaint="국내 기준이라고 했잖아요.",
         chunks=RULES,
-        expect=dict(answer_used_history="ignored"),
+        expect=dict(answer_ignored_history=True),
     ),
     dict(
         id="hist02", note="앞의 조건을 반영해 답함 — 오탐 확인",
@@ -467,7 +467,7 @@ CASES = [
         answer="국내 출장 식비는 1일 3만원입니다.",
         complaint="숙박비도 알려주세요.",
         chunks=RULES,
-        expect=dict(answer_used_history="used"),
+        expect=dict(answer_ignored_history=False),
     ),
     dict(
         id="hist03", note="답변이 부실하지만 히스토리 문제는 아님 — 오탐 확인",
@@ -477,7 +477,7 @@ CASES = [
         chunks=RULES,
         # 답변이 부실한 것과 히스토리를 못 쓴 것은 다르다. 이걸 ignored 로 읽으면
         # case14 이 case20/case22 을 가로챈다 - 실제로 회귀셋 6건이 그렇게 샜다.
-        expect=dict(answer_used_history="not_needed"),
+        expect=dict(answer_ignored_history=False),
     ),
 
     # ---------- 요구의 출처 — 답변이 따를 수 있었던 요구만 요구다 ----------
@@ -535,7 +535,7 @@ CASES = [
         answer="출장비는 회사 규정에 따라 지급됩니다.",
         complaint="숙박비 금액을 알려달라니까요.",
         chunks=RULES,
-        expect=dict(answer_used_history={"not_needed", "used"},
+        expect=dict(answer_ignored_history=False,
                     complaint_target="content_missing"),
     ),
     dict(
@@ -559,7 +559,7 @@ CASES = [
         answer="국내 기준으로 말씀드리면 식비는 1일 3만원입니다.",
         complaint="국내만 물은 게 아닌데요.",
         chunks=RULES,
-        expect=dict(answer_used_history={"not_needed", "used"}),
+        expect=dict(answer_ignored_history=False),
     ),
     dict(
         id="hq02", note="조건이 마지막 질문에만 있다 — 지금 규칙은 마지막 질문을 대조에서 뺀다",
@@ -570,7 +570,7 @@ CASES = [
         # 마지막 질문의 조건을 어긴 것은 맥락 상실이 아니라 의도 오독이라는 정의에 따라
         # ignored 는 철회된다. 같은 조건을 매 턴 반복하는 사용자가 실데이터에 얼마나
         # 흔한지 몰라 이 정의는 열린 과제다 (docs/design/observe_step.md).
-        expect=dict(answer_used_history={"not_needed", "used"}),
+        expect=dict(answer_ignored_history=False),
     ),
     dict(
         id="hq03", note="조건이 히스토리 창(3턴) 밖에 있다 — 판정자는 볼 수 없다",
@@ -581,7 +581,7 @@ CASES = [
         chunks=RULES,
         # 실제로는 ignored 가 맞다. 그러나 조건이 창 밖이라 판정자에게 보이지 않고,
         # 보이지 않는 조건을 인용할 수 없으므로 철회된다 - 창 3턴의 비용이 여기 드러난다.
-        expect=dict(answer_used_history={"not_needed", "used"}),
+        expect=dict(answer_ignored_history=False),
     ),
     dict(
         id="hq04", note="조건이 짧은 어절 하나 — 4자 하한을 정당한 조건이 넘는지",
@@ -589,7 +589,7 @@ CASES = [
         answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
         complaint="국내만 물었는데요.",
         chunks=RULES,
-        expect=dict(answer_used_history="ignored", history_quote_verified=True),
+        expect=dict(answer_ignored_history=True, history_quote_verified=True),
     ),
     dict(
         id="rq01", note="후속 발화가 원래 질문을 되풀이하며 요구를 덧붙인다",

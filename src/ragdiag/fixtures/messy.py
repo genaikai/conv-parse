@@ -275,7 +275,7 @@ CASES = [
         complaint="국내라고 했잖아요",
         chunks=RULES,
         # 조건이 창(3턴) 밖이라 판정자는 못 본다. 답변이 틀린 것은 내용 불만으로 잡힌다.
-        expect=dict(answer_used_history={"not_needed", "used"},
+        expect=dict(answer_ignored_history=False,
                     complaint_target={"content_wrong", "content_missing"}),
         expect_case={"case22", "case18", "case13"},
     ),
@@ -286,7 +286,7 @@ CASES = [
         answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
         complaint="국내라고 했잖아요",
         chunks=RULES,
-        expect=dict(answer_used_history="ignored", history_quote_verified=True),
+        expect=dict(answer_ignored_history=True, history_quote_verified=True),
         expect_case={"case22", "case18", "case13", "case14"},
     ),
     dict(
@@ -588,7 +588,7 @@ CASES = [
         answer="국내 출장 숙박비는 1박 8만원을 상한으로 합니다.",
         complaint="해외라고 했잖아",
         chunks=RULES + ["[출장비 규정 제5조] 해외 출장 숙박비는 지역별 상한표에 따른다."],
-        expect=dict(answer_used_history="ignored", history_quote_verified=True),
+        expect=dict(answer_ignored_history=True, history_quote_verified=True),
         expect_case={"case14", "case22", "case13", "case18", "case20"},
     ),
     dict(
@@ -747,7 +747,7 @@ CASES = [
         answer="국내 출장 식비는 1일 3만원을 상한으로 합니다.",
         complaint="해외라니까",
         chunks=RULES + ["[출장비 규정 제5조] 해외 출장 식비는 지역별 상한표에 따른다."],
-        expect=dict(answer_used_history="ignored"),
+        expect=dict(answer_ignored_history=True),
         expect_case={"case14", "case22", "case13", "case18", "case20"},
     ),
     dict(
