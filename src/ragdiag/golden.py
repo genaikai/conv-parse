@@ -107,24 +107,47 @@ def render(scores: dict[str, FieldScore], per_case: dict[str, list[str]],
 class JudgeScore:
     verdict_hits: int = 0
     verdict_total: int = 0
+    routing_hits: int = 0           # sufficient 여부만 맞았는가 - 라우팅은 이것만 본다
     citation_hits: int = 0          # 인용을 올바른 청크에서 뽑았는가
     citation_total: int = 0
+    downgraded: int = 0             # 인용이 하나도 안 살아남아 insufficient 로 강등된 수
     fabricated: list[str] = field(default_factory=list)   # 원문 대조 실패
     misses: list[tuple] = field(default_factory=list)     # (id, 기대, 실제, note)
+    by_category: dict[str, list[int]] = field(default_factory=dict)  # 범주 -> [맞음, 전체]
 
 
 def score_sufficiency(case: dict, judgment, citation, score: JudgeScore) -> None:
     """verdict 와 인용 위치를 함께 본다.
 
+    verdict 는 파이프라인과 같이 인용 대조를 거친 값(final_verdict)이다 - 살아남은 인용이
+    없으면 insufficient 로 강등된 채 채점된다. 판정자가 맞는 verdict 를 내고도 인용을 훼손해
+    강등되면 그건 파이프라인의 오답이고, 여기서 그대로 드러나야 한다.
+
+    두 층으로 센다. 3분류(sufficient · partial · insufficient)와, 라우팅이 실제로 보는
+    2분류(sufficient 인가 아닌가 - partial 과 insufficient 는 같은 case20 이다).
+    케이스에 accept 가 있으면 그 집합 안이면 맞은 것으로 친다(정답이 애매한 케이스).
+
     verdict 만 맞히고 엉뚱한 청크를 인용했다면 우연히 맞은 것이다. 그래서
     expect_cited 가 있는 케이스는 인용 위치도 채점한다.
     """
+    from ragdiag.verify import final_verdict
+
     score.verdict_total += 1
-    got = judgment.verdict
-    if got == case["expect_verdict"]:
+    got = final_verdict(judgment, citation)
+    if got != judgment.verdict:
+        score.downgraded += 1
+    accept = set(case.get("accept") or {case["expect_verdict"]})
+    hit = got in accept
+    if hit:
         score.verdict_hits += 1
     else:
-        score.misses.append((case["id"], case["expect_verdict"], got, case["note"]))
+        want = "/".join(sorted(accept))
+        score.misses.append((case["id"], want, got, case["note"]))
+    if (got == "sufficient") in {v == "sufficient" for v in accept}:
+        score.routing_hits += 1
+    cat = score.by_category.setdefault(case.get("category", "short"), [0, 0])
+    cat[0] += hit
+    cat[1] += 1
 
     # 지어낸 인용은 원문 대조에서 걸린다. 하나라도 폐기됐으면 기록한다.
     if citation and citation.dropped:
@@ -154,13 +177,25 @@ def render_judge(suf: JudgeScore, gnd: JudgeScore) -> str:
         lines.append(f"  {_pad(title, 22)}{s.verdict_hits:>3}/{s.verdict_total:<3} "
                      f"{rate:>5.0%}  {bar}{extra}")
 
-    block("충족도 verdict", suf)
+    block("충족도 verdict (3분류)", suf)
+    if suf.verdict_total:
+        rate = suf.routing_hits / suf.verdict_total
+        bar = "█" * round(20 * rate) + "·" * (20 - round(20 * rate))
+        lines.append(f"  {_pad('sufficient 여부 (2분류)', 22)}{suf.routing_hits:>3}/"
+                     f"{suf.verdict_total:<3} {rate:>5.0%}  {bar}   ← 라우팅이 보는 것")
     if suf.citation_total:
         rate = suf.citation_hits / suf.citation_total
         bar = "█" * round(20 * rate) + "·" * (20 - round(20 * rate))
         lines.append(f"  {_pad('인용 위치', 22)}{suf.citation_hits:>3}/"
                      f"{suf.citation_total:<3} {rate:>5.0%}  {bar}")
+    if suf.downgraded:
+        lines.append(f"  {_pad('인용 실패로 강등', 22)}{suf.downgraded:>3}건")
     block("근거 활용", gnd)
+    if len(suf.by_category) > 1:
+        lines.append("")
+        lines.append("  충족도 범주별")
+        for cat, (hits, total) in sorted(suf.by_category.items(), key=lambda kv: kv[1][0] / kv[1][1]):
+            lines.append(f"    {_pad(cat, 12)}{hits:>3}/{total:<3} {hits / total:>5.0%}")
 
     lines.append("")
     lines.append(f"  지어낸 인용(원문 대조 실패): "

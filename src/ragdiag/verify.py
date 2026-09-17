@@ -188,15 +188,97 @@ def verify_history_quote(quote: str, earlier_questions: list[str]) -> QuoteCheck
     return verify_quote_in(quote, earlier_questions, settings.UTTERANCE_MIN_QUOTE_CHARS)
 
 
+# 문서 인용을 나누는 경계. 표 행은 줄마다 하나의 인용이고, 판정자가 두 문장을 줄임표로
+# 이어 붙이거나 문장 + 표 머리행 + 한 행을 한 줄로 펴서 내는 것도 흔하다(Haiku 실측).
+# 줄 · 줄임표 · 문장 끝(마침표 + 공백) · 펴진 표의 행 경계("| |")에서 나누고, 각 조각이
+# 원문에 있으면 지어낸 것이 아니다. 조각 하나라도 없으면 전체가 떨어진다.
+_EVIDENCE_SPLIT = re.compile(r"\n+|\s*(?:…|⋯|\.\.\.)\s*|(?<=[.。])\s+|\|\s*\|")
+# 한자 병기 "연가(年暇)" - 판정자가 거의 언제나 지우고 인용한다. 지워도 글자는 같다.
+_HANJA_PAREN = re.compile(r"\([一-鿿]+\)")
+
+
+def _doc_plain(text: str) -> str:
+    return _plain(_HANJA_PAREN.sub("", text))
+
+
+def _evidence_parts(quote: str) -> list[tuple[str, bool]]:
+    """(조각, 짧아도 그대로 있어야 하는가) 목록.
+
+    줄 · 줄임표 · 문장 끝으로 나눈 조각은 최소 길이를 넘는 것만 남긴다 - 짧은 꼬리는
+    우연히 맞거나 우연히 안 맞아서 어느 쪽으로도 근거가 못 된다. 표 조각(`|` 포함)은
+    셀로 더 나누되 짧은 셀도 버리지 않고 **원문에 그대로 있어야** 한다. 판정자가 표를
+    세로로 잘라 "머리 셀 | 값 셀" 로 인용하는 일이 흔한데(Haiku 실측), 셀을 무시하면
+    "| 3년 이상 4년 미만 | 99 |" 처럼 값만 바꾼 행이 통과한다. 하나도 없으면 통째로.
+    """
+    out: list[tuple[str, bool]] = []
+    for p in _EVIDENCE_SPLIT.split(quote):
+        if "|" in p:
+            out += [(cell, True) for cell in p.split("|") if _doc_plain(cell)]
+        elif len(_doc_plain(p)) >= settings.EVIDENCE_MIN_QUOTE_CHARS:
+            out.append((p, False))
+    return out or [(quote, False)]
+
+
+def evidence_ratio(quote: str, chunk: str) -> float:
+    """문서 인용이 청크에 있는 정도. 조각마다 재서 **가장 낮은** 값을 돌려준다.
+
+    match_ratio 와 세 가지가 다르고, 셋 다 골든셋 변형 실측으로 정했다.
+    - 문장부호를 지우고 비교한다(_plain). 가운뎃점 · 따옴표 · 백슬래시 경로를 판정자가
+      다듬어도 글자는 같다. 문장부호 제거 변형이 40% → 100%, 재서술은 27% → 18%.
+    - 줄 · 줄임표 단위로 나눠 조각마다 대조한다. 표의 머리행 + 한 행, "A … B" 는
+      연속 일치로는 0% 였다. 조각 하나라도 없으면 전체가 떨어진다.
+    - 조각이 원문의 어느 자리와 한 글자 차이면 통과로 친다. 오탈자 1자 변형이
+      0% → 100%. 재서술 · 지어낸 문장의 통과율은 그대로다(18% · 2%).
+    """
+    text = _doc_plain(chunk)
+    worst = 1.0
+    for part, exact in _evidence_parts(quote):
+        q = _doc_plain(part)
+        if not q:
+            continue
+        if q in text:
+            continue
+        if exact and len(q) < settings.EVIDENCE_MIN_QUOTE_CHARS:
+            return 0.0            # 짧은 표 셀은 글자 그대로 있어야 한다
+        if not _numbers_intact(q, text):
+            return 0.0            # 글자 그대로가 아니면서 숫자까지 다르면 근거가 아니다
+        block = difflib.SequenceMatcher(None, q, text, autojunk=False).find_longest_match(
+            0, len(q), 0, len(text))
+        r = block.size / len(q)
+        if r < settings.MATCH_THRESHOLD and _edits_to_substring(q, text) <= 1:
+            r = settings.MATCH_THRESHOLD
+        worst = min(worst, r)
+    return worst
+
+
+_NUMBER = re.compile(r"\d+")
+
+
+def _numbers_intact(quote: str, text: str) -> bool:
+    """인용의 숫자들이 원문에 그 순서 그대로 잇달아 있는가.
+
+    연속 일치 0.9 와 한 글자 편집 허용은 오탈자 · 다듬기를 위한 것이지 숫자를 위한 것이
+    아니다. 규정문에서 숫자는 문장의 알맹이라 "100,000원" 을 "120,000원" 으로 바꾼 인용이
+    긴 문장 끝에 있다고(비율 0.9) 또는 한 글자 차이라고 통과하면 안 된다. 실측: 숫자 한 자리
+    바꿈이 이 검사 없이는 58% 통과했다.
+    """
+    want = _NUMBER.findall(quote)
+    if not want:
+        return True
+    have = _NUMBER.findall(text)
+    n = len(want)
+    return any(have[i:i + n] == want for i in range(len(have) - n + 1))
+
+
 def verify_evidence(evidence: list[Evidence], chunks: list[str]) -> CitationCheck:
     check = CitationCheck(n_chunks=len(chunks))
     for ev in evidence:
-        if len(normalize(ev.quote)) < settings.EVIDENCE_MIN_QUOTE_CHARS:
+        if len(_doc_plain(ev.quote)) < settings.EVIDENCE_MIN_QUOTE_CHARS:
             check.dropped.append({"quote": ev.quote, "reason": "too_short"})
             continue
 
         if 0 <= ev.chunk_index < len(chunks):
-            ratio = match_ratio(ev.quote, chunks[ev.chunk_index])
+            ratio = evidence_ratio(ev.quote, chunks[ev.chunk_index])
             if ratio >= settings.MATCH_THRESHOLD:
                 check.kept.append(VerifiedEvidence(ev.chunk_index, ev.quote, ratio))
                 continue
@@ -205,7 +287,7 @@ def verify_evidence(evidence: list[Evidence], chunks: list[str]) -> CitationChec
         # leakage를 막는 건 인용의 실재성이지 인덱스의 정확성이 아니므로 살린다.
         best_idx, best_ratio = -1, 0.0
         for i, chunk in enumerate(chunks):
-            r = match_ratio(ev.quote, chunk)
+            r = evidence_ratio(ev.quote, chunk)
             if r > best_ratio:
                 best_idx, best_ratio = i, r
         if best_ratio >= settings.MATCH_THRESHOLD:

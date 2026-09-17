@@ -35,6 +35,54 @@ def test_judgment_golden_ids_are_unique():
         assert len(ids) == len(set(ids)), sorted({i for i in ids if ids.count(i) > 1})
 
 
+def test_sufficiency_golden_set_is_well_formed():
+    """expect_cited 는 실제 청크 범위 안이고, accept 는 expect_verdict 를 품는다."""
+    for entry in judgments.SUFFICIENCY:
+        for idx in entry.get("expect_cited") or ():
+            assert 0 <= idx < len(entry["chunks"]), f"{entry['id']}: expect_cited {idx}"
+        accept = entry.get("accept")
+        if accept:
+            assert entry["expect_verdict"] in accept, entry["id"]
+        if entry.get("inflated"):
+            assert entry["expect_verdict"] == "sufficient", (
+                f"{entry['id']}: 부풀림 케이스는 질문 기준 정답(sufficient)을 둔다")
+
+
+def test_score_sufficiency_grades_the_downgraded_verdict_and_two_tiers():
+    """파이프라인과 같은 값을 채점한다 - 인용이 하나도 안 살면 sufficient 도 insufficient 다."""
+    from ragdiag.golden import JudgeScore, score_sufficiency
+    from ragdiag.schema import Evidence, SufficiencyJudgment
+    from ragdiag.verify import verify_evidence
+
+    chunks = ["국내 출장 식비는 1일 3만원을 상한으로 한다."]
+    case = dict(id="x", note="", category="clear", chunks=chunks,
+                expect_verdict="sufficient", expect_cited={0})
+
+    def judged(verdict, quote):
+        j = SufficiencyJudgment(reasoning="", verdict=verdict, missing="",
+                                evidence=[Evidence(chunk_index=0, quote=quote)])
+        return j, verify_evidence(j.evidence, chunks)
+
+    score = JudgeScore()
+    score_sufficiency(case, *judged("sufficient", "식비는 1일 3만원을 상한으로"), score)
+    assert (score.verdict_hits, score.routing_hits, score.downgraded) == (1, 1, 0)
+
+    # 지어낸 인용 → 강등 → 3분류 · 2분류 모두 틀림
+    score_sufficiency(case, *judged("sufficient", "숙박비는 1박 8만원을 상한으로 한다"), score)
+    assert (score.verdict_hits, score.routing_hits, score.downgraded) == (1, 1, 1)
+    assert ("x", "sufficient", "insufficient") in [m[:3] for m in score.misses]
+
+    # partial 을 낸 경우 - 3분류는 틀리고 2분류(sufficient 아님)는 기대와 다르므로 역시 틀림
+    score_sufficiency(case, *judged("partial", "식비는 1일 3만원을 상한으로"), score)
+    assert (score.verdict_hits, score.routing_hits) == (1, 1)
+
+    # accept 로 넓힌 케이스 - partial 도 맞은 것으로 치고 2분류도 통과
+    wide = dict(case, accept={"sufficient", "partial"})
+    score_sufficiency(wide, *judged("partial", "식비는 1일 3만원을 상한으로"), score)
+    assert (score.verdict_hits, score.routing_hits) == (2, 2)
+    assert score.by_category["clear"] == [2, 4]
+
+
 @pytest.mark.parametrize("fixture", [observations, messy])
 def test_golden_sets_build_and_grade_every_case(fixture):
     ids = [case["id"] for case in fixture.CASES]

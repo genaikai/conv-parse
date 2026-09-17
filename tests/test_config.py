@@ -196,8 +196,9 @@ def test_match_threshold_reaches_the_verifier(tmp_path, restore_settings):
     from ragdiag.verify import verify_evidence
 
     chunks = ["국내 출장 식비는 1일 3만원을 상한으로 한다."]
-    # 실제 연속 일치율이 0.45 인 인용. 기본 0.9 에서는 떨어진다.
-    ev = [Evidence(chunk_index=0, quote="국내 출장 식비는 1일 5만원을 상한으로 본다.")]
+    # 실제 연속 일치율이 0.7 인 인용(꼬리를 바꿈). 기본 0.9 에서는 떨어진다. 숫자는 그대로
+    # 둔다 - 숫자가 다르면 임계값과 무관하게 떨어진다(verify._numbers_intact).
+    ev = [Evidence(chunk_index=0, quote="국내 출장 식비는 1일 3만원을 최대로 본다.")]
     assert verify_evidence(ev, chunks).n_kept == 0
 
     apply(load(write(tmp_path, """

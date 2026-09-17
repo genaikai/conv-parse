@@ -36,6 +36,56 @@ def test_fabricated_quote_is_dropped():
     assert r.dropped[0]["reason"] == "not_found"
 
 
+TABLE = ("제15조(연가 일수) ① 재직기간별 연가 일수는 다음과 같다.\n"
+         "| 재직기간 | 연가 일수 |\n|---|---|\n| 3개월 이상 6개월 미만 | 3 |\n"
+         "| 3년 이상 4년 미만 | 14 |\n| 6년 이상 | 21 |")
+
+
+def test_table_header_plus_one_row_is_kept():
+    # 표에서 머리행과 필요한 행만 따온다 - 사이 행을 건너뛰어 연속 일치로는 떨어졌다.
+    r = verify_evidence([ev(0, "| 재직기간 | 연가 일수 |\n|---|---|\n| 3년 이상 4년 미만 | 14 |")], [TABLE])
+    assert r.n_kept == 1
+
+
+def test_sentence_plus_table_flattened_to_one_line_is_kept():
+    # Haiku 실측 - 문장 · 표 머리행 · 필요한 행을 사이 문장과 행을 빼고 한 줄로 폈다.
+    quote = "재직기간별 연가 일수는 다음과 같다. | 재직기간 | 연가 일수 | |---|---| | 3년 이상 4년 미만 | 14 |"
+    assert verify_evidence([ev(0, quote)], [TABLE]).n_kept == 1
+    wrong_row = quote.replace("| 14 |", "| 99 |")
+    assert verify_evidence([ev(0, wrong_row)], [TABLE]).n_kept == 0, "행의 숫자를 바꾸면 떨어진다"
+
+
+def test_table_column_slice_is_kept():
+    # Haiku 실측 - 넓은 표를 세로로 잘라 "머리 셀 | 값 셀" 로 인용한다. 두 셀은 원문에서
+    # 떨어져 있어 연속 일치로는 0.86 이었다.
+    wide = ("| 구분 | 일비(1일당) | 숙박비(1야당) | 식비(1일당) |\n|---|---|---|---|\n"
+            "| 제2호 해당자 | 25,000원 | 실비(상한액: 서울특별시 100,000원, 광역시 80,000원) | 25,000원 |")
+    assert verify_evidence([ev(0, "숙박비(1야당) | 실비(상한액: 서울특별시 100,000원, 광역시 80,000원)")], [wide]).n_kept == 1
+    assert verify_evidence([ev(0, "숙박비(1야당) | 실비(상한액: 서울특별시 120,000원, 광역시 80,000원)")], [wide]).n_kept == 0
+
+
+def test_ellipsis_joined_sentences_are_kept_only_if_both_exist():
+    r = verify_evidence([ev(1, "국내 출장 식비는 1일 3만원을 … 상한으로 한다.")], CHUNKS)
+    assert r.n_kept == 1
+    r = verify_evidence([ev(1, "국내 출장 식비는 1일 3만원을 … 숙박비는 1박 8만원으로 한다.")], CHUNKS)
+    assert r.n_kept == 0, "조각 하나가 지어낸 것이면 전체가 떨어진다"
+
+
+def test_punctuation_and_escaping_differences_are_tolerated():
+    chunk = "숙박비 증빙 양식은 공유폴더 \\\\fs01\\총무\\여비\\양식_v3.xlsx 를 쓴다. 구버전(v2)은 반려된다."
+    # JSON 을 거치며 백슬래시가 늘거나, 판정자가 가운뎃점 · 괄호를 다듬어도 글자는 같다.
+    r = verify_evidence([ev(0, "숙박비 증빙 양식은 공유폴더 \\\\\\\\fs01\\\\총무\\\\여비\\\\양식_v3.xlsx 를 쓴다"),
+                         ev(0, "구버전 v2 은 반려된다")], [chunk])
+    assert r.n_kept == 2
+
+
+def test_one_character_typo_is_tolerated_but_paraphrase_is_not():
+    r = verify_evidence([ev(1, "국내 출장 식비는 1일 3만원을 상항으로 한다")], CHUNKS)
+    assert r.n_kept == 1
+    r = verify_evidence([ev(1, "국내 출장 때 식비는 하루 3만원까지 준다")], CHUNKS)
+    assert r.n_kept == 0
+
+
 def test_short_quote_is_dropped():
     # 짧은 인용은 아무 문서에나 우연히 맞아 검증을 무력화한다.
     r = verify_evidence([ev(0, "출장")], CHUNKS)

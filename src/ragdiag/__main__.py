@@ -367,6 +367,17 @@ def run_golden(args, backend=None) -> int:
     from ragdiag.conv import parse_conversations, to_case
     from ragdiag.golden import FieldScore, render, score_observation
 
+    if args.golden_set == "sufficiency":
+        # Step 2·3 만 단독으로. 관측 골든셋을 앞에 돌리지 않는다 - 호출을 아끼고 층을 가른다.
+        try:
+            backend = backend or make_backend(args)
+        except JudgeError as e:
+            print(e, file=sys.stderr)
+            return 2
+        judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
+        print(f"충족도 골든셋 · {backend.model} · 동시 {args.workers}", file=sys.stderr)
+        return run_judge_golden(args, judge)
+
     fixture = messy if args.golden_set == "messy" else observations
     raw, expected = fixture.build()
     conversations = parse_conversations(raw)
@@ -545,8 +556,10 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--conv-data", help="conv_eval JSON 경로 (설정을 덮어쓴다)")
     p.add_argument("--golden", action="store_true",
                    help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
-    p.add_argument("--golden-set", choices=["observations", "messy"], default="observations",
-                   help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다")
+    p.add_argument("--golden-set", choices=["observations", "messy", "sufficiency"],
+                   default="observations",
+                   help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다 / "
+                        "sufficiency: Step 2·3 판정만 (문서 충족도 · 근거 활용)")
     p.add_argument("--legacy-regression", action="store_true",
                    help="구 회귀셋 23건을 새 파이프라인으로 돌려 대조한다")
     p.add_argument("--turns", metavar="FILE",
