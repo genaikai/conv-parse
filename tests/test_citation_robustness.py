@@ -27,7 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ragdiag.fixtures.judgments import SUFFICIENCY  # noqa: E402
 from ragdiag.schema import Evidence  # noqa: E402
-from ragdiag.verify import _plain, verify_evidence  # noqa: E402
+from ragdiag import settings  # noqa: E402
+from ragdiag.verify import _doc_plain, _plain, verify_evidence  # noqa: E402
+
+FLOOR = settings.EVIDENCE_MIN_QUOTE_CHARS
 
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪"
 NOTE = re.compile(r"\s*<(?:개정|신설|전문개정)[^>]*>|\s*\[(?:전문개정|제목개정|본조신설)[^\]]*\]")
@@ -57,7 +60,7 @@ MUST_FAIL = {
     "표 행의 숫자 바꿈": 0.10,
     "숫자 한 자리 바꿈": 0.10,
 }
-SHORT_FRAGMENT_MAX = 0.10   # 다른 청크의 8~12자 조각이 우연히 통과하는 비율
+SHORT_FRAGMENT_MAX = 0.05   # 다른 청크의 12~16자 조각이 우연히 통과하는 비율 (하한 12자 · 청크 10~15개 실측 2.7%)
 
 FABRICATED = [
     "국내 출장 숙박비는 1박 8만원을 상한으로 한다.",
@@ -103,7 +106,7 @@ def variants(s: str, chunk: str) -> dict[str, str | None]:
         "문장부호 제거": re.sub(r"[「」『』.,、:;()]", "", base),
         "오탈자 1자 (치환)": base[:mid] + "ㅇ" + base[mid + 1:],
         "오탈자 1자 (탈락)": base[:mid] + base[mid + 1:],
-        "앞 절반만": s[: max(8, len(s) // 2)],
+        "앞 절반만": s[: len(s) // 2] if len(_plain(s[: len(s) // 2])) >= FLOOR else None,
         "두 문장 … 연결": (s + " … " + sents[i + 2]) if 0 <= i and i + 2 < len(sents) else None,
     }
     # 의역은 낱말을 둘 이상 바꾼 것만 센다. 꼬리 한 낱말("지급한다"→"준다")은 연속 일치
@@ -160,10 +163,10 @@ def measure() -> dict[str, tuple[int, int]]:
                 t = tally["표 행의 숫자 바꿈"]
                 t[1] += 1
                 t[0] += _passes(rows[0] + "\n" + re.sub(r"\d+", "99", rows[-1]), idx, c["chunks"])
-                # 세로 자르기: 머리행의 마지막 셀 | 마지막 행의 마지막 셀 (8자 미만이면 too_short 가 맞다)
+                # 세로 자르기: 머리행의 마지막 셀 | 마지막 행의 마지막 셀 (하한 미만이면 too_short 가 맞다)
                 head, last = rows[0].strip("| ").split("|"), rows[-1].strip("| ").split("|")
                 slice_ = head[-1].strip() + " | " + last[-1].strip()
-                if len(_plain(slice_)) >= 8:
+                if len(_plain(slice_)) >= FLOOR:
                     t = tally["표 세로 자르기 (머리 셀 | 값 셀)"]
                     t[1] += 1
                     t[0] += _passes(slice_, idx, c["chunks"])
@@ -178,12 +181,16 @@ def measure() -> dict[str, tuple[int, int]]:
         others = [ch for ch in allc if ch not in c["chunks"]]
         for ch in random.sample(others, 4):
             p = _plain(ch)
-            for k in (8, 12):
+            for k in (FLOOR, FLOOR + 4):
                 for start in range(0, max(1, len(p) - k), 97):
                     frag = p[start:start + k]
                     if len(frag) < k:
                         continue
-                    t = tally["짧은 조각 (다른 청크)"]
+                    # 원문에 그대로 있는 조각(겹침 창 · 같은 조가 다른 케이스에도 있음)은 우연이
+                    # 아니라 실재다. 원문에 없는데 퍼지 규칙으로 통과한 것만 센다.
+                    if any(frag in _doc_plain(t) for t in c["chunks"]):
+                        continue
+                    t = tally["짧은 조각 (다른 청크 · 원문에 없음)"]
                     t[1] += 1
                     t[0] += _passes(frag, 0, c["chunks"])
     return {name: (p, t) for name, (p, t) in tally.items()}
@@ -209,7 +216,7 @@ def test_quotes_that_change_the_words_fail(rates, name, ceiling):
 
 
 def test_short_fragments_from_other_chunks_rarely_pass(rates):
-    p, t = rates["짧은 조각 (다른 청크)"]
+    p, t = rates["짧은 조각 (다른 청크 · 원문에 없음)"]
     assert p / t <= SHORT_FRAGMENT_MAX, f"우연 일치 {p / t:.0%}"
 
 

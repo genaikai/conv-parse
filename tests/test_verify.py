@@ -75,7 +75,7 @@ def test_punctuation_and_escaping_differences_are_tolerated():
     chunk = "숙박비 증빙 양식은 공유폴더 \\\\fs01\\총무\\여비\\양식_v3.xlsx 를 쓴다. 구버전(v2)은 반려된다."
     # JSON 을 거치며 백슬래시가 늘거나, 판정자가 가운뎃점 · 괄호를 다듬어도 글자는 같다.
     r = verify_evidence([ev(0, "숙박비 증빙 양식은 공유폴더 \\\\\\\\fs01\\\\총무\\\\여비\\\\양식_v3.xlsx 를 쓴다"),
-                         ev(0, "구버전 v2 은 반려된다")], [chunk])
+                         ev(0, "양식_v3.xlsx 를 쓴다. 구버전 v2 은 반려된다")], [chunk])
     assert r.n_kept == 2
 
 
