@@ -484,6 +484,178 @@ SUFFICIENCY += [
 ]
 
 # ---------------------------------------------------------------------------
+# 검색 결과 모양의 케이스 (w11~) — 문서 10~15개 × 약 500자
+#
+# 실제 retrieved_data 는 "문서 10개 이상 × 문서당 약 500자" 다. 위 케이스는 청크 3~6개라 답이
+# 든 문서 하나에 같은 주제의 유사 문서 10개가 붙는 상황(놓침 · 엉뚱한 근거)을 재지 못했다.
+# 같은 질문 · 정답을 유지하고 청크만 public_docs.CHUNKS 에서 검색 결과처럼 고른다:
+#   답이 든 청크(anchor 로 찾음) + 같은 장의 청크 + 같은 법령의 다른 장 + 다른 법령, 합계 n 개.
+#   exclude 에 걸리는 청크는 뺀다(leakage 케이스에서 답이 든 조를 빼는 용도).
+#   답 위치(position)는 앞 · 중간 · 뒤로 돌아가며 둔다 - 위치별 정확도를 채점한다.
+# ---------------------------------------------------------------------------
+
+from ragdiag.fixtures.public_docs import CHUNKS as _CHUNKS  # noqa: E402
+
+_N_CYCLE = (12, 10, 15, 13, 11, 14)
+_POS_CYCLE = ("front", "mid", "back")
+
+
+def _retrieve(anchors, law, chapter, n, position, seed, exclude=(), extra=()):
+    """검색 결과 흉내. (chunks, cited) - cited 는 anchor 가 든 청크의 인덱스 집합."""
+    import random as _random
+
+    rng = _random.Random(seed)
+    hit = [c for c in _CHUNKS if any(a in c["text"] for a in anchors)]
+    targets = [c["text"] for c in hit] + list(extra)
+    assert targets, f"anchor 를 찾지 못함: {anchors}"
+
+    def ok(c):
+        return c["text"] not in targets and not any(x in c["text"] for x in exclude)
+
+    same = [c for c in _CHUNKS if ok(c) and c["law"] == law and c["chapter"] == chapter]
+    same_law = [c for c in _CHUNKS if ok(c) and c["law"] == law and c["chapter"] != chapter]
+    other = [c for c in _CHUNKS if ok(c) and c["law"] != law]
+    for pool in (same, same_law, other):
+        rng.shuffle(pool)
+    fill = (same + same_law[: max(2, n // 4)] + other)[: max(0, n - len(targets))]
+    fill = [c["text"] for c in fill]
+    rng.shuffle(fill)
+    if position == "front":
+        at = 0
+    elif position == "back":
+        at = len(fill)
+    else:
+        at = len(fill) // 2
+    chunks = fill[:at] + targets + fill[at:]
+    cited = {i for i, c in enumerate(chunks) if c in targets}
+    return chunks, cited
+
+
+_WIDE_SPECS = [
+    # (id, category, note, question, unmet_need, anchors, (law, chapter), expect, extra)
+    dict(id="w11", category="clear", base="suf11", anchors=["근무지 내 국내 출장의 경우에는"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w12", category="clear", base="suf12", anchors=["| 3년 이상 4년 미만 | 14 |"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w13", category="clear", base="suf13", anchors=["120일)의 출산휴가"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w14", category="clear", base="suf14", anchors=["최대 3년까지 이월"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w15", category="clear", base="suf15", anchors=["2주일 이내를 말한다", "국외 여행자는 2주일 이내에"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w16", category="clear", base="suf16", anchors=["일비의 2분의 1을 지급", "1만원을 감액하여 지급"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w17", category="clear", base="suf17", anchors=["근무지 내 국내 출장의 경우에는"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w18", category="clear", base="suf18", anchors=["6개월 전을 기준으로 10일 이내"],
+         law=("근로기준법", "제4장 근로시간과 휴식")),
+    dict(id="w19", category="clear", base="suf19", anchors=["120일)의 출산휴가"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w20", category="partial", base="suf20", anchors=["120일)의 출산휴가"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w21", category="partial", base="suf21", anchors=["연 60일의 범위"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w22", category="partial", base="suf22", anchors=["시신 운구비"],
+         law=("공무원 여비 규정", "제5장 퇴직자·사망자 등의 여비")),
+    dict(id="w23", category="nearmiss", base="suf23", anchors=["숙박비는 숙박하는 밤의 수에 따라"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), no_cite=True),
+    dict(id="w24", category="nearmiss", base="suf24", anchors=["근무지 내 국내 출장의 경우에는"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), no_cite=True),
+    dict(id="w25", category="nearmiss", base="suf25", anchors=["별표 2의 기준에 따른 경조사휴가"],
+         law=("국가공무원 복무규정", "제3장 휴가"), no_cite=True),
+    dict(id="w26", category="nearmiss", base="suf26", anchors=["1일 1시간의 육아시간"],
+         law=("국가공무원 복무규정", "제3장 휴가"), no_cite=True),
+    dict(id="w27", category="nearmiss", base="suf27", anchors=["30일 전에 예고"],
+         law=("근로기준법", "제2장 근로계약"), no_cite=True),
+    dict(id="w28", category="leakage", base="suf28", anchors=["1주일에 평균 1회 이상의 유급휴일"],
+         law=("근로기준법", "제4장 근로시간과 휴식"), no_cite=True,
+         exclude=["40시간을 초과할 수 없다", "40시간으로 하며"]),
+    dict(id="w29", category="leakage", base="suf29", anchors=["12시간을 한도로 제50조"],
+         law=("근로기준법", "제4장 근로시간과 휴식"), no_cite=True, exclude=["100분의 50"]),
+    dict(id="w30", category="leakage", base="suf30", anchors=["토요일 또는 공휴일 근무를 명할 수 있다"],
+         law=("국가공무원 복무규정", "제2장 근무시간"), no_cite=True, exclude=["낮 12시부터"]),
+    dict(id="w31", category="leakage", base="suf31", anchors=["| 3년 이상 4년 미만 | 14 |"],
+         law=("국가공무원 복무규정", "제3장 휴가"), no_cite=True, exclude=["80퍼센트 이상 출근"]),
+    dict(id="w32", category="inflated", base="suf32", anchors=["근무지 내 국내 출장의 경우에는"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w33", category="inflated", base="suf33", anchors=["| 3년 이상 4년 미만 | 14 |"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w34", category="inflated", base="suf34", anchors=["최대 3년까지 이월"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w35", category="format", base="suf35", anchors=[], extra=["별표2"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w36", category="format", base="suf36", anchors=[], extra=["정산시스템"],
+         law=("공무원 여비 규정", "제1장 총칙")),
+    dict(id="w37", category="format", base="suf37", anchors=[], extra=["FAQ"],
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w38", category="format", base="suf38", anchors=[], extra=["PDF랩"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), exclude=["수로여행과 항공여행에는 숙박비"]),
+    dict(id="w39", category="format", base="suf39", anchors=["병가 일수가 7일 이상"], dup=True,
+         law=("국가공무원 복무규정", "제3장 휴가")),
+    dict(id="w40", category="conflict", base="suf40", anchors=[], extra=["식비_구버전", "식비_신버전"],
+         law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비")),
+    dict(id="w41", category="position", base="suf41", anchors=["30일 전에 예고"], position="back",
+         law=("근로기준법", "제2장 근로계약"), n=15),
+    dict(id="w42", category="position", base="suf42", anchors=["1일 2시간의 근로시간 단축"], position="back",
+         law=("근로기준법", "제5장 여성과 소년"), n=15),
+    # 새 범주 - 같은 장의 문서만 12~15개인데 답이 없다
+    dict(id="w43", category="many_absent", note="휴가 장 15개 - 배우자 출산휴가 일수는 별표에만",
+         question="배우자가 출산하면 휴가를 며칠 받을 수 있는가?", unmet_need="배우자 출산 시 경조사휴가 일수",
+         anchors=["별표 2의 기준에 따른 경조사휴가"], law=("국가공무원 복무규정", "제3장 휴가"),
+         expect_verdict="insufficient", no_cite=True, n=15),
+    dict(id="w44", category="many_absent", note="근로계약 장 15개 - 권고사직 위로금 기준은 없다",
+         question="권고사직 시 위로금은 얼마나 받는가?", unmet_need="권고사직 위로금 지급 기준과 금액",
+         anchors=["30일 전에 예고"], law=("근로기준법", "제2장 근로계약"),
+         expect_verdict="insufficient", no_cite=True, n=15),
+    dict(id="w45", category="many_absent", note="여비 12개 - 국외 항공 좌석 등급 기준은 별표 3에만 (마일리지로 상향 문장이 유혹)",
+         question="국외 출장 때 비즈니스석을 탈 수 있는 직급 기준은?", unmet_need="국외 항공 좌석 등급의 직급별 기준",
+         anchors=["좌석 등급을 상향 조정할 수 있는 경우"], law=("공무원 여비 규정", "제2장 운임"),
+         expect_verdict="insufficient", no_cite=True, n=12),
+    # 답이 두 청크의 겹침 구간에 걸쳐 있다
+    dict(id="w46", category="split", note="복무20 ② 단서와 호가 청크 경계에 걸림 (만 40세 이상 분할 사용)",
+         question="만 40세 이상 임신 공무원은 출산 전에 휴가를 나눠 쓸 수 있는가?",
+         unmet_need="만 40세 이상 임신 공무원의 출산휴가 분할 사용 가능 여부",
+         anchors=["만 40세 이상인 경우"], law=("국가공무원 복무규정", "제3장 휴가"),
+         expect_verdict="sufficient"),
+]
+
+
+def _build_wide() -> list[dict]:
+    base = {c["id"]: c for c in SUFFICIENCY}
+    out = []
+    for i, spec in enumerate(_WIDE_SPECS):
+        src = base.get(spec.get("base"), {})
+        law, chapter = spec["law"]
+        n = spec.get("n", _N_CYCLE[i % len(_N_CYCLE)])
+        position = spec.get("position", _POS_CYCLE[i % len(_POS_CYCLE)])
+        extra = [PSEUDO[k] for k in spec.get("extra", ())]
+        chunks, cited = _retrieve(spec["anchors"], law, chapter, n, position, seed=i,
+                                  exclude=spec.get("exclude", ()), extra=extra)
+        if spec.get("dup"):
+            chunks = chunks + [chunks[min(cited)]]
+            cited = cited | {len(chunks) - 1}
+        case = dict(
+            id=spec["id"], category=spec["category"], source="public",
+            note=spec.get("note", src.get("note", "")) + f" · 청크 {len(chunks)}개 · 답 {position}",
+            question=spec.get("question", src.get("question")),
+            unmet_need=spec.get("unmet_need", src.get("unmet_need")),
+            chunks=chunks, position=position,
+            expect_verdict=spec.get("expect_verdict", src.get("expect_verdict")),
+        )
+        if src.get("accept"):
+            case["accept"] = src["accept"]
+        if src.get("inflated"):
+            case["inflated"] = True
+        if not spec.get("no_cite"):
+            case["expect_cited"] = cited
+        out.append(case)
+    return out
+
+
+WIDE = _build_wide()
+SUFFICIENCY += WIDE
+
+# ---------------------------------------------------------------------------
 # Step 3 — 근거 활용
 # ---------------------------------------------------------------------------
 

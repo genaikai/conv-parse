@@ -148,6 +148,10 @@ def score_sufficiency(case: dict, judgment, citation, score: JudgeScore) -> None
     cat = score.by_category.setdefault(case.get("category", "short"), [0, 0])
     cat[0] += hit
     cat[1] += 1
+    if case.get("position"):
+        pos = score.by_category.setdefault(f"답 위치 {case['position']}", [0, 0])
+        pos[0] += hit
+        pos[1] += 1
 
     # 지어낸 인용은 원문 대조에서 걸린다. 하나라도 폐기됐으면 기록한다.
     if citation and citation.dropped:
