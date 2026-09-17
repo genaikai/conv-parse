@@ -40,6 +40,10 @@ CERT = [
     "[총무 안내] 재직증명서(HR-07)는 그룹웨어 > 증명서 발급에서 즉시 출력한다.",
     "[총무 안내] 경력증명서(HR-08)는 인사팀 확인 후 2영업일 내 발급한다.",
 ]
+ABROAD = [
+    "[출장비 규정 제5조] 해외 출장 숙박비는 미주 지역 1일 250달러를 상한으로 한다.",
+    "[출장비 규정 제5조] 해외 출장 식비는 지역과 무관하게 1일 60달러로 한다.",
+]
 
 CASES = [
     # ---------- 오탈자 · 자모 깨짐 · 띄어쓰기 없음 ----------
@@ -462,9 +466,12 @@ CASES = [
         # "아까 그거요" 는 앞 답(되묻기)을 문제 삼지 않고 자기 말을 되풀이한 것으로도 읽힌다.
         # 그러면 none → case0 이고 참조 문제는 부가 case4 로 남는다 - 설계상 그게 맞다
         # ("사용자가 만족했다면 모호함은 문제가 되지 않았다. 신호는 secondary 로").
-        # 내용 불만으로 읽으면 청크(CERT)에 "그 양식" 이 없어 case20 도 나온다.
+        # 내용 불만으로 읽으면 청크(CERT)에 "그 양식" 이 없어 case20 도 나온다. 반대로 CERT 가
+        # "양식을 받는 곳" 을 담고 있으니 요구("양식의 출처")는 충족됐고 답변(되묻기)이 그걸 안
+        # 썼다고 읽으면 case22 다 - 요구를 unmet_need 로 읽는 Step 2(V3) 가 그렇게 냈다. 가리킬
+        # 것이 없는 질문이라 어느 쪽도 틀렸다고 할 수 없어 함께 받는다.
         expect=dict(question_clarity={"unresolved_reference", "vague"}),
-        expect_case={"case4", "case1", "case0", "case20", "unclassified"},
+        expect_case={"case4", "case1", "case0", "case20", "case22", "unclassified"},
     ),
 
     # 개인정보 (case6 · 부가)
@@ -780,6 +787,82 @@ CASES = [
         chunks=RULES,
         expect=dict(),
         expect_case={"case8"},
+    ),
+    # ---------- 후속 발화가 요구를 좁히거나 바꾼다 ----------
+    # Step 2 는 resolved_question 을 기준으로 문서를 대조한다. 후속 발화가 요구를 좁히면
+    # ("미주 말고 유럽") Step 1 이 그걸 resolved_question 에 담아야 한다 — 못 담으면 원래
+    # 질문엔 답이 있어 sufficient 로 새고, 검색 실패(case20)가 통계에서 사라진다.
+    # 넷 다 문서에 좁혀진 요구가 없어서 case20 이 정답이다.
+    dict(
+        id="narrow01", note="지역을 바꿈 — 미주는 답했는데 유럽을 물은 것 · 문서엔 유럽이 없다",
+        pre_queries=["해외 출장 숙박비 상한 알려주세요"],
+        answer="해외 출장 숙박비는 미주 지역 기준 1일 250달러가 상한입니다.",
+        complaint="미주 말고 유럽이요",
+        chunks=ABROAD,
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case20"},
+    ),
+    dict(
+        id="narrow02", note="항목을 바꿈 — 금액을 답했는데 정산 기한을 물은 것 · 문서엔 기한이 없다",
+        pre_queries=["국내 출장비 얼마까지 나와요?"],
+        answer="국내 출장 식비는 1일 3만원, 숙박비는 1박 8만원까지 지급됩니다.",
+        complaint="아니 금액 말고 정산 신청 기한이요",
+        chunks=RULES[:2],
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case20"},
+    ),
+    dict(
+        id="change01", note="의도를 바로잡음 — 신청 방법이 아니라 반차 가능 여부 · 문서엔 반차가 없다",
+        pre_queries=["연차 신청 어떻게 해요"],
+        answer="연차는 그룹웨어의 HR-01 휴가신청서로 사전에 신청하시면 됩니다.",
+        complaint="그게 아니라 반차도 되는지 물어본 건데요",
+        chunks=[LEAVE[0]],
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case20"},
+    ),
+    dict(
+        id="change02", note="범위를 바꿈 — 국내를 답했는데 해외를 물은 것 · 문서엔 해외가 없다",
+        pre_queries=["출장 식비 상한 얼마예요"],
+        answer="국내 출장 식비는 1일 3만원이 상한입니다.",
+        complaint="국내 말고 해외 출장이요",
+        chunks=RULES,
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case20"},
+    ),
+    # 반대 상황 — 좁혀진 요구는 문서에 있고 원래 질문의 요구만 없다. 답변은 문서를 안 썼다.
+    # Step 2 가 좁혀진 요구로 판정하면 sufficient → 근거 활용 ignored → case22. 원래 질문에
+    # 끌려 partial 을 내면 case20 으로 새서 "문서엔 있었는데 안 쓴" 건이 검색 실패로 둔갑한다.
+    dict(
+        id="rev01", note="지역을 바꿈 — 유럽은 문서에 있고 미주는 없다 · 답변은 문서를 안 씀",
+        pre_queries=["해외 출장 숙박비 상한 알려주세요"],
+        answer="미주 지역 숙박비 상한은 인사팀 규정을 확인해 주시기 바랍니다.",
+        complaint="미주 말고 유럽이요",
+        chunks=["[출장비 규정 제5조] 해외 출장 숙박비는 유럽 지역 1일 220달러를 상한으로 한다.",
+                ABROAD[1]],
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case22"},
+    ),
+    dict(
+        id="rev02", note="항목을 바꿈 — 정산 기한은 문서에 있고 금액은 없다 · 답변은 문서를 안 씀",
+        pre_queries=["국내 출장비 얼마까지 나와요?"],
+        answer="출장비 금액은 부서와 직급에 따라 달라 별도 확인이 필요합니다.",
+        complaint="아니 금액 말고 정산 신청 기한이요",
+        chunks=[RULES[2]],
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case22"},
+    ),
+    dict(
+        id="rev03", note="의도를 바로잡음 — 반차 가능 여부는 문서에 있고 신청 방법은 없다 · 답변은 문서를 안 씀",
+        pre_queries=["연차 신청 어떻게 해요"],
+        answer="연차 신청 방법은 인사팀에 문의해 주세요.",
+        complaint="그게 아니라 반차도 되는지 물어본 건데요",
+        # "반차도 같다" 처럼 반차의 존재를 함축만 하는 문장은 Haiku 가 네 변형 모두에서 근거로
+        # 못 읽었다(3회 중 sufficient 1회). 이 케이스가 재는 건 함축 해석이 아니라 요구 좁힘이라
+        # 명시적으로 적는다.
+        chunks=["[인사규정 제12조] 연차는 반차(오전 · 오후) 단위로도 사용할 수 있다. 반차도 팀장의 "
+                "승인을 받아야 한다."],
+        expect=dict(complaint_target="content_missing", question_domain="domain"),
+        expect_case={"case22"},
     ),
 ]
 
