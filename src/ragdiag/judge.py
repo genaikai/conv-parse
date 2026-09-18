@@ -117,10 +117,10 @@ class Judge:
             prompts.sufficiency_user_message(case, obs), SufficiencyJudgment,
         )
 
-    def check_grounding(self, case: Case) -> tuple[GroundingCheck, Usage]:
+    def check_grounding(self, case: Case, question: str = "") -> tuple[GroundingCheck, Usage]:
         return self._call(
             "grounding", prompts.GROUNDING_SYSTEM,
-            prompts.grounding_user_message(case), GroundingCheck,
+            prompts.grounding_user_message(case, question), GroundingCheck,
         )
 
 
@@ -146,7 +146,7 @@ def diagnose(case: Case, judge: Judge) -> CaseResult:
             check = verify_evidence(judgment.evidence, case.rag_chunks)
             # 인용이 살아남아 sufficient가 유지될 때만 생성 활용 여부가 의미를 갖는다.
             if judgment.verdict == "sufficient" and check.n_kept > 0:
-                grounding = track(judge.check_grounding(case))
+                grounding = track(judge.check_grounding(case, need.resolved_question))
 
         diag = decide(case.case_id, need, judgment, check, grounding)
         diag.dept = case.dept

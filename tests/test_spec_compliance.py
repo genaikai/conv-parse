@@ -813,15 +813,17 @@ def test_steps_withhold_what_the_document_claims():
         "Step 2 충족도": (prompts.sufficiency_user_message(case, obs),
                        {"챗봇 답변": case.llm_ans_on_last_q,
                         "불만 원문": case.current_query}),
-        "Step 3 근거활용": (prompts.grounding_user_message(case),
-                        {"질문": obs.resolved_question,
-                         "불만 원문": case.current_query}),
+        # Step 3 는 질문을 받는다 - 없으면 "아무 청크나 썼는가" 가 되어 case22 가 사라진다
+        # (docs/design/grounding_step.md). 불만 원문은 여전히 주지 않는다.
+        "Step 3 근거활용": (prompts.grounding_user_message(case, obs.resolved_question),
+                        {"불만 원문": case.current_query}),
     }
     leaks = [f"{step}: {what}" for step, (msg, banned) in withheld.items()
              for what, value in banned.items() if value in msg]
     assert not leaks, (
         "단계에 주지 않기로 한 정보가 프롬프트에 들어갔다:\n"
         + "\n".join(f"  {l}" for l in leaks))
+    assert obs.resolved_question in withheld["Step 3 근거활용"][0], "Step 3 에 질문이 빠졌다"
 
 
 def _flow_tables():

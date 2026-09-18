@@ -196,7 +196,7 @@ class ScriptedJudge:
             raise RuntimeError("충족도 실패")
         return JUDGMENTS[j](case), self._usage(mode)
 
-    def check_grounding(self, case):
+    def check_grounding(self, case, question=""):
         _, _, g, mode = self._parts(case)
         if mode == "fail-grounding":
             raise RuntimeError("근거 활용 실패")

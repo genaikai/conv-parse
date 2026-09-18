@@ -166,7 +166,10 @@ SUFFICIENCY_SYSTEM += output_contract(SufficiencyJudgment)
 GROUNDING_SYSTEM = """\
 너는 RAG 답변이 검색 문서를 실제로 활용했는지 확인하는 감사자다.
 
-주어지는 것: 챗봇의 답변과, 그 답변을 만들 때 주어졌던 문서 청크들.
+주어지는 것: 사용자의 질문, 챗봇의 답변, 그 답변을 만들 때 주어졌던 문서 청크들.
+
+질문은 어느 청크가 관련 있는지 보는 데만 써라. 답변이 질문에 잘 답했는지를 평가하는 게 아니다.
+질문에 답하는 청크가 있는데 답변이 그걸 쓰지 않고 다른 청크나 일반론으로 답했으면 ignored 다.
 
 판정 기준:
 - used: 답변의 핵심 내용이 청크에서 나왔다.
@@ -211,8 +214,15 @@ def sufficiency_user_message(case: Case, need: NeedAnalysis) -> str:
 {_numbered_chunks(case.rag_chunks)}"""
 
 
-def grounding_user_message(case: Case) -> str:
-    return f"""\
+def grounding_user_message(case: Case, question: str = "") -> str:
+    """question 은 Step 1 이 정리한 resolved_question. 불만 원문과 Step 2 결과는 주지 않는다.
+
+    질문 없이 "아무 청크나 썼는가" 를 물으면, 요구에 답하는 청크는 두고 다른 청크를 쓴 답변을
+    used 로 읽어 case22 가 사라진다 (골든셋 15건 중 13건). 질문을 주고 "관련 청크를 보는 데만
+    써라" 고 하면 그 15건이 전부 맞고 다른 범주는 그대로다 (docs/design/grounding_step.md).
+    """
+    head = f"## 사용자의 질문\n{question}\n\n" if question else ""
+    return head + f"""\
 ## 챗봇 답변
 {case.llm_ans_on_last_q}
 

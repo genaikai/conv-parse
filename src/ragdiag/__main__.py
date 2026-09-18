@@ -519,7 +519,7 @@ def run_judge_golden(args, judge) -> int:
 
     def judge_gnd(entry):
         case = make_case(entry["chunks"], answer=entry["answer"])
-        check, _ = judge.check_grounding(case)
+        check, _ = judge.check_grounding(case, entry.get("question", ""))
         return entry, check
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -527,11 +527,16 @@ def run_judge_golden(args, judge) -> int:
             score_sufficiency(entry, judgment, citation, suf)
         for entry, check in pool.map(judge_gnd, GROUNDING):
             gnd.verdict_total += 1
-            if check.answer_used_rag == entry["expect"]:
+            accept = set(entry.get("accept") or {entry["expect"]})
+            hit = check.answer_used_rag in accept
+            if hit:
                 gnd.verdict_hits += 1
             else:
-                gnd.misses.append((entry["id"], entry["expect"],
+                gnd.misses.append((entry["id"], "/".join(sorted(accept)),
                                    check.answer_used_rag, entry["note"]))
+            cat = gnd.by_category.setdefault(entry.get("category", "short"), [0, 0])
+            cat[0] += hit
+            cat[1] += 1
 
     print(render_judge(suf, gnd))
     return 0
