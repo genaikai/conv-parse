@@ -48,6 +48,16 @@ def test_sufficiency_golden_set_is_well_formed():
                 f"{entry['id']}: 부풀림 케이스는 질문 기준 정답(sufficient)을 둔다")
 
 
+def test_grounding_golden_set_is_well_formed():
+    """검색 결과 모양 케이스는 인용 청크(cited)가 있고, accept 는 expect 를 품는다."""
+    for entry in judgments.GROUNDING_WIDE:
+        assert entry["cited"] and all(0 <= i < len(entry["chunks"]) for i in entry["cited"]), entry["id"]
+        assert entry["question"] and entry["answer"], entry["id"]
+        if entry.get("accept"):
+            assert entry["expect"] in entry["accept"], entry["id"]
+        assert 10 <= len(entry["chunks"]) <= 15, entry["id"]
+
+
 def test_score_sufficiency_grades_the_downgraded_verdict_and_two_tiers():
     """파이프라인과 같은 값을 채점한다 - 인용이 하나도 안 살면 sufficient 도 insufficient 다."""
     from ragdiag.golden import JudgeScore, score_sufficiency

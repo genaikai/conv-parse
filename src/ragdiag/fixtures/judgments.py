@@ -662,17 +662,20 @@ SUFFICIENCY += WIDE
 GROUNDING = [
     dict(
         id="gnd01", note="문서 내용을 그대로 활용",
+        question="국내 출장 식비 상한은 얼마인가?",
         answer="국내 출장 식비는 1일 3만원을 상한으로 합니다.",
         chunks=RULES, expect="used",
     ),
     dict(
         id="gnd02", note="문서에 있는데 일반론으로 때움",
+        question="국내 출장 식비 상한은 얼마인가?",
         answer="출장 식비는 회사 규정에 따라 지급되며, 자세한 금액은 부서별로 "
                "다를 수 있습니다.",
         chunks=RULES, expect="ignored",
     ),
     dict(
         id="gnd03", note="회피성 안내 — 거절이 아니라 활용 실패다",
+        question="건강검진은 누가 언제 받는가?",
         answer="건강검진 관련 사항은 인사팀에 직접 문의해 주시기 바랍니다.",
         chunks=["임직원 건강검진은 매년 1회 실시하며, 만 35세 이상은 종합검진 대상으로 한다.",
                 "만 35세 미만은 일반검진을 실시한다."],
@@ -680,22 +683,26 @@ GROUNDING = [
     ),
     dict(
         id="gnd04", note="문서와 다른 숫자를 말함",
+        question="국내 출장 식비 상한은 얼마인가?",
         answer="국내 출장 식비는 1일 5만원입니다.",
         chunks=RULES, expect="contradicted",
     ),
     dict(
         id="gnd05", note="문서와 반대되는 결론",
+        question="미사용 연차는 이월되는가?",
         answer="미사용 연차는 다음 해로 자동 이월됩니다.",
         chunks=["미사용 연차는 발생일로부터 1년이 경과하면 소멸함을 원칙으로 한다."],
         expect="contradicted",
     ),
     dict(
         id="gnd06", note="표현은 다르지만 문서 내용을 반영",
+        question="출장비 정산은 언제까지 하는가?",
         answer="정산은 출장이 끝난 뒤 5영업일 안에 마치셔야 합니다.",
         chunks=RULES, expect="used",
     ),
     dict(
         id="gnd07", note="문서에 없는 내용이지만 어긋나지도 않음",
+        question="출장 신청 절차는?",
         answer="출장 신청은 부서장 승인 후 진행하시면 됩니다.",
         chunks=RULES,
         # 문서를 쓰지 않았다. 다만 어긋나는 주장은 아니므로 contradicted 가 아니다.
@@ -703,7 +710,191 @@ GROUNDING = [
     ),
     dict(
         id="gnd08", note="여러 청크를 종합해 답함",
+        question="국내 출장 식비 · 숙박비 상한과 정산 기한은?",
         answer="식비는 1일 3만원, 숙박비는 1박 8만원이며 정산은 5영업일 이내입니다.",
         chunks=RULES, expect="used",
     ),
 ]
+
+# ---------------------------------------------------------------------------
+# 검색 결과 모양의 근거 활용 케이스 (g01~) — 문서 10~15개 × 약 500자
+#
+# 위 8건은 청크가 한 문장이라 "문서 15개 중 하나를 썼는가" 를 재지 못한다. 아래는 Step 2 와
+# 같은 청크 풀에서 검색 결과처럼 고른다. 필드:
+#   question   사용자 질문 (지금 설계는 Step 3 에 주지 않는다 - 변형 측정용)
+#   cited      Step 2 가 인용했을 청크 번호 (요구에 답하는 청크) - 변형 측정용
+#   also       답변이 쓴 다른 청크의 anchor (ignored_wrong_chunk 에서 답변이 엉뚱한 청크를 쓴 것)
+#   expect     used / ignored / contradicted · accept 는 정답이 애매할 때
+#
+#   used_clear          문서 내용을 표현만 바꿔 씀
+#   used_multi          두 청크를 종합
+#   used_unit           단위 · 표기가 다름 ("100,000원" → "십만 원")
+#   ignored_generic     문서에 있는데 일반론
+#   ignored_deflect     회피성 안내 ("인사팀에 문의")
+#   ignored_wrong_chunk 답변이 문서의 다른 청크는 썼지만 요구에 답하는 청크는 안 씀 (H1)
+#   contradicted_number 숫자가 문서와 다름
+#   contradicted_conclusion 결론이 반대
+#   contradicted_trap   한 청크와는 다르지만 맞는 청크와는 일치 → used
+#   position            답변이 쓴 청크가 15개 중 맨 뒤
+#   partial_use         문서 일부만 쓰고 나머지는 일반론 → accept {used, ignored}
+# ---------------------------------------------------------------------------
+
+_G_SPECS = [
+    dict(id="g01", category="used_clear", question="근무지 내 출장인데 4시간 넘게 걸리면 여비가 얼마인가?",
+         answer="근무지 내 출장으로 4시간 이상 걸리면 2만원을 지급받으실 수 있습니다.",
+         anchors=["근무지 내 국내 출장의 경우에는"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used"),
+    dict(id="g02", category="used_clear", question="재직 3년차 연가는 며칠인가?",
+         answer="재직기간이 3년 이상 4년 미만이면 연가는 14일입니다.",
+         anchors=["| 3년 이상 4년 미만 | 14 |"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used"),
+    dict(id="g03", category="used_clear", question="병가 진단서는 언제부터 필요한가?",
+         answer="병가가 7일 이상이면 의사 진단서를 첨부하셔야 합니다.",
+         anchors=["7일 이상일 경우"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used"),
+    dict(id="g04", category="used_clear", question="해고하려면 며칠 전에 예고해야 하는가?",
+         answer="해고하려면 최소 30일 전에 예고해야 하고, 예고하지 않으면 30일분 이상의 통상임금을 지급해야 합니다.",
+         anchors=["30일 전에 예고"], law=("근로기준법", "제2장 근로계약"), expect="used"),
+    dict(id="g05", category="used_clear", question="국외 출장 추가 여비 정산은 언제까지 신청하나?",
+         answer="국외 출장은 여행을 마친 다음 날부터 2주 안에 정산을 신청하시면 됩니다.",
+         anchors=["2주일 이내를 말한다"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used"),
+    dict(id="g06", category="used_clear", question="남은 연가를 저축하면 언제까지 쓸 수 있나?",
+         answer="남은 연가는 최대 3년까지 저축해 쓸 수 있고, 저축 기간이 끝난 뒤 2년 안에 안 쓰면 소멸됩니다.",
+         anchors=["최대 3년까지 이월"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used"),
+    dict(id="g07", category="used_multi", question="출산전후휴가 기간과 유급 기간은?",
+         answer="출산전후휴가는 90일(다태아 120일)이고, 그중 최초 60일(다태아 75일)은 유급입니다.",
+         anchors=["120일)의 출산전후휴가", "최초 60일(한 번에 둘 이상"], law=("근로기준법", "제5장 여성과 소년"), expect="used"),
+    dict(id="g08", category="used_multi", question="법정 근로시간과 연장 한도는?",
+         answer="주 40시간, 하루 8시간을 넘길 수 없고, 당사자가 합의하면 주 12시간까지 연장할 수 있습니다.",
+         anchors=["40시간을 초과할 수 없다", "12시간을 한도로 제50조"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="used"),
+    dict(id="g09", category="used_multi", question="연차 사용 촉진은 어떻게 하나?",
+         answer="휴가 소멸 6개월 전을 기준으로 10일 안에 미사용 일수를 알려주고, 근로자가 10일 안에 시기를 정하지 않으면 2개월 전까지 회사가 시기를 정해 서면으로 통보합니다.",
+         anchors=["6개월 전을 기준으로 10일 이내"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="used"),
+    dict(id="g10", category="used_unit", question="국내 출장 서울 숙박비 상한은?",
+         answer="서울은 1박 십만 원까지 실비로 지급됩니다.",
+         anchors=[], extra=["별표2"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used"),
+    dict(id="g11", category="used_unit", question="연장근로 수당은 얼마나 가산되나?",
+         answer="연장근로 수당은 통상임금의 50%를 가산해 지급합니다.",
+         anchors=["100분의 50"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="used"),
+    dict(id="g12", category="used_unit", question="장기 출장 시 일비는 줄어드나?",
+         answer="같은 곳에 보름 넘게 머무르면 초과 일수의 일비가 10% 깎이고, 한 달 넘으면 20%, 두 달 넘으면 30% 깎입니다.",
+         anchors=["15일을 초과한 경우"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used"),
+    dict(id="g13", category="ignored_generic", question="국내 출장 정산 신청 기한은?",
+         answer="출장비 정산은 사내 규정에 따라 기한 내에 처리하시면 됩니다.",
+         anchors=["국내 여행자는 여행을 마친 날의 다음 날부터"], law=("공무원 여비 규정", "제1장 총칙"), expect="ignored"),
+    dict(id="g14", category="ignored_generic", question="재직 3년차 연가는 며칠인가?",
+         answer="연가 일수는 재직기간에 따라 달라지며 인사 규정을 참고하시기 바랍니다.",
+         anchors=["| 3년 이상 4년 미만 | 14 |"], law=("국가공무원 복무규정", "제3장 휴가"), expect="ignored"),
+    dict(id="g15", category="ignored_generic", question="병가는 1년에 며칠까지 가능한가?",
+         answer="병가는 필요에 따라 적절히 승인될 수 있습니다.",
+         anchors=["연 180일의 범위"], law=("국가공무원 복무규정", "제3장 휴가"), expect="ignored"),
+    dict(id="g16", category="ignored_generic", question="해고하려면 며칠 전에 예고해야 하는가?",
+         answer="해고는 관련 법령에 따라 적법한 절차를 거쳐야 합니다.",
+         anchors=["30일 전에 예고"], law=("근로기준법", "제2장 근로계약"), expect="ignored"),
+    dict(id="g17", category="ignored_deflect", question="국내 출장 서울 숙박비 상한은?",
+         answer="숙박비 상한은 총무팀에 문의해 주세요.",
+         anchors=[], extra=["별표2"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="ignored"),
+    dict(id="g18", category="ignored_deflect", question="쌍둥이 출산휴가는 며칠인가?",
+         answer="출산휴가 관련 사항은 인사팀에서 안내드리고 있습니다. 인사팀으로 문의 부탁드립니다.",
+         anchors=["120일)의 출산휴가"], law=("국가공무원 복무규정", "제3장 휴가"), expect="ignored"),
+    dict(id="g19", category="ignored_deflect", question="남은 연가를 저축하면 언제까지 쓸 수 있나?",
+         answer="해당 내용은 제가 확인할 수 없는 정보입니다. 담당 부서에 문의해 주세요.",
+         anchors=["최대 3년까지 이월"], law=("국가공무원 복무규정", "제3장 휴가"), expect="ignored"),
+    dict(id="g20", category="ignored_deflect", question="해고하려면 며칠 전에 예고해야 하는가?",
+         answer="죄송하지만 해고 예고 기간에 대한 정보를 찾지 못했습니다.",
+         anchors=["30일 전에 예고"], law=("근로기준법", "제2장 근로계약"), expect="ignored"),
+    dict(id="g21", category="ignored_deflect", question="국내 출장 정산 신청 기한은?",
+         answer="출장비 정산 기한은 회계팀 공지사항을 확인해 주시기 바랍니다.",
+         anchors=["국내 여행자는 여행을 마친 날의 다음 날부터"], law=("공무원 여비 규정", "제1장 총칙"), expect="ignored"),
+    dict(id="g22", category="ignored_wrong_chunk", question="병가 진단서는 언제부터 필요한가?",
+         answer="병가 중 연간 6일을 초과하는 일수는 연가에서 차감됩니다.",
+         anchors=["7일 이상일 경우"], also=["연간 6일을 초과하는 병가"], law=("국가공무원 복무규정", "제3장 휴가"), expect="ignored"),
+    dict(id="g23", category="ignored_wrong_chunk", question="근무지 내 출장 여비는 얼마인가?",
+         answer="같은 곳에 15일 넘게 체재하면 초과 일수의 일비가 10분의 1 감액됩니다.",
+         anchors=["근무지 내 국내 출장의 경우에는"], also=["15일을 초과한 경우"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="ignored"),
+    dict(id="g24", category="ignored_wrong_chunk", question="연차 사용 촉진 통보는 언제까지 해야 하나?",
+         answer="연차는 1년간 80% 이상 출근하면 15일이 발생합니다.",
+         anchors=["6개월 전을 기준으로 10일 이내"], also=["80퍼센트 이상 출근한"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="ignored"),
+    dict(id="g25", category="ignored_wrong_chunk", question="출산전후휴가는 며칠인가?",
+         answer="임신 12주 이내이거나 36주 이후면 하루 2시간 근로시간 단축을 신청할 수 있습니다.",
+         anchors=["120일)의 출산전후휴가"], also=["1일 2시간의 근로시간 단축"], law=("근로기준법", "제5장 여성과 소년"), expect="ignored"),
+    dict(id="g26", category="ignored_wrong_chunk", question="해고하려면 며칠 전에 예고해야 하는가?",
+         answer="부당해고 구제신청은 해고일부터 3개월 이내에 노동위원회에 하시면 됩니다.",
+         anchors=["30일 전에 예고"], also=["3개월 이내에 하여야"], law=("근로기준법", "제2장 근로계약"), expect="ignored"),
+    dict(id="g27", category="contradicted_number", question="근무지 내 출장인데 4시간 넘게 걸리면 여비가 얼마인가?",
+         answer="근무지 내 출장으로 4시간 이상이면 3만원을 지급합니다.",
+         anchors=["근무지 내 국내 출장의 경우에는"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="contradicted"),
+    dict(id="g28", category="contradicted_number", question="재직 3년차 연가는 며칠인가?",
+         answer="재직 3년 이상 4년 미만이면 연가는 15일입니다.",
+         anchors=["| 3년 이상 4년 미만 | 14 |"], law=("국가공무원 복무규정", "제3장 휴가"), expect="contradicted"),
+    dict(id="g29", category="contradicted_number", question="병가 진단서는 언제부터 필요한가?",
+         answer="병가 진단서는 3일 이상이면 첨부해야 합니다.",
+         anchors=["7일 이상일 경우"], law=("국가공무원 복무규정", "제3장 휴가"), expect="contradicted"),
+    dict(id="g30", category="contradicted_number", question="해고하려면 며칠 전에 예고해야 하는가?",
+         answer="해고 예고는 14일 전까지 하시면 됩니다.",
+         anchors=["30일 전에 예고"], law=("근로기준법", "제2장 근로계약"), expect="contradicted"),
+    dict(id="g31", category="contradicted_conclusion", question="배로 이동하는 출장에서도 숙박비가 나오나?",
+         answer="배나 항공기로 이동하는 출장에서도 숙박비가 정상적으로 지급됩니다.",
+         anchors=["수로여행과 항공여행에는 숙박비"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="contradicted"),
+    dict(id="g32", category="contradicted_conclusion", question="남은 연가를 저축하면 언제까지 쓸 수 있나?",
+         answer="저축한 연가는 기간 제한 없이 계속 이월되어 소멸되지 않습니다.",
+         anchors=["최대 3년까지 이월"], law=("국가공무원 복무규정", "제3장 휴가"), expect="contradicted"),
+    dict(id="g33", category="contradicted_conclusion", question="입사 1년 미만이면 연차가 없나?",
+         answer="계속 근로 기간이 1년 미만인 근로자에게는 연차 유급휴가가 발생하지 않습니다.",
+         anchors=["1개월 개근 시 1일"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="contradicted"),
+    dict(id="g34", category="contradicted_trap", question="지금 국내 출장 식비는 하루 얼마인가?",
+         answer="국내 출장 식비는 하루 25,000원입니다.",
+         anchors=[], extra=["식비_신버전"], also_extra=["식비_구버전"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used"),
+    dict(id="g35", category="contradicted_trap", question="3년차인데 연가를 미리 당겨 쓰면 최대 며칠인가?",
+         answer="재직 3년 이상 4년 미만이면 최대 8일까지 미리 사용할 수 있습니다.",
+         anchors=["| 3년 이상 4년 미만 | 8 |"], also=["| 3년 이상 4년 미만 | 14 |"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used"),
+    dict(id="g36", category="contradicted_trap", question="공무상 질병이면 병가를 얼마나 쓸 수 있나?",
+         answer="공무상 질병이나 부상이면 연 180일까지 병가를 승인받을 수 있습니다.",
+         anchors=["연 180일의 범위"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used"),
+    dict(id="g37", category="position", question="근무지 내 출장인데 4시간 넘게 걸리면 여비가 얼마인가?",
+         answer="근무지 내 출장으로 4시간 이상 걸리면 2만원을 지급받으실 수 있습니다.",
+         anchors=["근무지 내 국내 출장의 경우에는"], law=("공무원 여비 규정", "제3장 일비·숙박비 및 식비"), expect="used", n=15, position="back"),
+    dict(id="g38", category="position", question="남은 연가를 저축하면 언제까지 쓸 수 있나?",
+         answer="남은 연가는 최대 3년까지 저축해 쓸 수 있고, 저축 기간이 끝난 뒤 2년 안에 안 쓰면 소멸됩니다.",
+         anchors=["최대 3년까지 이월"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used", n=15, position="back"),
+    dict(id="g39", category="position", question="연장근로 수당은 얼마나 가산되나?",
+         answer="연장근로 수당은 통상임금의 50%를 가산해 지급합니다.",
+         anchors=["100분의 50"], law=("근로기준법", "제4장 근로시간과 휴식"), expect="used", n=15, position="back"),
+    dict(id="g40", category="partial_use", question="출산전후휴가는 며칠이고 나눠 쓸 수 있나?",
+         answer="출산전후휴가는 90일이며, 분할 사용은 부서와 협의하시면 됩니다.",
+         anchors=["120일)의 출산전후휴가"], law=("근로기준법", "제5장 여성과 소년"), expect="used", accept={"used", "ignored"}),
+    dict(id="g41", category="partial_use", question="국내 출장 정산 기한과 증빙은?",
+         answer="정산은 1주일 이내에 신청하시고, 증빙은 상황에 따라 다릅니다.",
+         anchors=["국내 여행자는 여행을 마친 날의 다음 날부터"], law=("공무원 여비 규정", "제1장 총칙"), expect="used", accept={"used", "ignored"}),
+    dict(id="g42", category="partial_use", question="재직 3년차 연가 일수와 반차 가능 여부는?",
+         answer="3년차는 연가 14일이고, 반차는 팀장님께 여쭤보시면 됩니다.",
+         anchors=["| 3년 이상 4년 미만 | 14 |"], law=("국가공무원 복무규정", "제3장 휴가"), expect="used", accept={"used", "ignored"}),
+]
+
+
+def _build_grounding_wide() -> list[dict]:
+    out = []
+    for i, spec in enumerate(_G_SPECS):
+        law, chapter = spec["law"]
+        n = spec.get("n", _N_CYCLE[i % len(_N_CYCLE)])
+        position = spec.get("position", _POS_CYCLE[i % len(_POS_CYCLE)])
+        cited_texts = [c["text"] for c in _CHUNKS if any(a in c["text"] for a in spec["anchors"])]
+        cited_texts += [PSEUDO[k] for k in spec.get("extra", ())]
+        also_texts = [c["text"] for c in _CHUNKS if any(a in c["text"] for a in spec.get("also", ()))]
+        also_texts += [PSEUDO[k] for k in spec.get("also_extra", ())]
+        assert cited_texts, spec["id"]
+        chunks, _ = _retrieve(list(spec["anchors"]) + list(spec.get("also", ())), law, chapter, n, position,
+                              seed=100 + i,
+                              extra=[PSEUDO[k] for k in list(spec.get("extra", ())) + list(spec.get("also_extra", ()))])
+        cited = {j for j, c in enumerate(chunks) if c in cited_texts}
+        case = dict(
+            id=spec["id"], category=spec["category"],
+            note=f"{spec['category']} · 청크 {len(chunks)}개 · 인용 청크 {position}",
+            question=spec["question"], answer=spec["answer"], chunks=chunks,
+            cited=cited, position=position, expect=spec["expect"],
+        )
+        if spec.get("accept"):
+            case["accept"] = spec["accept"]
+        out.append(case)
+    return out
+
+
+GROUNDING_WIDE = _build_grounding_wide()
+GROUNDING += GROUNDING_WIDE

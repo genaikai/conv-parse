@@ -195,11 +195,12 @@ def render_judge(suf: JudgeScore, gnd: JudgeScore) -> str:
     if suf.downgraded:
         lines.append(f"  {_pad('인용 실패로 강등', 22)}{suf.downgraded:>3}건")
     block("근거 활용", gnd)
-    if len(suf.by_category) > 1:
-        lines.append("")
-        lines.append("  충족도 범주별")
-        for cat, (hits, total) in sorted(suf.by_category.items(), key=lambda kv: kv[1][0] / kv[1][1]):
-            lines.append(f"    {_pad(cat, 12)}{hits:>3}/{total:<3} {hits / total:>5.0%}")
+    for title, score in (("충족도 범주별", suf), ("근거 활용 범주별", gnd)):
+        if len(score.by_category) > 1:
+            lines.append("")
+            lines.append(f"  {title}")
+            for cat, (hits, total) in sorted(score.by_category.items(), key=lambda kv: kv[1][0] / kv[1][1]):
+                lines.append(f"    {_pad(cat, 24)}{hits:>3}/{total:<3} {hits / total:>5.0%}")
 
     lines.append("")
     lines.append(f"  지어낸 인용(원문 대조 실패): "
