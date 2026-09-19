@@ -48,6 +48,59 @@ def test_sufficiency_golden_set_is_well_formed():
                 f"{entry['id']}: 부풀림 케이스는 질문 기준 정답(sufficient)을 둔다")
 
 
+@pytest.mark.parametrize("need, multi, want", [
+    ("근무지 내 국내 출장 4시간 미만 시 여비 금액과 그 지급 절차, 신청 서류, 정산 기한", False,
+     "근무지 내 국내 출장 4시간 미만 시 여비 금액과 그 지급 절차"),   # "과" 는 경계가 아니다
+    ("담당 부서의 구체적인 이름과 내선 번호", False, "담당 부서의 구체적인 이름과 내선 번호"),
+    ("재직 3년차 공무원의 연가 일수, 연가 신청 방법, 반차 사용 가능 여부", False, "재직 3년차 공무원의 연가 일수"),
+    ("반차 신청 가능 여부 및 반차 신청 방법", False, "반차 신청 가능 여부"),     # 좁혀진 요구는 첫 항목
+    ("유럽 지역 숙박비 상한", False, "유럽 지역 숙박비 상한"),                   # 항목 하나면 그대로
+    ("국내 출장 식비 상한과 교통비 상한", True, "국내 출장 식비 상한과 교통비 상한"),  # 복합 질문은 전부
+    ("", False, ""),
+])
+def test_narrow_need_keeps_only_the_first_item_for_single_intent_questions(need, multi, want):
+    from ragdiag.features.sufficiency import narrow_need
+    assert narrow_need(need, multi) == want
+
+
+def test_sufficiency_feature_narrows_the_need_but_keeps_the_observation_intact():
+    """Step 2 프롬프트에는 첫 항목만 가고, 관측 · 결과 파일의 unmet_need 는 그대로다."""
+    from types import SimpleNamespace
+
+    from ragdiag.features import sufficiency
+    from ragdiag.schema import Case, Observation, SufficiencyJudgment
+
+    obs = Observation(
+        reasoning="r", resolved_question="3년차면 연가 며칠이에요?",
+        unmet_need="재직 3년차 연가 일수, 연가 신청 방법, 반차 사용 가능 여부",
+        complaint_target="content_missing", question_domain="domain", question_clarity="clear",
+        question_multi_intent=False, answer_refused=False, answer_covers_all_intents=True,
+        answer_actionable=True, answer_ignored_history=False, requests_unsupported_output=False,
+        requested_language="none", requested_length_kind="none", requested_length_value=0,
+        requested_format="none")
+    case = Case(case_id="c", user_id="-", dept="-", job_grade="-", job_name="-", position_name="-",
+                conversation_id="-", turn=2, pre_queries=["3년차면 연가 며칠이에요?"],
+                llm_ans_on_last_q="규정을 참고하세요", current_query="며칠이냐구요",
+                rag_chunks=["재직 3년 이상 4년 미만 연가 14일"])
+    seen = {}
+
+    class FakeJudge:
+        def judge_sufficiency_from(self, case, o):
+            seen["need"] = o.unmet_need
+            return SufficiencyJudgment(reasoning="", evidence=[], verdict="insufficient", missing=""), None
+
+    turn = SimpleNamespace(case=case, observation=obs, judgment=None, error=None, notes=[], n_calls=0,
+                           usage=None)
+    ctx = SimpleNamespace(judge=FakeJudge(), turns=[turn], workers=1, backend=None,
+                          open_turns=lambda: [turn])
+    try:
+        sufficiency.process_data(ctx)
+    except Exception:
+        pass   # each_turn 의 부수 처리는 여기서 재지 않는다 - 판정자에 간 요구만 본다
+    assert seen["need"] == "재직 3년차 연가 일수"
+    assert obs.unmet_need.startswith("재직 3년차 연가 일수, 연가 신청 방법")
+
+
 def test_grounding_golden_set_is_well_formed():
     """검색 결과 모양 케이스는 인용 청크(cited)가 있고, accept 는 expect 를 품는다."""
     for entry in judgments.GROUNDING_WIDE:

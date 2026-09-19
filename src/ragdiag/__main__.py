@@ -512,9 +512,12 @@ def run_judge_golden(args, judge) -> int:
     suf, gnd = JudgeScore(), JudgeScore()
 
     def judge_suf(entry):
+        from ragdiag.features.sufficiency import narrow_need, question_looks_multi
+
         case = make_case(entry["chunks"])
-        judgment, _ = judge.judge_sufficiency_from(
-            case, _Need(entry["question"], entry["unmet_need"]))
+        # 파이프라인과 같은 요구를 준다 - 골든셋엔 관측이 없어 질문 문장으로 복합 여부를 어림한다.
+        need = narrow_need(entry["unmet_need"], question_looks_multi(entry["question"]))
+        judgment, _ = judge.judge_sufficiency_from(case, _Need(entry["question"], need))
         return entry, judgment, verify_evidence(judgment.evidence, entry["chunks"])
 
     def judge_gnd(entry):
