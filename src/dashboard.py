@@ -17,8 +17,8 @@ streamlit 이 스크립트를 브라우저 접속 시에 실행하고 예외를 
 때문이다. src/run.py 와 같은 이유로 여기 둔다.
 
 에어갭 장비에서 돌아야 하므로 streamlit·pandas 둘만 추가로 필요하다. 차트는
-내장 st.bar_chart 로 그리고 히트맵은 CSS 를 직접 만든다 - plotly 나 matplotlib
-을 쓰면 설치할 패키지가 늘어난다.
+altair 로 그리고(streamlit 이 이미 의존하는 패키지라 설치가 늘지 않는다) 히트맵은
+CSS 를 직접 만든다 - plotly 나 matplotlib 을 쓰면 설치할 패키지가 늘어난다.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ def _bail(message: str) -> None:
 
 
 try:
+    import altair as alt
     import pandas as pd
     import streamlit as st
 except ModuleNotFoundError as e:
@@ -593,6 +594,24 @@ def bar_height(bars: int) -> int:
     return max(160, 26 * bars + 60)
 
 
+def hbar(data: pd.DataFrame, y: str, x: str, color: str, height: int) -> None:
+    """가로 막대. 많은 것부터, 같은 y 는 색으로 쌓는다.
+
+    st.bar_chart 를 쓰지 않는 이유는 축 라벨이다. 180px 에서 잘라서 19종 case 이름이
+    전부 "case20 · Retrieve …" 로 끝났다 - 무엇이 제일 많은지 보려고 그린 차트에서
+    무엇인지가 안 보였다. altair 는 st.bar_chart 가 안에서 쓰는 그 패키지라 설치가
+    늘지 않는다.
+    """
+    chart = (alt.Chart(data).mark_bar().encode(
+        y=alt.Y(y, title="", axis=alt.Axis(labelLimit=420),
+                sort=alt.EncodingSortField(field=x, order="descending")),
+        x=alt.X(x, title="건수"),
+        color=alt.Color(color, title=color),
+        tooltip=[y, color, x],
+    ).properties(height=height))
+    st.altair_chart(chart, **WIDE)
+
+
 def _distribution(view: pd.DataFrame) -> None:
     st.subheader("무엇이 얼마나")
 
@@ -654,9 +673,7 @@ def _distribution(view: pd.DataFrame) -> None:
     # 잘림)은 코드가 판정하는데, 같은 길이의 막대로 나란히 있으면 같은 무게로
     # 읽힌다. "이 숫자는 덜 믿어라"가 차트 안에 있어야 한다.
     st.caption("case 별 — 많은 것부터 · 색은 신뢰도")
-    st.bar_chart(counts, x="라벨", y="건수", color="신뢰", horizontal=True,
-                 sort="-건수", x_label="", y_label="건수",
-                 height=bar_height(len(counts)))
+    hbar(counts, y="라벨", x="건수", color="신뢰", height=bar_height(len(counts)))
 
     # 위 차트를 type 으로 묶은 것이다. 그냥 막대로 그리면 위와 같은 말을 한 번 더
     # 하는 셈이라, case 로 쌓아서 "TYPE5 가 크고 그 안은 case20 이 대부분" 까지
@@ -664,9 +681,8 @@ def _distribution(view: pd.DataFrame) -> None:
     st.caption("type 별 — case 를 쌓은 것")
     by_type = (failures.assign(type=failures["type"].replace("", "(미분류)"))
                .groupby(["type", "case"]).size().reset_index(name="건수"))
-    st.bar_chart(by_type, x="type", y="건수", color="case", horizontal=True,
-                 stack=True, sort="-건수", x_label="", y_label="건수",
-                 height=bar_height(by_type["type"].nunique()))
+    hbar(by_type, y="type", x="건수", color="case",
+         height=bar_height(by_type["type"].nunique()))
 
     _pareto(counts)
 
@@ -692,7 +708,9 @@ def _pareto(counts: pd.DataFrame) -> None:
 
     st.caption(f"누적 — 상위 3종이 실패의 **{cover(3)}**, "
                f"5종이 **{cover(5)}**, 10종이 **{cover(10)}** ({len(ranked)}종 중)")
-    st.line_chart(curve, x="상위 n종", y="누적 비율", height=220)
+    # 세로 축 제목을 뺀다. 세로로 세운 한글은 글자가 따로 놀아 읽을 수 없고, 무엇인지는
+    # 위 캡션이 이미 말한다.
+    st.line_chart(curve, x="상위 n종", y="누적 비율", y_label="", height=220)
 
 
 # 전사 기준선 행의 이름. 부서 이름과 섞이지 않게 표시를 붙인다.
@@ -882,7 +900,8 @@ def _outliers(counts: pd.DataFrame, ratio: pd.DataFrame, axis: str,
     코퍼스 탭은 문서팀에 그대로 넘길 목록을 낸다. 이 탭은 표만 냈다 - 285칸을
     눈으로 훑어 편중을 찾는 일이 읽는 사람 몫이었는데, 그건 계산할 수 있는 것이다.
     """
-    found = [{axis: group, column_name: tx.label(case) if tx.get(case_of(case)) else case,
+    found = [{axis: group,
+              column_name: tx.label(case_of(case)) if tx.get(case_of(case)) else case,
               "배수": round(float(ratio.loc[group, case]), 1),
               "턴": int(counts.loc[group, case]),
               "전사에서는": f"{_global_share(counts)[case]:.0%}"}
@@ -951,7 +970,7 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
         table,
         **WIDE, hide_index=True,
         column_config={
-            "요구": st.column_config.TextColumn("필요한 문서", width="medium"),
+            "요구": st.column_config.TextColumn("필요한 문서", width="large"),
             "없던것": st.column_config.TextColumn(
                 "문서에 없던 것", width="medium",
                 help="Step 2 가 문서를 보고 적은 것. 같은 요구라도 표현이 조금씩 다르다"),

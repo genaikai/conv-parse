@@ -1418,3 +1418,14 @@ def test_handoff_tables_can_be_downloaded(result_file, tmp_path):
             "missing": "유럽 숙박비 상한", "evidence": [], "dropped_evidence": []}
     at = render(_rewrite(result_file, tmp_path, "one_gap", edit))
     assert at.tabs[3].get("download_button"), "코퍼스 보강 표에 내려받기가 없다"
+
+
+def test_bar_chart_labels_are_not_truncated(result_file, tmp_path):
+    """19종 case 이름이 전부 "case20 · Retrieve …" 로 끝났다 - 무엇이 제일 많은지
+    보려고 그린 차트에서 무엇인지가 안 보였다. 축 라벨 한도를 넉넉히 준다."""
+    tab = render(_with_cases(result_file, tmp_path, SPREAD)).tabs[0]
+    specs = [json.loads(c.proto.spec) for c in tab.get("vega_lite_chart")]
+    for spec in specs[:2]:
+        assert spec["encoding"]["y"]["axis"]["labelLimit"] >= 300, spec["encoding"]["y"]
+    # 누적 곡선의 세로 축 제목은 없다 - 세로로 세운 한글은 글자가 따로 논다.
+    assert '"title": "누적 비율"' not in json.dumps(specs[2], ensure_ascii=False)
