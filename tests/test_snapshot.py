@@ -262,7 +262,7 @@ def test_snapshot_walks_every_branch_of_a_turn():
     want = load_snapshot()
 
     cases = {v.get("case") for v in want.values()}
-    assert {"case0", "case1", "case8", "case9", "case10", "case12", "case13", "case17",
+    assert {"case0", "case1", "case9", "case10", "case12", "case13", "case17",
             "case18", "case20", "case21", "case22", "case28", "case29",
             "unclassified"} <= cases, sorted(cases - {None})
     # 요구가 인용 대조를 통과한 턴과 떨어진 턴이 둘 다 있어야 한다

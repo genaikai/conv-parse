@@ -497,7 +497,9 @@ CASES = [
         expect_case={"unclassified"},        # 불만은 없으나 코드 검증(pii)이 위반을 잡음
     ),
 
-    # 잘림 (case8)
+    # 잘림. case8 은 더 이상 판정하지 않는다 - 잘림 검증기가 온전한 답변을 너무 자주
+    # 잘림으로 읽었다. "답이 없다" 는 불만은 미분류로 가는 것이 지금의 설계다.
+    # 실제로 어디로 가는지는 재측정 전이다 (2026-09-21).
     dict(
         id="cut02", note="단어 중간에서 끊김 — 사용자는 반말로 되묻는다",
         pre_queries=["출장비 정산할 때 증빙 뭐 내야 돼"],
@@ -505,7 +507,7 @@ CASES = [
         complaint="영수증과 뭐? 끊겼는데",
         chunks=RULES,
         expect=dict(),
-        expect_case={"case8"},
+        expect_case={"unclassified"},
     ),
     dict(
         id="cut03", note="코드펜스가 안 닫힘",
@@ -514,7 +516,7 @@ CASES = [
         complaint="이게 끝이에요?",
         chunks=[],
         expect=dict(),
-        expect_case={"case8"},
+        expect_case={"unclassified"},
     ),
 
     # 서비스 오류 (case9)
@@ -788,7 +790,7 @@ CASES = [
         complaint="증빙은 뭐요? 말이 끊겼는데",
         chunks=RULES,
         expect=dict(),
-        expect_case={"case8"},
+        expect_case={"unclassified"},
     ),
     # ---------- 후속 발화가 요구를 좁히거나 바꾼다 ----------
     # Step 2 는 resolved_question 을 기준으로 문서를 대조한다. 후속 발화가 요구를 좁히면

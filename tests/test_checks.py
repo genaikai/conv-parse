@@ -14,7 +14,6 @@ from ragdiag.features.pii import check_pii, find_pii
 from ragdiag.features.python_syntax import check_python_syntax
 from ragdiag.features.quoted_spans import check_quoted_spans, extract_quotes, extract_sources
 from ragdiag.features.short_circuit.service_error import check_service_error
-from ragdiag.features.truncated import check_truncated
 from ragdiag.results import Check
 
 CHUNKS = [
@@ -166,42 +165,6 @@ def test_no_format_request_is_not_applicable():
 
 def test_json_inside_a_fence_is_still_json():
     assert has_format('```json\n{"a": 1}\n```', "json")
-
-
-# ---------------------------------------------------------------------------
-# 출력 잘림 (case8)
-# ---------------------------------------------------------------------------
-
-def test_normal_korean_ending_is_ok():
-    assert check_truncated("출장 식비 상한은 1일 3만원입니다.").verdict == "ok"
-
-
-def test_cut_mid_sentence_is_violated():
-    check = check_truncated("출장 식비 상한은 1일 3만원이며 숙박비는")
-    assert check.verdict == "violated"
-
-
-def test_list_ending_without_period_is_not_truncation():
-    # 목록으로 끝나는 정상 답변을 잘림으로 세면 오탐이 쏟아진다.
-    assert check_truncated(NUMBERED).verdict == "ok"
-
-
-def test_table_ending_is_not_truncation():
-    assert check_truncated(TABLE).verdict == "ok"
-
-
-def test_unclosed_code_fence_is_truncation():
-    check = check_truncated("예시입니다.\n```python\nprint(1)")
-    assert check.verdict == "violated"
-    assert "닫히지 않음" in check.detail
-
-
-def test_closed_code_fence_is_ok():
-    assert check_truncated("예시입니다.\n```python\nprint(1)\n```").verdict == "ok"
-
-
-def test_empty_answer_is_undetermined():
-    assert check_truncated("   ").verdict == "undetermined"
 
 
 # ---------------------------------------------------------------------------
@@ -438,44 +401,11 @@ def test_service_error_does_not_fire_on_normal_answers(text):
 
 
 def test_service_error_on_empty_answer_is_not_applicable():
-    """빈 답변은 '서비스 오류'가 아니다. 잘림(case8) 쪽에서 볼 일이다."""
+    """빈 답변은 '서비스 오류'가 아니다."""
     assert check_service_error("").verdict == "not_applicable"
     assert check_service_error("   \n ").verdict == "not_applicable"
 
 
-def test_a_trailing_emoji_is_not_a_cut_off_answer():
-    """이모지로 끝나는 것은 완결의 신호다.
-
-    생성이 끊기면 토큰 중간에서 멈추지, 그 자리에 장식을 붙이고 멈추지 않는다.
-    한국어 답변은 마침표를 생략하고 이모지로 끝맺는 일이 흔한데, 그걸 잘림으로
-    세면 case8 이 부풀고 고칠 곳을 서비스 안정성 쪽으로 잘못 가리킨다.
-    """
-    for answer in ("도움이 되셨길 바랍니다 😊",     # 종결 부호 없음
-                   "확인해 보세요! 👍",            # 종결 부호 + 이모지
-                   "완료했습니다 ✅",
-                   "주의하세요 ⚠️",               # 이형 선택자가 뒤에 붙는다
-                   "가족 행사입니다 👨‍👩‍👧",          # ZWJ 로 이어진 것
-                   "한국 지사입니다 🇰🇷",           # 지역 표시 두 글자
-                   "잘 하셨어요 👍🏽"):             # 피부색 수정자
-        assert check_truncated(answer).verdict == "ok", answer
-
-
-def test_emoji_stripping_does_not_eat_a_closing_code_fence():
-    """백틱의 유니코드 범주가 Sk 다.
-
-    범주로 뭉뚱그려 벗겨냈다가 닫는 ``` 까지 떨어져서, 멀쩡히 닫힌 코드블록이
-    "코드블록이 닫히지 않음" 으로 뒤집혔다.
-    """
-    assert check_truncated("예시입니다.\n```python\nprint(1)\n```").verdict == "ok"
-    assert check_truncated("```sql\nSELECT 1").verdict == "violated"
-
-
-def test_an_emoji_does_not_rescue_a_sentence_cut_mid_word():
-    """이모지가 붙었다고 다 넘기면 검증기가 무력해진다."""
-    assert check_truncated("재발 방지를 위한").verdict == "violated"
-    assert check_truncated("").verdict == "undetermined"
-    # 이모지만 있는 답변은 쓸모없을지언정 끊긴 것은 아니다.
-    assert check_truncated("😊").verdict == "ok"
 
 
 # ---------------------------------------------------------------------------

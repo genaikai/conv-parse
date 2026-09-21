@@ -32,7 +32,7 @@ def obs(**kw) -> Observation:
 def checks(**kw) -> dict[str, Check]:
     table = {
         name: Check(name, "not_applicable")
-        for name in ("pii", "truncated", "quoted_spans", "python_syntax",
+        for name in ("pii", "quoted_spans", "python_syntax",
                      "sql_shape", "arithmetic", "injection",
                      "language", "format", "length")
     }
@@ -70,21 +70,25 @@ def test_refusal_wins_over_everything():
     assert any("권한 조회 결과" in n for n in result.notes)
 
 
-def test_truncated_answer_is_case9():
-    result = route(
-        obs(complaint_target="no_answer"),
-        checks(truncated=Check("truncated", "violated", "종결 부호 없이 끝남")),
-    )
-    assert result.primary_case == "case8"
-    assert result.confidence == "high"
+def test_case8_is_never_produced():
+    """출력 잘림은 판정하지 않는다.
+
+    종결 부호 · 코드펜스로 잘림을 짚던 검증기가 있었는데, 온전한 답변이 기호나
+    답변 형식 때문에 잘림으로 오분류되는 일이 너무 많았다. 옛 결과 파일이나 다른
+    코드가 "truncated" 검증을 끼워 넣어도 라우팅은 그걸 보지 않는다.
+    """
+    assert not taxonomy.get("case8").diagnosable
+    cut = Check("truncated", "violated", "종결 부호 없이 끝남")
+    for target in ("no_answer", "content_missing", "content_wrong"):
+        got = route(obs(complaint_target=target), checks(truncated=cut))
+        assert got.primary_case != "case8", f"{target} -> {got.primary_case}"
 
 
 def test_no_answer_complaint_but_answer_is_intact():
-    """답이 없다는 불만인데 답변은 온전하다. 서비스 끊김은 로그로 판정 불가."""
-    result = route(obs(complaint_target="no_answer"),
-                   checks(truncated=Check("truncated", "ok", "정상")))
+    """답이 없다는 불만. 잘렸는지 온전한지는 텍스트로 가릴 수 없어 미분류다."""
+    result = route(obs(complaint_target="no_answer"), checks())
     assert result.primary_case == taxonomy.UNCLASSIFIED
-    assert any("서비스 끊김" in n for n in result.notes)
+    assert any("finish_reason" in n for n in result.notes)
 
 
 def test_no_answer_complaint_with_broken_code_is_the_code_defect():
@@ -93,8 +97,7 @@ def test_no_answer_complaint_with_broken_code_is_the_code_defect():
     지저분한 골든셋 code03 — GROUP BY 뒤가 빈 SQL 을 두고 미분류로 갔다.
     """
     result = route(obs(complaint_target="no_answer", question_domain="code"),
-                   checks(truncated=Check("truncated", "ok", "정상"),
-                          sql_shape=Check("sql_shape", "violated", "GROUP BY 뒤가 비어 있음")))
+                   checks(sql_shape=Check("sql_shape", "violated", "GROUP BY 뒤가 비어 있음")))
     assert result.primary_case == "case27"
 
 
@@ -283,7 +286,7 @@ def test_pii_and_citation_problems_are_secondary():
 
 def test_secondary_never_duplicates_the_primary():
     result = route(obs(complaint_target="no_answer", question_clarity="unresolved_reference"),
-                   checks(truncated=Check("truncated", "violated", "끊김")))
+                   checks(pii=Check("pii", "violated", "이메일 1건")))
     assert result.primary_case not in result.secondary_cases
 
 
@@ -363,7 +366,7 @@ def reachable_cases() -> set[str]:
     ]
     variants = [
         checks(),
-        checks(truncated=Check("truncated", "violated", "x")),
+        checks(pii=Check("pii", "violated", "x")),
         checks(format=Check("format", "violated", "x"),
                language=Check("language", "violated", "x"),
                length=Check("length", "violated", "x")),
@@ -446,10 +449,10 @@ def test_no_complaint_without_a_verified_quote_is_case0_with_low_confidence():
 def test_no_complaint_but_a_code_violation_does_not_pass():
     """불만이 없다고 결함이 없는 건 아니다. 사용자가 지적하지 않았을 뿐이다."""
     result = route(obs(complaint_target="none"),
-                   checks(truncated=Check("truncated", "violated", "문장 중간에서 끊김")),
+                   checks(arithmetic=Check("arithmetic", "violated", "3+4=8")),
                    complaint=QuoteCheck("그럼 반차는", 1.0, True))
     assert result.primary_case == taxonomy.UNCLASSIFIED
-    assert "truncated" in result.reason
+    assert "arithmetic" in result.reason
 
 
 def test_refusal_and_injection_beat_case0():
@@ -504,20 +507,6 @@ def test_undiagnosable_cases_are_never_reachable():
 # ---------------------------------------------------------------------------
 # 코드가 아는 사실은 불만을 어떻게 읽었는지에 갇히면 안 된다
 # ---------------------------------------------------------------------------
-
-def test_a_truncated_answer_is_case8_whatever_the_complaint_says():
-    """답변이 잘렸다는 것은 **답변**에 대한 사실이지 불만에 대한 사실이 아니다.
-
-    전에는 complaint_target 이 "no_answer" 일 때만 이 검증을 봤다. 사용자가
-    "내용이 틀렸다"고 쓰면 답변이 중간에서 끊겨 있어도 case8 이 안 나왔는데,
-    끊긴 답변의 내용이 틀려 보이는 것은 당연하다 - 그걸 내용 문제로 세면
-    고칠 곳을 못 찾는다.
-    """
-    cut = Check("truncated", "violated", "종결 부호 없이 끝남: …'그리고 재발'")
-    for target in ("content_missing", "content_wrong", "no_answer", "tone"):
-        got = route(obs(complaint_target=target), checks(truncated=cut))
-        assert got.primary_case == "case8", f"{target} -> {got.primary_case}"
-
 
 def test_broken_code_counts_even_when_the_question_is_not_a_code_question():
     """도메인 질문에 딸려 온 SQL 이 깨져 있어도 잡혀야 한다.

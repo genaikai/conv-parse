@@ -669,8 +669,8 @@ def _distribution(view: pd.DataFrame) -> None:
     # 읽는 것은 "무엇이 제일 많나" 하나인데, 그걸 보려고 잘린 라벨을 짚어야 했다.
     # 세로로 쌓으면 스크롤이 늘지만 한 눈에 읽힌다 - 스크롤이 더 싸다.
     #
-    # 색은 신뢰도다. case25(상식 오답)는 판정자의 사전지식에 기대고 case8(출력
-    # 잘림)은 코드가 판정하는데, 같은 길이의 막대로 나란히 있으면 같은 무게로
+    # 색은 신뢰도다. case25(상식 오답)는 판정자의 사전지식에 기대고 case9(서비스
+    # 오류)는 코드가 판정하는데, 같은 길이의 막대로 나란히 있으면 같은 무게로
     # 읽힌다. "이 숫자는 덜 믿어라"가 차트 안에 있어야 한다.
     st.caption("case 별 — 많은 것부터 · 색은 신뢰도")
     hbar(counts, y="라벨", x="건수", color="신뢰", height=bar_height(len(counts)))
@@ -1256,7 +1256,7 @@ def detail(row: pd.Series) -> None:
 
     if row["검증"]:
         st.markdown("**코드 검증** — LLM 없이, 코드가 본 것")
-        st.caption("case6(질문 속 개인정보) · case8(출력 잘림) · case9(서비스 자원 부족)는 "
+        st.caption("case6(질문 속 개인정보) · case9(서비스 자원 부족)는 "
                    "**여기서** 판정된다. 신뢰도가 high 인 이유이고, LLM 판정이 "
                    "무엇을 말하든 이쪽이 이긴다.")
         checks = pd.DataFrame(row["검증"])

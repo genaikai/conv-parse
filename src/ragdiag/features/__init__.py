@@ -41,7 +41,6 @@ from . import (
     short_circuit,
     sql_shape,
     sufficiency,
-    truncated,
 )
 
 __all__ = ["CHECKS", "FEATURES", "RunContext", "collect"]
@@ -51,7 +50,6 @@ __all__ = ["CHECKS", "FEATURES", "RunContext", "collect"]
 # 서로의 결과를 읽지 않으므로 이 안의 순서는 판정에 영향이 없다 (출력에 실리는 순서다).
 CHECKS = (
     pii,
-    truncated,
     quoted_spans,
     python_syntax,
     sql_shape,

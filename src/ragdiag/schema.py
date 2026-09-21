@@ -114,7 +114,7 @@ ComplaintTarget = Literal[
     "length",            # 너무 길다/짧다                   -> case11 (코드가 판정 안 해 늘 medium)
     "content_missing",   # 필요한 정보가 없음               -> question_domain 으로 갈린다. domain 이면
     "content_wrong",     # 담긴 정보가 틀림                    Step 2·3 을 거쳐 case20·21·22·18·17·13
-    "no_answer",         # 답이 안 왔거나 끊김              -> 답변이 실제로 끊겼으면 case8, 아니면 미분류
+    "no_answer",         # 답이 안 왔거나 끊김              -> 미분류 (case8 잘림은 텍스트로 판정하지 않는다)
     "inconsistency",     # 이전 답변과 다름                 -> 미분류 (case19 는 턴 하나로 판정 불가)
     "other",             #                                  -> out_of_taxonomy
 ]

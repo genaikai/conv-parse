@@ -74,10 +74,10 @@ def test_not_applicable_checks_are_not_written_out():
 
 def test_violated_checks_are_written_out():
     conv, result = _pairs()[0]
-    result.checks["truncated"] = Check("truncated", "violated", "끊김")
+    result.checks["arithmetic"] = Check("arithmetic", "violated", "3+4=8")
     turn = build_output([(conv, result)])["analysis_results"][0]["conversations"][0]["turns"][0]
     names = {c["name"] for c in turn["classification"]["evidence"]["checks"]}
-    assert "truncated" in names
+    assert "arithmetic" in names
 
 
 def test_failed_turn_records_the_error():
@@ -146,8 +146,8 @@ def test_no_complaint_skips_the_sufficiency_step():
 
     # 인용은 최소 길이를 넘겨야 검증을 통과한다. RAW 의 "q2" 로는 짧아서
     # 검증이 실패하고, 그러면 case0 이 아니라 unclassified 로 간다.
-    # 답변도 온전해야 한다. RAW 의 "a2" 는 truncated 검증기가 잡는다 - 사용자가
-    # 지적하지 않았어도 잘린 답변은 결함이므로 case0 으로 안 보낸다.
+    # 답변은 온전한 문장으로 둔다 - 예전 잘림 검증기 시절의 흔적이고, 지금은 잘림을
+    # 판정하지 않으므로 어떻게 끝나도 결과는 같다.
     case = dataclasses.replace(
         to_case(parse_conversations(RAW)[0], 2),
         current_query="그럼 반차는 어떻게 되나요?",

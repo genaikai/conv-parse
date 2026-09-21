@@ -18,8 +18,8 @@ python <저장소>/src/run.py \
 
 ## 무엇으로 분류되나 — case 30개
 
-`taxonomy_v2.txt` 의 **29개** 중 **25개**에 라우팅이 도달하고, 여기에 우리가 더한
-`case0`(정상)이 붙어 실제로 나올 수 있는 라벨은 **26종**이다. `✗` 넷은 로그에 필드가
+`taxonomy_v2.txt` 의 **29개** 중 **24개**에 라우팅이 도달하고, 여기에 우리가 더한
+`case0`(정상)이 붙어 실제로 나올 수 있는 라벨은 **25종**이다. `✗` 다섯은 로그에 필드가
 없어 판정할 수 없다 — 목록에서 지우지 않은 이유는 "우리 분류에는 그런 게 없다"가
 되지 않게 하기 위해서다.
 
@@ -54,7 +54,7 @@ python <저장소>/src/run.py \
 | | case | 이름 | 신뢰도 |
 |---|---|---|---|
 | ✗ | `case7` | 응답 지연으로 이탈 | medium |
-|  | `case8` | 출력 잘림 | high |
+| ✗ | `case8` | 출력 잘림 | high |
 |  | `case9` | 서비스 자원 부족 응답 | high |
 
 **TYPE3 · 사용자의 의도를 파악하지 못함** — 고칠 곳: 생성 프롬프트 · 후처리
@@ -103,7 +103,8 @@ python <저장소>/src/run.py \
 |  | `case29` | 간접 프롬프트 인젝션 | medium |
 
 `✗` 는 라우팅이 도달하지 않는다. 필요한 필드 — case5: 모델 컨텍스트 상한값 ·
-case7: 서버 응답 시간 · case19: 로그 전체 훑기 · case23: 청크의 문서 ID·개정일.
+case7: 서버 응답 시간 · case8: 생성의 `finish_reason` · case19: 로그 전체 훑기 ·
+case23: 청크의 문서 ID·개정일.
 
 신뢰도는 **무엇이 판정을 결정하는지**에 따른다. `high` 는 코드로 검증되고,
 `medium` 은 LLM 판정에 인용 강제가 걸리며, `low`(case25 하나뿐)는 판정자의
@@ -117,7 +118,7 @@ conv-data ─┐
            ├─▶ ① 파싱·짝짓기 ─▶ ② 필터 ─▶ ③ Case ─┬─▶ ④ 서비스오류?  코드 ─▶ case9 (끝)
 filter-data┘                                        │
                                                     ├─▶ ⑤ Step 1 관측    LLM  ← rag 안 봄
-                                                    ├─▶ ⑥ 코드 검증기 11종 코드
+                                                    ├─▶ ⑥ 코드 검증기 10종 코드
                                                     ├─▶ ⑦ Step 2 충족도  LLM  ← 답변 안 봄
                                                     ├─▶ ⑧ 인용 대조      코드
                                                     ├─▶ ⑨ Step 3 근거활용 LLM ← 질문 안 봄
@@ -353,7 +354,7 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 
 ---
 
-## ⑥ 코드 검증기 11종
+## ⑥ 코드 검증기 10종
 
 **목적** — LLM 없이 되는 것은 LLM 에게 묻지 않는다. 문자열만 보면 아는 것들이다.
 
@@ -362,7 +363,6 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 | 검증기 | 입력 | 무엇을 |
 |---|---|---|
 | `service_error` | `llm_ans_on_last_q` | 자원 부족 확정 문구 (case9) |
-| `truncated` | `llm_ans_on_last_q` | 출력 잘림 (case8) |
 | `language` | `llm_ans_on_last_q` + `requested_language` | 요구 언어 불이행 (case10) |
 | `length` | `llm_ans_on_last_q` + `requested_length_*` | **재기만 한다** — 판정하지 않는다 (case11) |
 | `format` | `llm_ans_on_last_q` + `requested_format` | 요구 포맷 불이행 (case12) |
@@ -391,7 +391,6 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 | `pii` | `ok` · `violated` |
 | `service_error` `sql_shape` `arithmetic` `format` | `ok` · `violated` · `not_applicable` |
 | `dates` | `ok` · `violated` · `not_applicable` · `undetermined` |
-| `truncated` | `ok` · `violated` · `undetermined` |
 | `language` | `ok` · `violated` · `not_applicable` · `undetermined` |
 | `injection` | `violated` · `not_applicable` · `undetermined` |
 | `quoted_spans` | `ok` · `not_applicable` · `undetermined` |
@@ -422,7 +421,6 @@ LLM 이 없으니 판정은 전부 **문자열 규칙**이다. 세 갈래로 갈
 | 검증기 | `not_applicable` | `undetermined` | `ok` / `violated` 를 가르는 규칙 |
 |---|---|---|---|
 | `service_error` | 답변이 비어 있음 | — | 공백 · 줄바꿈을 지운 답변에 확정 문구(역시 공백 제거)가 **부분 일치**하면 violated, 아니면 ok. 비슷한 문구는 잡지 않는다 |
-| `truncated` | — | 답변이 비어 있음 | 목록·표·코드블록으로 끝나면 ok → 코드펜스 개수가 홀수면 violated → 종결 부호(`.` `!` `?` …)로 끝나면 ok → 아니면 violated |
 | `language` | 언어 요구 없음 | 답변의 언어 판별 실패 | 문자 종류 비율로 판별한 언어(`ko` `ja` `zh` `en`)가 요구와 같으면 ok |
 | `length` | 길이 요구 없음 | 수치 요구인데 값이 없음 | `vague_short` 는 400자 초과면 violated. 수치 요구는 글자·문장·줄 수를 세어 비교 |
 | `format` | 포맷 요구 없음 | — | 요구한 구조가 **2개 이상** 있으면 ok — 번호 목록·불릿·표(구분선 포함)·코드펜스·JSON 파싱 성공 |
@@ -443,8 +441,10 @@ LLM 이 없으니 판정은 전부 **문자열 규칙**이다. 세 갈래로 갈
 없으면 "안 했다"고 단정할 수 없어 `undetermined` 다. 업무 규정문은 "~한다" 같은
 규범형이 많아 명령형만으로 의심하면 오탐이 쏟아진다.
 
-`truncated` 는 **순서가 규칙의 일부다.** 종결 부호 검사를 앞에 두면 코드 마지막 줄의
-`print(1)` 을 정상 종결로 오판한다. 그래서 닫히지 않은 코드펜스를 먼저 본다.
+출력 잘림(`truncated` · case8)은 **뺐다.** 종결 부호와 코드펜스로 잘림을 짚었는데, 온전한
+답변이 특수한 기호나 답변 형식 때문에 잘림으로 오분류되는 일이 너무 많았다. 텍스트만으로는
+"끊겼다" 와 "그렇게 끝맺었다" 가 갈리지 않는다. 로그에 `finish_reason` 이 생기면 그 값으로
+되살린다.
 
 요구가 없었는데 검증하면 `not_applicable` 이 나온다. 그걸 위반과 섞으면 멀쩡한 답변이
 전부 실패로 집계되므로 네 값으로 구분한다.
@@ -656,7 +656,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | 어디서 | 라우팅이 읽는 것 | 안 읽는 것 |
 |---|---|---|
 | ⑤ 관측 (19개 중 **9개**) | `complaint_target` `question_domain` `question_clarity` `question_multi_intent` `answer_refused` `answer_covers_all_intents` `answer_actionable` `answer_ignored_history` `requests_unsupported_output` | `resolved_question` `unmet_need` `reasoning` `requested_language` `requested_length_kind` `requested_length_value` `requested_format` `requested_quote` `history_quote` `complaint_quote` |
-| ⑥ 검증기 (12종 중 **12종**) | `service_error` `truncated` `pii` `quoted_spans` `arithmetic` `dates` `injection` + `language` `length` `format` `python_syntax` `sql_shape` | — |
+| ⑥ 검증기 (11종 중 **11종**) | `service_error` `pii` `quoted_spans` `arithmetic` `dates` `injection` + `language` `length` `format` `python_syntax` `sql_shape` | — |
 | ⑦ 충족도 | `verdict` | `evidence` `missing` `reasoning` |
 | ⑧ 인용 | `n_kept` `n_chunks` | `kept` `dropped` 의 내용 |
 | ⑨ 근거 활용 | `answer_used_rag` | `reasoning` |
@@ -679,7 +679,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | 3 | 애초에 불만이 아닌가 | 관측 + 코드 | `case0` 정상 — 불만 아님 |
 | 4 | 챗봇이 낼 수 없는 형태를 요구했나 | 관측 | `case2` 지원하지 않는 포맷 요구 |
 | 5 | 질문만으로 답을 특정할 수 있나 | 관측 | `case1` 이해하기 어려운 질문 |
-| 6 | 답이 없거나 중간에 끊겼나 | 코드 | `case8` 출력 잘림 |
+| 6 | 답이 없나 | 코드 | 미분류 (`case8` 출력 잘림은 텍스트로 판정하지 않는다) |
 | 7 | 언어·포맷 요구를 지켰나 | 코드 | `case10` `case12` — 지켰는데도 불만이면 `case13`. `case11`(길이)은 코드가 판정하지 않아 언제나 medium |
 | 8 | 말투·어조에 대한 불만인가 | 관측 | `case16` 말투·어조 불이행 |
 | 9 | 질문 성격이 도메인이 아닌가 | 관측 | `case25` `case26` `case27` |
@@ -756,7 +756,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | `case3` | 복합 질문을 함 | medium | 관측 · **부가로만** |
 | `case4` | 참조가 모호한 질문 | medium | 관측 · **부가로만** |
 | `case6` | 질문에 개인정보 포함 | high | 코드 · **부가로만** |
-| `case8` | 출력 잘림 | high | 코드 |
+| `case8` | 출력 잘림 | — | 판정 안 함 (`finish_reason` 필요) |
 | `case9` | 서비스 자원 부족 응답 | high | 코드 · LLM 0회 |
 | `case10` | 요구 언어 불이행 | high | 관측 + 코드 |
 | `case11` | 요구 길이 불이행 | medium | 관측만 |
@@ -779,7 +779,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | `unclassified` | 분류 실패 | — | **"문제 없음"이 아니라 수동 검토 대상** |
 | `out_of_taxonomy` | taxonomy 에 없는 유형 | — | 쌓이면 케이스를 추가하라는 신호 |
 
-`taxonomy_v2.txt` 의 29개 중 4개(`case5` `case7` `case19` `case23`)는
+`taxonomy_v2.txt` 의 29개 중 5개(`case5` `case7` `case8` `case19` `case23`)는
 **라우팅이 절대 만들지 않는다.**
 필드가 없어 판정할 수 없는 것들이고, 목록에서 지우지 않은 이유는 "우리 분류에는
 그런 게 없다"가 되지 않게 하기 위해서다.

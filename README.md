@@ -64,7 +64,7 @@ conv_eval ─┐
 filter    ─┴─▶ 파싱 → 턴 고르기 → 짝짓기 (불만 턴 N+1 ↔ 턴 N 의 답변 · 문서)
                  → 서비스 오류 문구?   코드   걸리면 case9 로 끝
                  → Step 1 관측         LLM    문서를 주지 않는다
-                 → 코드 검증기 12종    코드   언어 · 포맷 · 잘림 · 개인정보 · 인용 · 계산 …
+                 → 코드 검증기 11종    코드   언어 · 포맷 · 개인정보 · 인용 · 계산 …
                  → Step 2 충족도       LLM    답변을 주지 않는다   (도메인 + 내용 불만일 때만)
                  → 인용 대조           코드   지어낸 인용을 버린다
                  → Step 3 근거 활용    LLM    질문을 주지 않는다   (문서가 충분할 때만)
@@ -100,7 +100,8 @@ case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답�
 | TYPE6 일반 질문 | 모델 · 도구 연동 | case25 ~ 27 |
 | TYPE7 보안/정책 | 권한 정책 · 입력 방어 | case28 ~ 29 |
 
-- case5 · 7 · 19 · 23 은 로그에 필요한 필드가 없어 나오지 않는다.
+- case5 · 7 · 8 · 19 · 23 은 로그에 필요한 필드가 없어 나오지 않는다. case8(출력 잘림)은
+  텍스트로 짚던 검증기를 뺐다 — 온전한 답변이 기호 · 답변 형식 때문에 잘림으로 너무 자주 읽혔다.
 - 주 case 와 별개로 성립한 것은 `secondary_cases` 에 붙는다 (예: 모호한 질문이면서 검색 실패).
 - 정할 수 없으면 `unclassified`(수동 검토 대상), 맞는 case 가 없으면 `out_of_taxonomy`.
 - 신뢰도 `high` 는 코드로 검증된 것, `medium` 은 인용이 강제된 LLM 판정, `low`(case25) 는
@@ -209,7 +210,7 @@ src/
       short_circuit/                          LLM 전에 case 를 확정하는 규칙들 (service_error …)
       observe/  sufficiency/  grounding/      LLM 판정 — Step 1 · 2 · 3
       complaint_quote/  request_quote/  citation/   판정자가 댄 인용을 원문과 대조
-      pii/  truncated/  language/  format/ …  코드 검증기 11개
+      pii/  language/  format/  arithmetic/ …  코드 검증기 10개
       route/                                  진리표 → case
       classification/  llm_fallback/  filter_fp/  failures/   집계
     conv.py · filters.py · labels.py          로그 파싱 · 짝짓기 · 필터 (여기 전용)
