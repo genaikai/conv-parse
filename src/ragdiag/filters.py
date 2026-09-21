@@ -12,7 +12,7 @@ labels.resolve() 가 글자·붙여쓰기·띄어쓰기를 모두 받아준다.
 **2. 점수는 다시 계산한다.**
 필터가 query_scores 를 들고 있다는 건 점수표를 바꿔 쓰겠다는 뜻이다. 기록된
 llm_eval_score 는 옛 점수표로 계산된 값이라 그대로 쓰면 필터가 의도와 다르게 걸린다.
-llm_alternatives 가 있으면 새 점수표로 재계산하고, 없을 때만 기록값을 쓴다.
+llm_eval_alternatives 가 있으면 새 점수표로 재계산하고, 없을 때만 기록값을 쓴다.
 
 떨어진 건수를 단계별로 남기는 것도 의도적이다. 한 번에 다 걸고 "3건 남았다"만 보면
 어느 조건이 과했는지 알 수 없다.
@@ -164,29 +164,8 @@ def parse_filter(raw: dict) -> FilterSpec:
     )
 
 
-class LabelTableMissing(RuntimeError):
-    """라벨 실값 없이 라벨·점수 조건을 걸었다."""
-
-
 def load_filter(path: str | Path) -> FilterSpec:
-    spec = parse_filter(json.loads(Path(path).read_text(encoding="utf-8")))
-
-    # 자리표시자 테이블로 라벨·점수 조건을 걸면 **에러 없이 0건**이 나온다.
-    # 로그에 적힌 실제 라벨 이름은 자리표시자 "질의유형 K" 와 절대 안 맞기 때문이다.
-    # 30분 뒤 빈 결과를 보고 원인을 찾는 것보다 여기서 죽는 편이 싸다.
-    uses_labels = bool(spec.eval_letters or spec.emotion_letters
-                       or spec.eval_range or spec.emotion_range)
-    if uses_labels and labels.is_placeholder():
-        raise LabelTableMissing(
-            f"{path} 가 라벨·점수 조건을 쓰는데 라벨 실값이 없습니다.\n"
-            "  이 저장소에는 자리표시자만 있습니다 — 실제 라벨 이름과 점수는\n"
-            "  운영 코드값이라 올리지 않습니다.\n"
-            "  설정에 운영 taxonomy 문서를 가리키세요:\n"
-            "    labels:\n"
-            "      query:   configs/query_taxonomy.md\n"
-            "      emotion: configs/emotion_taxonomy.md\n"
-            "  그대로 두면 필터가 에러 없이 0건을 돌려줍니다.")
-    return spec
+    return parse_filter(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 # ---------------------------------------------------------------------------

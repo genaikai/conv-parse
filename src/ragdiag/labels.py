@@ -1,23 +1,20 @@
 """llm_eval / llm_emotion 라벨 테이블.
 
-**여기 있는 이름·점수는 자리표시자다.** 실제 라벨 이름과 점수는 운영 코드값이라
-저장소에 두지 않는다.
-이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
+**표는 저장소의 `configs/query_taxonomy.md` · `configs/emotion_taxonomy.md` 에 있고,
+import 할 때 거기서 읽는다.** 한동안 이름·점수를 빼고 자리표시자만 두었는데, 기밀이
+아니라는 판단이 서서 되돌렸다. 빼 두는 값이 실제로 비쌌다 — 운영 세팅에서 문서
+두 개를 따로 챙겨야 했고, 안 챙기면 필터가 **에러 없이 0건**을 돌려주는 가장
+찾기 어려운 실패가 났다. 그 실패를 막으려고 둔 가드도 같이 사라졌다.
 
-실값은 설정으로 온다:
+코드가 아니라 문서에 두는 이유는 분류 체계가 바뀔 때 고치는 자리가 .md 한 곳이어야
+하기 때문이다. 사본에도 `configs/` 째로 실려 나가므로 실행 환경에서 따로 챙길 것은
+없다. 다른 점수표로 돌려보고 싶으면 설정으로 덮어쓴다 (선택):
 
     labels:
       query:   configs/query_taxonomy.md
       emotion: configs/emotion_taxonomy.md
 
-두 파일은 `.gitignore` 에 있고 실행 환경에서는 `작업 폴더의 configs/` 에 둔다. 형식은 그대로다
-(`A. 이름 -> 점수`) — 실행 환경에 이미 있는 문서를 그대로 쓰라는 뜻이다.
-
-구조(글자 A~R / A~I, 개수)는 남긴다. 파서가 `llm_alternatives` 의 글자를 읽어야
-하고, 그건 값이 아니라 형식이다.
-
-**실값 없이 라벨 조건을 건 필터를 돌리면 조용히 0건이 나온다.** 가장 찾기 어려운
-실패라, `is_placeholder()` 로 그 조합을 계산 전에 막는다.
+형식은 한 줄에 `A. 이름 -> 점수`, `#` 줄로 그룹을 묶는다.
 
 각 라벨에는 점수가 붙어 있고, 이 점수가 **만족도 대리 지표**다. 명시적 부정
 피드백이 0점, 명시적 긍정 피드백이 100점인 척도라 방향이 분명하다. 낮은 점수 =
@@ -29,17 +26,14 @@
     *_score_top1  = argmax 라벨의 점수
 
 필터 파일이 `query_scores`를 들고 있는 이유가 이것이다. 점수표를 바꾸면 기록된
-`llm_eval_score`는 낡은 값이 되므로 `llm_alternatives`에서 다시 계산해야 한다.
-
-테이블을 코드에 두고 .md 파일과 일치하는지는 테스트로 확인한다. 파일을 런타임에
-읽으면 에어갭 배포에 파일을 같이 넣어야 하고, 코드에만 두면 문서와 어긋난다.
+`llm_eval_score`는 낡은 값이 되므로 `llm_eval_alternatives`에서 다시 계산해야 한다.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -68,44 +62,75 @@ def normalize_name(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 자리표시자 테이블
+# taxonomy 문서 파서
+# ---------------------------------------------------------------------------
+
+_LINE = re.compile(r"^([A-Z])\.\s*(.+?)\s*->\s*([\d.]+)", re.M)
+
+
+def parse_markdown_table(text: str) -> dict[str, Label]:
+    """taxonomy .md 를 파싱한다. 이 파서가 읽은 것이 곧 라벨 표다."""
+    table = {}
+    group = ""
+    for line in text.splitlines():
+        if line.startswith("#"):
+            group = line.lstrip("# ").strip()
+            continue
+        match = _LINE.match(line.strip())
+        if match:
+            letter, name, score = match.groups()
+            table[letter] = Label(letter, name.strip(), float(score), group)
+    return table
+
+
+def load_markdown_table(path: str | Path) -> dict[str, Label]:
+    return parse_markdown_table(Path(path).read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# 테이블 — 저장소의 taxonomy 문서에서 읽는다
 #
-# 개수와 글자만 실제와 같다. 이름·점수·그룹은 실행 환경 값이라 여기 두지 않는다.
-# 점수를 균등하게 두는 것도 의도다 - 실값 없이 점수 조건을 걸면 결과가 무의미한데,
-# 그럴듯한 숫자가 박혀 있으면 무의미한 줄을 모른다.
+# 글자(A~R / A~I)는 형식이다 — 파서가 alternatives 의 글자를 읽는다. 이름과 점수는
+# 로그에 적힌 값과 같아야 한다. 다르면 필터가 에러 없이 0건을 돌려준다.
 # ---------------------------------------------------------------------------
 
 QUERY_LETTERS = "ABCDEFGHIJKLMNOPQR"
 EMOTION_LETTERS = "ABCDEFGHI"
 
-_PLACEHOLDER_QUERY = {
-    letter: Label(letter, f"질의유형 {letter}", 50.0, "(자리표시자)")
-    for letter in QUERY_LETTERS
-}
-_PLACEHOLDER_EMOTION = {
-    letter: Label(letter, f"감정 {letter}", 50.0, "(자리표시자)")
-    for letter in EMOTION_LETTERS
-}
+# 저장소 루트의 configs/. 사본에도 그대로 실려 나가므로 실행 위치와 무관하게 여기다.
+_CONFIGS = Path(__file__).resolve().parents[2] / "configs"
 
-QUERY_LABELS: dict[str, Label] = dict(_PLACEHOLDER_QUERY)
-EMOTION_LABELS: dict[str, Label] = dict(_PLACEHOLDER_EMOTION)
+# 문서에 적을 수 없는 것 하나 — 표기 변형. eval 시스템이 문서의 오타를 그대로
+# 뱉은 적이 있는데, 어느 쪽이 실제인지 확인할 방법이 없어 둘 다 받는다.
+_EXTRA_ALIASES = {"D": ("예시 요첟",)}
+
+
+def _load_shipped(name: str, letters: str, aliases: dict = None) -> dict[str, "Label"]:
+    path = _CONFIGS / name
+    if not path.exists():
+        raise RuntimeError(
+            f"라벨 문서가 없습니다: {path}\n"
+            f"  저장소에 함께 다니는 파일입니다. 사본이 깨졌는지 확인하세요.")
+    table = load_markdown_table(path)
+    missing = [x for x in letters if x not in table]
+    if missing:
+        raise RuntimeError(f"{path} 에 라벨이 빠졌습니다: {''.join(missing)}")
+    for letter, extra in (aliases or {}).items():
+        table[letter] = replace(table[letter], aliases=extra)
+    return table
+
+
+QUERY_LABELS: dict[str, Label] = _load_shipped(
+    "query_taxonomy.md", QUERY_LETTERS, _EXTRA_ALIASES)
+EMOTION_LABELS: dict[str, Label] = _load_shipped(
+    "emotion_taxonomy.md", EMOTION_LETTERS)
 
 DEFAULT_QUERY_SCORES = {letter: label.score for letter, label in QUERY_LABELS.items()}
 DEFAULT_EMOTION_SCORES = {letter: label.score for letter, label in EMOTION_LABELS.items()}
 
 
-def is_placeholder() -> bool:
-    """실값이 아직 안 들어왔는가.
-
-    이걸 안 보고 라벨·점수 조건을 걸면 필터가 **에러 없이 0건**을 돌려준다.
-    로그에 적힌 실제 라벨 이름은 자리표시자 "질의유형 K" 와 절대 안 맞기 때문이다.
-    """
-    return (QUERY_LABELS == _PLACEHOLDER_QUERY
-            and EMOTION_LABELS == _PLACEHOLDER_EMOTION)
-
-
 def install(query: Optional[dict] = None, emotion: Optional[dict] = None) -> list[str]:
-    """실값 테이블을 끼운다. 무엇이 들어왔는지 돌려준다.
+    """테이블을 덮어쓴다. 무엇이 들어왔는지 돌려준다.
 
     모듈 전역을 바꾸는 것은 config.apply() 와 같은 방식이다 - 필터·조사기가 이미
     이 전역을 읽고 있어서, 그쪽을 전부 인자로 바꾸는 것보다 얕게 끝난다.
@@ -191,27 +216,3 @@ def expected_score(
     return sum(scores[letter] * p for letter, p in usable) / mass
 
 
-# ---------------------------------------------------------------------------
-# 문서와의 일치 확인 (테스트에서 사용)
-# ---------------------------------------------------------------------------
-
-_LINE = re.compile(r"^([A-Z])\.\s*(.+?)\s*->\s*([\d.]+)", re.M)
-
-
-def parse_markdown_table(text: str) -> dict[str, Label]:
-    """taxonomy .md 를 파싱한다. 코드 테이블이 문서와 어긋나지 않았는지 볼 때 쓴다."""
-    table = {}
-    group = ""
-    for line in text.splitlines():
-        if line.startswith("#"):
-            group = line.lstrip("# ").strip()
-            continue
-        match = _LINE.match(line.strip())
-        if match:
-            letter, name, score = match.groups()
-            table[letter] = Label(letter, name.strip(), float(score), group)
-    return table
-
-
-def load_markdown_table(path: str | Path) -> dict[str, Label]:
-    return parse_markdown_table(Path(path).read_text(encoding="utf-8"))

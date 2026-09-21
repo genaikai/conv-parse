@@ -211,7 +211,7 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
     답변을 판정하게 된다. 그래서 그 부분만은 검증된 이쪽 코드가 한다 - 실행 환경에서
     다시 구현하면 어긋나도 드러나지 않는다.
 
-    라벨 실값도 필요 없다. 무엇을 볼지는 이미 정해져서 왔다.
+    라벨 표도 볼 일이 없다. 무엇을 볼지는 이미 정해져서 왔다.
     """
     from ragdiag.conv import load_conversations
     from ragdiag.filters import Selected, Step, to_cases

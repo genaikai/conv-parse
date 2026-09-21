@@ -55,9 +55,11 @@ dist/
 # claude CLI 판정 백엔드는 여기서 쓰지 않는다. 저장소에 올리지 않는다.
 tools/backend_cli.py
 
-# 라벨 실값 — 운영 코드값이라 저장소에 두지 않는다.
-# 저장소에는 labels.py 의 자리표시자만 있고, 실값은 --config 로 가리킨다.
-query_taxonomy.md
-emotion_taxonomy.md
-configs/query_taxonomy.md
-configs/emotion_taxonomy.md
+# 라벨 표(configs/query_taxonomy.md · configs/emotion_taxonomy.md)는 커밋한다.
+# 기밀이 아니고, 빼 두면 운영 세팅에서 따로 챙겨야 하는데 안 챙기면 필터가
+# 에러 없이 0건을 돌려준다. labels.py 가 import 할 때 이 두 파일을 읽는다.
+#
+# 저장소 루트에 같은 이름으로 굴러다니는 사본은 막는다. 읽는 곳은 configs/ 뿐이라,
+# 루트 것을 고치면 "고쳤는데 안 먹는" 상태가 된다.
+/query_taxonomy.md
+/emotion_taxonomy.md

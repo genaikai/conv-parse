@@ -41,7 +41,6 @@ from ragdiag.backends import (
 )
 from ragdiag import contracts, features, settings
 from ragdiag.config import ConfigError, apply_overrides
-from ragdiag.filters import LabelTableMissing
 from ragdiag.config import apply as apply_config
 from ragdiag.config import load as load_config
 from ragdiag.judge import Judge
@@ -777,13 +776,6 @@ def main(argv=None, backend=None) -> int:
         else:
             selection = load_and_select(conv_data, filter_path,
                                         history_turns=history, limit=limit)
-    except LabelTableMissing as e:
-        # 트레이스백을 그대로 던지면 실행 환경에서 사이클 하나를 먹는다. 화면에
-        # 적힌 것이 전부인 환경이라 무엇을 하라는지가 그대로 보여야 한다.
-        print(f"\n{e}\n", file=sys.stderr)
-        summary.notes.append("라벨 실값이 없어 필터를 걸 수 없다. "
-                             "설정의 labels.query / labels.emotion 을 채울 것.")
-        return finish("FAILED (라벨)", 2)
     except (OSError, ValueError, KeyError) as e:
         summary.notes.append(f"로그를 읽지 못했다: {type(e).__name__}: {e}")
         return finish("FAILED (입력)", 2)

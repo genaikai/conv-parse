@@ -33,8 +33,10 @@ users[]
     turns[]
       turn · timestamp · user_question · llm_response
       retrieved_data                        그 질문으로 검색된 청크
-      llm_eval_result · llm_eval_score · llm_alternatives                  대화 맥락 라벨 A~R
-      llm_emotion_result · llm_emotion_score · llm_emotion_alternatives    감정 라벨 A~I
+      llm_eval_result · llm_eval_score · llm_eval_alternatives              대화 맥락 라벨 A~R
+      llm_emotion_result · llm_emotion_score · llm_emotion_alternatives     감정 라벨 A~I
+      llm_eval_context_summarized · llm_emotion_context_summarized          맥락을 요약해 라벨을
+                                                                            매겼는지 (읽지 않는다)
 ```
 
 `llm_eval_*` · `llm_emotion_*` 는 앞선 LLM 판정이 직전 턴을 보고 매긴 값이라 첫 턴에는 없다.
@@ -178,9 +180,9 @@ python src/run.py --config configs/env.yaml --dry-run
 ```
 
 - 판정 기준(인용 일치율 0.9 · 서비스 오류 확정 문구 · 이전 질문 개수 3)도 설정에서 바꾼다. 플래그가 없는 키는 `--set 키=값` 으로 준다.
-- `llm_eval` · `llm_emotion` 의 **라벨 이름과 점수는 저장소에 없다**(자리표시자만 있다). 필터가
-  라벨 · 점수 조건을 쓰면 `labels.query` · `labels.emotion` 에 taxonomy 문서(`A. 이름 -> 점수`)를
-  가리켜야 한다. 없으면 필터가 에러 없이 0건을 돌려주므로 계산 전에 멈추게 해 두었다.
+- `llm_eval` · `llm_emotion` 의 **라벨 표는 `configs/query_taxonomy.md` · `configs/emotion_taxonomy.md`**
+  에 있고 저장소에 함께 다닌다(형식: `A. 이름 -> 점수`). 분류 체계가 바뀌면 이 문서만 고친다.
+  다른 점수표로 돌려보려면 `labels.query` · `labels.emotion` 으로 덮어쓴다.
 - claude CLI · Anthropic API 로 판정하려면 `tools/dev_run.py` — 인자와 코드 경로가 같다.
 
 ## 대시보드

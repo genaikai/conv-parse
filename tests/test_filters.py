@@ -38,43 +38,35 @@ ROOT = Path(__file__).resolve().parents[1]
 # 라벨 테이블
 # ---------------------------------------------------------------------------
 
-def test_shipped_table_carries_no_real_label_values():
-    """실값은 운영 코드값이라 저장소에 없다.
+def test_shipped_taxonomy_documents_carry_the_table():
+    """표는 configs/ 의 문서 두 개에 있고 저장소에 함께 다닌다.
 
-    이 저장소는 public 이고, 라벨 집합은 그 자체로 실행 환경 분류 체계를 드러낸다.
-    전에는 labels.py 와 query_taxonomy.md 양쪽에 실값이 박혀 있었다.
+    한동안 이름·점수를 빼고 자리표시자만 두었는데, 운영 세팅에서 이 문서 둘을 따로
+    챙겨야 했고 안 챙기면 필터가 에러 없이 0건을 돌려줬다. 기밀이 아니라는 판단이
+    서서 되돌렸다 — 이 테스트는 다시 빠지지 않게 잡아 둔다.
     """
-    import re as _re
+    import subprocess
 
     from ragdiag import labels as mod
 
-    source = (ROOT / "src/ragdiag/labels.py").read_text(encoding="utf-8")
-    for banned in ("질의 킬로", "질의 에코", "감정 인디아", "질의 알파",
-                   "질의 리마"):
-        assert banned not in source, f"실제 라벨 이름이 소스에 있다: {banned}"
+    for name in ("query_taxonomy.md", "emotion_taxonomy.md"):
+        path = ROOT / "configs" / name
+        assert path.exists(), f"라벨 문서가 없다: {path}"
+        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", f"configs/{name}"],
+                                 cwd=ROOT, capture_output=True)
+        assert tracked.returncode == 0, f"{name} 이 추적되지 않는다 — 사본에 실려 가지 않는다"
 
-    assert not (ROOT / "query_taxonomy.md").exists() or \
-        _re.search(r"^query_taxonomy\.md$", (ROOT / ".gitignore").read_text(encoding="utf-8"),
-                   _re.M), "실값 파일이 저장소에 추적되고 있다"
-
-    # 구조는 남는다 - 파서가 alternatives 의 글자를 읽어야 하고 그건 형식이다.
-    assert set(mod.QUERY_LETTERS) == set("ABCDEFGHIJKLMNOPQR")
-    assert set(mod.EMOTION_LETTERS) == set("ABCDEFGHI")
-
-
-def test_placeholder_is_detectable(placeholder_labels):
-    """실값 없이 도는 상태를 코드가 알아야 막을 수 있다."""
-    from ragdiag import labels as mod
-
-    assert mod.is_placeholder()
-    assert len(mod.QUERY_LABELS) == 18 and len(mod.EMOTION_LABELS) == 9
+    # 문서에서 읽은 표. 글자는 형식이고(파서가 alternatives 의 글자를 읽는다),
+    # 이름과 점수는 로그에 적힌 값과 같아야 한다.
+    shipped = mod.load_markdown_table(ROOT / "configs/query_taxonomy.md")
+    assert set(shipped) == set(mod.QUERY_LETTERS) == set("ABCDEFGHIJKLMNOPQR")
+    assert shipped["K"].name == "명확화 요구" and shipped["L"].score == 0
+    assert set(mod.load_markdown_table(ROOT / "configs/emotion_taxonomy.md")) \
+        == set(mod.EMOTION_LETTERS) == set("ABCDEFGHI")
 
 
 def test_installing_a_table_replaces_names_and_scores():
-    """설정으로 실값을 끼우면 이름도 점수도 바뀐다. 별칭 조회까지 따라와야 한다."""
-    from ragdiag import labels as mod
-
-    assert not mod.is_placeholder(), "conftest 가 테스트 테이블을 끼웠어야 한다"
+    """설정으로 다른 표를 끼우면 이름도 점수도 바뀐다. 별칭 조회까지 따라와야 한다."""
     assert DEFAULT_QUERY_SCORES["L"] == 0
     assert DEFAULT_EMOTION_SCORES["A"] == 100.0
     assert resolve("질의 뎔타", QUERY_LABELS).letter == "D", "별칭이 따라오지 않았다"
@@ -223,11 +215,11 @@ def _turn(n, eval_letter=None, emotion_letter=None, ts="2026-03-06 10:00:00.000"
         "user_question": f"질문 {n}", "llm_response": f"답변 {n}",
         "retrieved_data": json.dumps([f"청크 {n}"]),
         "llm_eval_result": None, "llm_emotion_result": None,
-        "llm_alternatives": [], "llm_emotion_alternatives": [],
+        "llm_eval_alternatives": [], "llm_emotion_alternatives": [],
     }
     if eval_letter:
         turn["llm_eval_result"] = QUERY_LABELS[eval_letter].name
-        turn["llm_alternatives"] = [{"label": eval_letter, "probability": 1.0}]
+        turn["llm_eval_alternatives"] = [{"label": eval_letter, "probability": 1.0}]
     if emotion_letter:
         turn["llm_emotion_result"] = EMOTION_LABELS[emotion_letter].name
         turn["llm_emotion_alternatives"] = [{"label": emotion_letter, "probability": 1.0}]
@@ -320,7 +312,7 @@ def test_unknown_labels_are_surfaced_in_the_report():
 
 def test_score_is_recomputed_with_the_filter_table():
     turn_raw = _turn(2, "F", "D")
-    turn_raw["llm_alternatives"] = EVAL_ALTS
+    turn_raw["llm_eval_alternatives"] = EVAL_ALTS
     turn_raw["llm_eval_score"] = 45.57
     convs = _convs([_turn(1), turn_raw])
     spec = FilterSpec(query_scores=dict(DEFAULT_QUERY_SCORES, F=0))
@@ -521,8 +513,8 @@ def test_ambiguous_conversation_id_is_refused(tmp_path):
     assert len(select_turns(path, with_user).cases) == 1
 
 
-def test_turn_list_needs_no_label_values(tmp_path, placeholder_labels):
-    """무엇을 볼지는 이미 정해져서 왔다. 라벨 실값을 요구할 이유가 없다."""
+def test_turn_list_needs_no_label_conditions(tmp_path):
+    """무엇을 볼지는 이미 정해져서 왔다. 라벨을 한 번도 안 보고 골라야 한다."""
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),

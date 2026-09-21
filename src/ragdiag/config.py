@@ -81,7 +81,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 
     "service_error.templates": (list, False),
 
-    # 라벨 실값 파일 경로. 실제 코드값이라 저장소에 두지 않고 설정으로 가리킨다.
+    # 라벨 표를 덮어쓸 문서 경로. 비우면 configs/ 의 taxonomy 문서로 돈다.
     "labels.query": (str, False),
     "labels.emotion": (str, False),
 
@@ -447,9 +447,9 @@ def load(path: Optional[str | Path]) -> Config:
 
 
 def _install_labels(config: "Config") -> list[str]:
-    """라벨 실값 파일을 읽어 테이블에 끼운다.
+    """설정이 가리킨 문서를 읽어 라벨 표를 덮어쓴다. 비어 있으면 아무것도 안 한다.
 
-    경로가 틀렸으면 여기서 죽는다. 조용히 자리표시자로 도는 것이 최악이다 -
+    경로가 틀렸으면 여기서 죽는다. 조용히 딴 표로 도는 것이 최악이다 -
     필터가 에러 없이 0건을 돌려주고, 30분 뒤에 빈 결과를 보게 된다.
     """
     from ragdiag import labels as label_mod

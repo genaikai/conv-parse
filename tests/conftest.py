@@ -1,18 +1,11 @@
 """테스트 전역 준비.
 
-라벨 실값(llm_eval / llm_emotion 의 이름과 점수)은 저장소에 없다 — 운영 코드값이라
-올리지 않는다. 저장소에는 `labels.py` 의 자리표시자만 있다.
+라벨 표는 이제 `labels.py` 에 실값으로 있지만, 테스트는 **자기 테이블을 끼운다.**
+재는 것이 값이 아니라 장치이기 때문이다 — 표기 변형 해석, 기대점수 계산, 필터 적용.
+분류 체계가 바뀌어 이름 하나가 달라졌을 때 깨져야 하는 것은 그 표를 쓰는 코드지
+표기 변형 테스트가 아니다.
 
-그러면 테스트가 두 갈래로 잘못 갈 수 있다.
-
-- 자리표시자에 기대면 "질의유형 K" 같은 이름을 검증하게 되어 **아무것도 안 잰다.**
-  이름이 다 같은 모양이라 표기 변형 해석이 통과해도 통과한 게 아니다.
-- 로컬에 실값 파일이 있는 장비에서만 통과하는 테스트를 두면 더 나쁘다. 깨끗한
-  사본에서 조용히 건너뛰거나 실패한다.
-
-그래서 테스트는 **자기 테이블을 끼운다.** 아래 이름과 점수는 여기서 지어낸 것이고
-실행 환경 값과 무관하다. 재는 것은 값이 아니라 장치다 — 표기 변형 해석, 기대점수 계산,
-필터 적용, 그리고 실값이 없을 때 조용히 0건이 나오지 않게 막는 것.
+아래 이름과 점수는 여기서 지어낸 것이고, 실제 표가 가진 **성질**만 흉내낸다.
 """
 
 import pytest
@@ -78,21 +71,6 @@ def _install_test_labels():
     saved_query = dict(labels.QUERY_LABELS)
     saved_emotion = dict(labels.EMOTION_LABELS)
     labels.install(query=TEST_QUERY, emotion=TEST_EMOTION)
-    try:
-        yield
-    finally:
-        labels.install(query=saved_query, emotion=saved_emotion)
-
-
-@pytest.fixture
-def placeholder_labels():
-    """자리표시자 상태를 되돌린다. 실값이 없을 때의 동작을 재는 테스트가 쓴다."""
-    from ragdiag import labels
-
-    saved_query = dict(labels.QUERY_LABELS)
-    saved_emotion = dict(labels.EMOTION_LABELS)
-    labels.install(query=dict(labels._PLACEHOLDER_QUERY),
-                   emotion=dict(labels._PLACEHOLDER_EMOTION))
     try:
         yield
     finally:

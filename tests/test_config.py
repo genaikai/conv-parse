@@ -331,8 +331,8 @@ def test_env_first_falls_back(monkeypatch):
     assert env_first(KEY_VARS, "EMPTY") == "EMPTY"
 
 
-def test_label_file_from_config_replaces_the_placeholder(tmp_path, placeholder_labels):
-    """운영 taxonomy 문서를 그대로 가리키면 된다. 형식은 `A. 이름 -> 점수`."""
+def test_label_file_from_config_overrides_the_shipped_table(tmp_path):
+    """다른 점수표로 돌려보려면 문서를 가리킨다. 형식은 `A. 이름 -> 점수`."""
     from ragdiag import labels as mod
 
     doc = tmp_path / "q.md"
@@ -344,11 +344,10 @@ def test_label_file_from_config_replaces_the_placeholder(tmp_path, placeholder_l
     assert any("labels.query" in c for c in changed), changed
     assert mod.QUERY_LABELS["A"].name == "어떤 라벨"
     assert mod.DEFAULT_QUERY_SCORES["A"] == 80
-    assert not mod.is_placeholder()
 
 
 def test_missing_label_file_dies_before_computing(tmp_path):
-    """조용히 자리표시자로 도는 것이 최악이다 - 필터가 에러 없이 0건을 돌려준다."""
+    """가리킨 문서가 없으면 여기서 죽는다 - 조용히 딴 표로 도는 것이 최악이다."""
     cfg = tmp_path / "c.yaml"
     cfg.write_text(f"labels:\n  query: {tmp_path}/없는파일.md\n", encoding="utf-8")
     with pytest.raises(ConfigError) as e:
@@ -366,30 +365,22 @@ def test_unparseable_label_file_is_rejected(tmp_path):
     assert "하나도 읽지 못했습니다" in str(e.value)
 
 
-def test_filter_with_labels_refuses_to_run_on_placeholders(tmp_path, placeholder_labels):
-    """가장 위험한 실패는 에러가 아니라 조용한 0건이다."""
-    import json
+def test_filter_with_labels_needs_no_extra_setup(tmp_path):
+    """표가 코드에 있으니 라벨 조건을 건 필터가 아무 준비 없이 돈다.
 
-    from ragdiag.filters import LabelTableMissing, load_filter
-
-    path = tmp_path / "f.json"
-    path.write_text(json.dumps(
-        {"state": {"emotion_labels": ["I. 어떤라벨"], "eval_range": [0, 60]}}),
-        encoding="utf-8")
-    with pytest.raises(LabelTableMissing) as e:
-        load_filter(path)
-    assert "labels:" in str(e.value), "무엇을 채우라는지 적어야 한다"
-
-
-def test_filter_without_labels_runs_on_placeholders(tmp_path, placeholder_labels):
-    """라벨을 안 쓰는 필터는 실값 없이도 돈다. 필요 이상으로 막지 않는다."""
+    전에는 여기서 LabelTableMissing 으로 죽었다 - 실값 파일을 안 챙기면 필터가
+    조용히 0건을 돌려줬기 때문이다. 표를 되돌리면서 그 실패 모드 자체가 없어졌다.
+    """
     import json
 
     from ragdiag.filters import load_filter
 
     path = tmp_path / "f.json"
-    path.write_text(json.dumps({"state": {"turn": "2-"}}), encoding="utf-8")
-    assert load_filter(path).turn_buckets, "턴 조건만 쓰는 필터는 통과해야 한다"
+    path.write_text(json.dumps(
+        {"state": {"emotion_labels": ["I. 감정인디아"], "eval_range": [0, 60]}}),
+        encoding="utf-8")
+    spec = load_filter(path)
+    assert spec.emotion_letters == {"I"} and spec.eval_range == (0, 60)
 
 
 def test_must_fill_keys_are_marked_in_the_example():

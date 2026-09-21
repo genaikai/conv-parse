@@ -684,9 +684,8 @@ LEAD_CHOICES = (0, 0, 1, 2)
 SELECTED_PER_CONV = 1
 
 # 후속 질문의 성격 라벨. 불만이므로 낮은 점수대에 몰린다.
-# 라벨 이름·점수는 운영 코드값이라 여기 적지 않는다.
-# 현재 테이블에서 글자로 끌어온다 - 자리표시자면 자리표시자 이름이, 설정으로
-# 실값을 끼웠으면 실제 이름이 나온다. 합성 데이터가 그때그때 맞아떨어진다.
+# 이름·점수는 적지 않고 현재 테이블에서 글자로 끌어온다 - 표를 갈아끼우면
+# 합성 데이터의 이름도 따라 바뀐다.
 def _pick(letters, table):
     return [(x, table[x].name, table[x].score) for x in letters if x in table]
 
@@ -806,13 +805,15 @@ def _turn(no, question, answer, docs, rng, followup):
         "llm_eval_result": None if label is None else label[1],
         "llm_eval_score": None if label is None else float(label[2]),
         "llm_eval_score_top1": None if label is None else label[2],
-        "llm_alternatives": [] if label is None
+        "llm_eval_alternatives": [] if label is None
                             else [{"label": label[0], "name": label[1], "probability": 0.93},
                                   {"label": "B", "name": "맥락 추가", "probability": 0.07}],
+        "llm_eval_context_summarized": no >= 4,   # 맥락이 길면 요약본으로 라벨을 매긴다
         "llm_emotion_result": None if emotion is None else emotion[1],
         "llm_emotion_score": None if emotion is None else emotion[2],
         "llm_emotion_score_top1": None if emotion is None else emotion[2],
         "llm_emotion_alternatives": [] if emotion is None
                                     else [{"label": emotion[0], "name": emotion[1],
                                            "probability": 0.95}],
+        "llm_emotion_context_summarized": no >= 4,
     }
