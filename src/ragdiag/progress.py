@@ -29,6 +29,7 @@ LABELS = {
     "sufficiency": "충족도",
     "grounding": "근거 활용",
     "legibility": "읽기",
+    "judge": "판정",
 }
 
 # 터미널이 아닐 때 줄을 남기는 간격. 둘 중 하나라도 넘으면 찍는다.

@@ -206,6 +206,32 @@ def make_backend(args, config=None, trace=None):
     ))
 
 
+def _checkpointer(owners, turns, out_path, every_sec: float = 10.0):
+    """끝난 턴만 모아 결과 파일에 쓴다. 마지막 저장은 collect 뒤의 outcome.save 가 한다."""
+    import threading
+    import time
+
+    lock = threading.Lock()
+    last = [0.0]
+
+    def save(_turn):
+        now = time.monotonic()
+        with lock:
+            if now - last[0] < every_sec:
+                return
+            last[0] = now
+            done = [(o, t) for o, t in zip(owners, turns)
+                    if t.classification is not None or t.error is not None]
+            if not done:
+                return
+            try:
+                build_outcome([o for o, _ in done], [t for _, t in done]).save(out_path)
+            except OSError:
+                pass                     # 중간 저장이 실패해도 판정은 계속 간다
+
+    return save
+
+
 def _probe_case():
     """점검용 최소 케이스. 문서에 답이 있는데 답변이 무시한 상황이라 정답은 ignored."""
     from ragdiag.schema import Case
@@ -858,6 +884,9 @@ def main(argv=None, backend=None) -> int:
         backend=backend,
         progress=not args.no_progress,
     )
+    # 턴 단위 실행이면 끝난 턴부터 결과 파일에 쌓는다 (10초에 한 번). 중간에 끊겨도
+    # (Ctrl+C · 서버 다운) 거기까지의 판정은 남는다 - 30분 돌린 것을 통째로 잃지 않는다.
+    ctx.on_turn_done = _checkpointer(selection.owners, ctx.turns, out_path)
     got, said = features.collect(ctx)
     outcome = build_outcome(selection.owners, ctx.turns, selection.report)
 

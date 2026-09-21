@@ -22,6 +22,8 @@ class RunContext:
     workers: int = 1            # LLM 기능이 동시에 처리하는 턴 수
     backend: Any = None         # 쓴 모델. fallbacks 가 붙어 있을 수 있다
     progress: bool = True       # LLM 단계의 진행을 stderr 에 한 줄로 (--no-progress 로 끈다)
+    # 턴 단위 실행(run.mode=turn)에서 턴 하나가 끝날 때마다 불린다. 중간 결과 저장용.
+    on_turn_done: Any = None
 
     def open_turns(self) -> list:
         """case 가 아직 정해지지 않았고 실패하지도 않은 턴. 판정 기능은 이것만 본다."""

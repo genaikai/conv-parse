@@ -120,5 +120,8 @@ LEGIBILITY = True
 # 안 오는 턴은 에러로 닫고 다음 단계로 간다. 0 이면 끈다 (HTTP 타임아웃만 남는다).
 STRAGGLER_FACTOR = 4.0
 STRAGGLER_MIN_SEC = 60
+# 실행 방식. turn: 턴 하나가 판정 전부를 끝까지 간다 (느린 턴이 남을 안 막고, 끝난 턴부터
+# 저장된다). stage: 기능 하나씩 턴 전부를 돈다 (예전 방식).
+RUN_MODE = "turn"
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT_SEC = 600

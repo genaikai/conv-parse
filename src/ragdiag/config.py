@@ -76,6 +76,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "run.legibility": (bool, False),
     "run.straggler_factor": ((int, float), False),
     "run.straggler_min_sec": (int, False),
+    "run.mode": (str, False),
 
     "thresholds.match_threshold": ((int, float), False),
     "thresholds.quote_match_threshold": ((int, float), False),
@@ -105,6 +106,7 @@ RETIRED = {
 
 CHOICES = {
     "llm.backend": ("local", "cli", "api"),
+    "run.mode": ("turn", "stage"),
     "llm.json_mode": ("auto", "json_schema", "guided_json", "json_object", "none"),
     "llm.thinking": ("auto", "on", "off"),
 }
@@ -117,6 +119,7 @@ TO_SETTINGS = {
     "run.legibility": "LEGIBILITY",
     "run.straggler_factor": "STRAGGLER_FACTOR",
     "run.straggler_min_sec": "STRAGGLER_MIN_SEC",
+    "run.mode": "RUN_MODE",
     "llm.max_tokens": "DEFAULT_MAX_TOKENS",
     "llm.timeout_sec": "DEFAULT_TIMEOUT_SEC",
     "thresholds.match_threshold": "MATCH_THRESHOLD",
