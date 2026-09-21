@@ -116,5 +116,9 @@ DEFAULT_WORKERS = 4
 # ④′ 읽기 - 답변만 보고 "읽을 수 있는 글인가" 를 LLM 에 묻는다 (턴당 +1 호출). 코드 규칙이
 # 못 잡는 붕괴(토큰 잡탕 · 중간부터 깨짐 · 프롬프트 유출)를 잡는다. 호출을 아끼려면 끈다.
 LEGIBILITY = True
+# 낙오자 기준. 한 단계에서 절반이 끝난 뒤, 중앙값의 이 배수(와 최소 초 중 큰 쪽)를 넘겨도
+# 안 오는 턴은 에러로 닫고 다음 단계로 간다. 0 이면 끈다 (HTTP 타임아웃만 남는다).
+STRAGGLER_FACTOR = 4.0
+STRAGGLER_MIN_SEC = 60
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT_SEC = 600

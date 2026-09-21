@@ -28,6 +28,7 @@ LABELS = {
     "observe": "관측",
     "sufficiency": "충족도",
     "grounding": "근거 활용",
+    "legibility": "읽기",
 }
 
 # 터미널이 아닐 때 줄을 남기는 간격. 둘 중 하나라도 넘으면 찍는다.
@@ -52,6 +53,7 @@ class Progress:
         self.enabled = enabled and total > 0
         self.n = 0
         self.failed = 0
+        self.abandoned = 0
         self.started = time.monotonic()
         self._lock = threading.Lock()
         self._last_at = 0.0
@@ -62,8 +64,20 @@ class Progress:
         if not self.enabled:
             return
         with self._lock:
+            if self.n >= self.total:
+                return                        # 낙오로 닫은 턴의 늦은 응답 - 이미 셌다
             self.n += 1
             self.failed += not ok
+            if self._should_draw():
+                self._draw(end="\r" if self._tty else "\n")
+
+    def abandon(self) -> None:
+        """낙오로 닫은 턴. 완료로 세되 실패와 따로 보인다 - 서버 문제인지 판정 문제인지가 갈린다."""
+        if not self.enabled:
+            return
+        with self._lock:
+            self.n += 1
+            self.abandoned += 1
             if self._should_draw():
                 self._draw(end="\r" if self._tty else "\n")
 
@@ -94,8 +108,10 @@ class Progress:
                  f"경과 {_clock(elapsed)}"]
         if self.n and self.n < self.total:
             parts.append(f"남음 ~{_clock(elapsed / self.n * (self.total - self.n))}")
-        if self.failed:
-            parts.append(f"(실패 {self.failed:,})")
+        if self.failed or self.abandoned:
+            bits = ([f"실패 {self.failed:,}"] if self.failed else []) + \
+                   ([f"포기 {self.abandoned:,}"] if self.abandoned else [])
+            parts.append("(" + " · ".join(bits) + ")")
         line = "  ".join(parts)
         # 터미널에서 줄이 짧아질 때 앞 줄의 꼬리가 남는다. 지우고 쓴다.
         self.stream.write(("\x1b[2K" if self._tty else "") + line + end)

@@ -139,6 +139,7 @@ case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답�
 | `evidence` | 판정 근거 — 관측, 충족도와 인용(버려진 것 포함), 근거 활용, 코드 검증 결과 |
 | `answered_turn` | 비판받은 답변의 턴 번호. 짝짓기를 사후에 확인한다 |
 | `classification.error` | 판정이 실패한 턴은 이것만 남는다 — `[단계] 예외` |
+| `classification.error` 가 `[단계] 낙오 …` | 그 단계에서 절반이 끝난 뒤 중앙값의 4배(최소 60초)를 넘겨도 응답이 없어 포기한 턴. 재실행하면 이 턴만 다시 묻는다 (`run.straggler_factor` · `run.straggler_min_sec`) |
 
 `output/<끝난시각>_<로그>_<필터>_summary.txt` — 실행 조건, 입력 형식 대조, 지표. 화면 끝에도 같은 것이 찍힌다.
 
@@ -171,7 +172,7 @@ export LLM_API_KEY=<키>
 | `--turns <목록>` | 필터 대신 고른 턴 목록 |
 | `--limit N` · `--workers N` | 앞에서 N건만 · 동시 판정 턴 수 |
 | `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
-| `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄) |
+| `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄 — `(실패 N · 포기 M)` 까지) |
 | `--golden` · `--legacy-regression` | 판정 품질 채점 · 회귀 기준선 23건 |
 | `--output-dir` · `--out` | 결과 위치 (기본 `./output`) |
 

@@ -74,6 +74,8 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "run.limit": (int, False),
     "run.history_turns": (int, False),
     "run.legibility": (bool, False),
+    "run.straggler_factor": ((int, float), False),
+    "run.straggler_min_sec": (int, False),
 
     "thresholds.match_threshold": ((int, float), False),
     "thresholds.quote_match_threshold": ((int, float), False),
@@ -113,6 +115,8 @@ TO_SETTINGS = {
     "run.workers": "DEFAULT_WORKERS",
     "run.history_turns": "MAX_HISTORY_TURNS",
     "run.legibility": "LEGIBILITY",
+    "run.straggler_factor": "STRAGGLER_FACTOR",
+    "run.straggler_min_sec": "STRAGGLER_MIN_SEC",
     "llm.max_tokens": "DEFAULT_MAX_TOKENS",
     "llm.timeout_sec": "DEFAULT_TIMEOUT_SEC",
     "thresholds.match_threshold": "MATCH_THRESHOLD",
