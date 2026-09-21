@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -91,11 +92,30 @@ def strip_reasoning(text: str) -> str:
 def extract_json(text: str) -> str:
     """모델 응답에서 JSON 객체를 뽑아낸다.
 
-    추론 블록을 먼저 걷어낸 뒤, 첫 '{'부터 짝이 맞는 '}'까지를 잘라낸다.
-    문자열 리터럴 안의 중괄호는 세지 않는다. 단순히 rfind('}')를 쓰면 뒤에 붙은
-    산문 때문에 깨지고, 추론 블록을 안 걷으면 그 안의 중괄호를 집는다.
+    추론 블록을 걷어낸 뒤 첫 '{'부터 짝이 맞는 '}'까지를 잘라낸다. 문자열 리터럴 안의
+    중괄호는 세지 않는다. 단순히 rfind('}')를 쓰면 뒤에 붙은 산문 때문에 깨지고, 추론
+    블록을 안 걷으면 그 안의 중괄호를 집는다.
+
+    **닫는 태그가 JSON 문자열 안에 있을 수 있다.** 읽기 판정(④′)이 <think> 가 새어 나온
+    답변을 인용하면 JSON 안에 </think> 가 들어오고, 마지막 태그 뒤를 취하면 JSON 의 앞부분이
+    잘려 나간다 - 실제로 그렇게 3회 연속 실패했다. 그래서 뒤쪽 태그부터 차례로 잘라 보고,
+    잘라낸 나머지가 JSON 으로 읽히는 첫 후보를 쓴다. 추론 블록은 JSON 앞에 오므로 맞는
+    자리에서 처음 성공한다.
     """
-    text = strip_reasoning(text)
+    cuts = sorted({m.end() for tag in _REASON_CLOSE for m in re.finditer(re.escape(tag), text)},
+                  reverse=True) + [0]
+    error: Optional[ValueError] = None
+    for cut in cuts:
+        try:
+            found = _balanced_object(text[cut:].strip())
+            json.loads(found)
+            return found
+        except ValueError as e:              # json.JSONDecodeError 도 ValueError 다
+            error = error or e
+    raise error or ValueError(f"JSON 객체를 찾을 수 없음: {text[:200]!r}")
+
+
+def _balanced_object(text: str) -> str:
     start = text.find("{")
     if start < 0:
         raise ValueError(f"JSON 객체를 찾을 수 없음: {text[:200]!r}")

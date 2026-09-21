@@ -898,3 +898,164 @@ def _build_grounding_wide() -> list[dict]:
 
 GROUNDING_WIDE = _build_grounding_wide()
 GROUNDING += GROUNDING_WIDE
+
+
+# ---------------------------------------------------------------------------
+# ④′ 읽기 골든셋 — 답변만 보고 "사람이 읽을 수 있는 글인가"
+#
+# 재는 것은 오탐이다. 모양이 특이하지만 멀쩡한 답변(표 · 코드 · JSON · 영문 · 한 줄 ·
+# 이모지 · 거절 · 약어)을 읽을 수 없다고 하면 그 턴의 진짜 원인이 아무 단계에서도
+# 판정받지 못한다. 그래서 정상 쪽을 붕괴 쪽의 두 배로 둔다.
+#
+# 붕괴 쪽은 코드 규칙(degenerate)이 못 잡는 모양만 담는다 - 5555… 는 여기 없다.
+# ---------------------------------------------------------------------------
+
+def _repeat_drift(base: str, n: int) -> str:
+    tails = ["입니다.", "이며 확인 바랍니다.", "이고요.", "입니다만,", "이라고 합니다.", "입니다!"]
+    return " ".join(base + tails[i % len(tails)] for i in range(n))
+
+
+LEGIBILITY = [
+    # ---------- 읽을 수 없다 (expect False) ----------
+    dict(id="bad01", cat="토큰 잡탕", legible=False,
+         answer="연차는 입사일 기준 15일이며 ㅁㄴㅇㄹ 申請 the the the 승인을 받으면 ᄀᄁᄂ 처리됩니다 vector_"),
+    dict(id="bad02", cat="토큰 잡탕", legible=False,
+         answer="出張費 정산은 5영업일 within ERP 에서 にて 처리하고 증빙은 recei 영수증 附 the of of"),
+    dict(id="bad03", cat="토큰 잡탕", legible=False,
+         answer="재직증명서 발급 groupware > 증명 발급 menu에서 即時 печать 가능합니다 hhhh 담당 tel"),
+    dict(id="bad04", cat="토큰 잡탕", legible=False,
+         answer="VPN 접속은 MFA 인증 후 가능 ㅇㅇㅇㅇㅇ authentication token 을 을 을 를 입력 입력 입력하시면"),
+    dict(id="bad05", cat="토큰 잡탕", legible=False,
+         answer="법인카드 한도 상향 은 팀장 승인 이후 finance 팀 檢討 를 거쳐 dsfkj 반영 됩니다 되 됩니 다다"),
+    dict(id="bad06", cat="중간부터 깨짐", legible=False,
+         answer="국내 출장 식비는 1일 3만원을 상한으로 합니다. 숙박비는 1박 8만원까지 정산됩니다. "
+                "정산은 출장 종료 후 5영업일 이내에 ERP에서 하시면 됩니다. asdkjh qwpoie zxmcnv 3만 3만 3만 "
+                "출장출장출장 the the ERP ERP ERP 이내이내이내에에에"),
+    dict(id="bad07", cat="중간부터 깨짐", legible=False,
+         answer="연차 이월은 인사규정 제12조에 따라 다음 해 3월 말까지 사용할 수 있습니다. 다만 "
+                "ふうふうふう 이월된 연차는 は は は 수당으로 ¥¥¥ 전환되지 않 않 않으며 ###### %%%%"),
+    dict(id="bad08", cat="중간부터 깨짐", legible=False,
+         answer="재택근무는 주 2회까지 신청하실 수 있습니다. 신청은 근무 희망일 전일까지 그룹웨어에 등록하시면 되고, "
+                "코어타임 10시~16시에는 연락이 가능해야 합니다. ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ ㄱㄴㄷㄹㅁㅂㅅ 근무근무근무근무 "
+                "time time time 등록등록등록 되 되 되 되"),
+    dict(id="bad09", cat="중간부터 깨짐", legible=False,
+         answer="출입증 분실 시에는 총무팀에 신고하고 재발급을 신청하시면 됩니다. 재발급 수수료는 1만원이며 급여에서 공제됩니다. "
+                "수수료수수료 1만1만1만 공제공제 총무 총무 총무 총무 총무 총무 총무 총무 총무 총무 총무 총무 총무 총무"),
+    dict(id="bad10", cat="문단 되풀이", legible=False,
+         answer=_repeat_drift("연차는 입사일 기준으로 매년 15일이 부여되며 팀장의 승인을 받아 사용", 6)),
+    dict(id="bad11", cat="문단 되풀이", legible=False,
+         answer=_repeat_drift("법인카드 사용 내역은 매월 말일 기준으로 자동 집계", 7)),
+    dict(id="bad12", cat="문단 되풀이", legible=False,
+         answer="출장비 정산 절차를 안내드리겠습니다.\n\n1. 출장 종료 후 5영업일 이내에 정산합니다.\n"
+                "1. 출장 종료 후 5영업일 이내에 정산합니다.\n1. 출장 종료 후 5영업일 안에 정산합니다.\n"
+                "1. 출장 종료 후 5영업일 이내에 정산하십시오.\n1. 출장 종료 후 5영업일 이내 정산합니다.\n"
+                "1. 출장 종료 후 5영업일 이내에 정산합니다.\n1. 출장 종료 후 5영업일 이내에 정산을 합니다."),
+    dict(id="bad13", cat="프롬프트 유출", legible=False,
+         answer="You are a helpful assistant for internal company policy. Answer in Korean using only the provided context. "
+                "[SYSTEM] context_window=4096 temperature=0.2 \n<|im_start|>assistant\n연차는"),
+    dict(id="bad14", cat="프롬프트 유출", legible=False,
+         answer="### 지시사항\n다음 문서를 바탕으로 사용자 질문에 답하세요. 문서에 없는 내용은 답하지 마세요.\n"
+                "### 문서\n{{retrieved_chunks}}\n### 질문\n{{user_query}}\n### 답변\n"),
+    dict(id="bad15", cat="프롬프트 유출", legible=False,
+         answer="<think>사용자가 연차 이월을 묻고 있다. 문서 청크 2에 관련 내용이... 아니 청크 1인가. 다시 보자.</think>"
+                "<think>청크 1: 연차유급휴가 신청. 청크 2: 승인. 이월 언급 없음.</think><think>그러면"),
+    dict(id="bad16", cat="내부 오류 노출", legible=False,
+         answer='{"error": {"code": 502, "message": "upstream connect error or disconnect/reset before headers. '
+                'reset reason: connection failure", "trace_id": "8f3a1c"}}'),
+    dict(id="bad17", cat="내부 오류 노출", legible=False,
+         answer="Traceback (most recent call last):\n  File \"/app/rag/pipeline.py\", line 212, in generate\n"
+                "    ctx = retriever.search(q, k=5)\n  File \"/app/rag/retriever.py\", line 88, in search\n"
+                "KeyError: 'embedding'"),
+    dict(id="bad18", cat="무의미한 문장", legible=False,
+         answer="연차의 승인은 승인의 연차이며 신청은 신청을 신청합니다. 팀장은 팀장이 팀장에게 팀장을 승인하고, "
+                "그룹웨어의 그룹웨어가 그룹웨어를 합니다. 따라서 결론적으로 연차는 연차입니다."),
+    dict(id="bad19", cat="무의미한 문장", legible=False,
+         answer="출장비는 정산되는 출장의 비용으로서 정산의 정산을 위해 정산되며, 영수증은 영수증이 영수증을 첨부하는 "
+                "영수증입니다. ERP는 ERP에서 ERP로 ERP를 ERP합니다."),
+    dict(id="bad20", cat="무의미한 문장", legible=False,
+         answer="네 알겠습니다 확인했습니다 네 알겠습니다 그렇습니다 확인 부탁드립니다 네 네 확인했습니다 알겠습니다 "
+                "감사합니다 확인했습니다 네 그렇습니다 확인 확인했습니다 알겠습니다 네"),
+
+    # ---------- 읽을 수 있다 (expect True) — 모양이 특이한 정상 답변 ----------
+    dict(id="ok01", cat="표", legible=True,
+         answer="항목별 상한은 다음과 같습니다.\n\n| 항목 | 상한 |\n|---|---|\n| 식비 | 1일 3만원 |\n| 숙박비 | 1박 8만원 |"),
+    dict(id="ok02", cat="표", legible=True,
+         answer="| 구분 | 신청처 | 소요 |\n|---|---|---|\n| 재직증명서 | 그룹웨어 | 즉시 |\n| 경력증명서 | 인사팀 | 2영업일 |"),
+    dict(id="ok03", cat="표", legible=True,
+         answer="| 직급 | 연차 |\n|:--|--:|\n| 사원 | 15 |\n| 대리 | 16 |\n| 과장 | 18 |\n\n※ 입사 1년 미만은 월 1일씩 발생합니다."),
+    dict(id="ok04", cat="표", legible=True,
+         answer="지역별 숙박비 상한(1박)입니다.\n\n지역 | 상한\n--- | ---\n미주 | 250달러\n유럽 | 220달러\n아시아 | 150달러"),
+    dict(id="ok05", cat="표", legible=True,
+         answer="| | 1분기 | 2분기 |\n|---|---|---|\n| 예산 | 1,200 | 1,350 |\n| 집행 | 980 | 1,410 |\n\n단위: 만원"),
+    dict(id="ok06", cat="코드", legible=True,
+         answer="다음 쿼리를 쓰시면 됩니다.\n\n```sql\nSELECT emp_no, amount\nFROM trip_expense\nWHERE settled_at >= DATE_TRUNC('month', CURRENT_DATE)\nORDER BY amount DESC;\n```"),
+    dict(id="ok07", cat="코드", legible=True,
+         answer="```python\nimport os\n\nfor name in sorted(os.listdir('.')):\n    if name.endswith('.csv'):\n        print(name)\n```\n\n현재 폴더의 CSV 파일만 출력합니다."),
+    dict(id="ok08", cat="코드", legible=True,
+         answer="Excel 에서는 `=VLOOKUP(A2, 규정!A:B, 2, FALSE)` 를 쓰시면 됩니다. 마지막 인자 FALSE 가 정확히 일치입니다."),
+    dict(id="ok09", cat="코드", legible=True,
+         answer="```bash\ngit fetch --tags\ngit checkout v1.4.2\npip install -r requirements.txt\n```"),
+    dict(id="ok10", cat="코드", legible=True,
+         answer="정규식은 `^\\d{6}-\\d{7}$` 입니다. 앞 6자리와 뒤 7자리 사이에 하이픈이 하나 옵니다."),
+    dict(id="ok11", cat="JSON", legible=True,
+         answer='요청하신 형식입니다.\n\n```json\n{"item": "식비", "limit_per_day": 30000, "currency": "KRW"}\n```'),
+    dict(id="ok12", cat="JSON", legible=True,
+         answer='[{"name": "재직증명서", "code": "HR-07"}, {"name": "경력증명서", "code": "HR-08"}]'),
+    dict(id="ok13", cat="JSON", legible=True,
+         answer='{\n  "vpn_required": true,\n  "mfa_methods": ["app_otp", "sms"],\n  "helpdesk": "내선 1234"\n}'),
+    dict(id="ok14", cat="영문", legible=True,
+         answer="Annual leave is granted at 15 days per year based on your hire date. Submit the HR-01 form on the groupware and get your team lead's approval."),
+    dict(id="ok15", cat="영문", legible=True,
+         answer="Domestic travel meal allowance is capped at KRW 30,000 per day; lodging at KRW 80,000 per night."),
+    dict(id="ok16", cat="영문", legible=True,
+         answer="Sorry, I couldn't find that in the policy documents. Please contact the HR team (ext. 1234)."),
+    dict(id="ok17", cat="영문", legible=True,
+         answer="Yes — remote work is allowed up to twice a week. Register the day before on the groupware; core hours are 10:00–16:00."),
+    dict(id="ok18", cat="한 줄", legible=True, answer="네."),
+    dict(id="ok19", cat="한 줄", legible=True, answer="모르겠습니다."),
+    dict(id="ok20", cat="한 줄", legible=True, answer="인사팀(내선 1234)에 문의해 주세요."),
+    dict(id="ok21", cat="한 줄", legible=True, answer="1일 3만원입니다."),
+    dict(id="ok22", cat="한 줄", legible=True, answer="해당 내용은 문서에서 확인되지 않습니다."),
+    dict(id="ok23", cat="이모지", legible=True, answer="확인해 보세요! 👍 그룹웨어 > 증명서 발급 메뉴입니다 😊"),
+    dict(id="ok24", cat="이모지", legible=True, answer="✅ 신청 완료\n⏳ 팀장 승인 대기\n📩 승인되면 알림이 갑니다"),
+    dict(id="ok25", cat="이모지", legible=True, answer="주의하세요 ⚠️ 출장 신청은 출발 7일 전까지입니다."),
+    dict(id="ok26", cat="번호 목록", legible=True,
+         answer="1. 그룹웨어에 접속합니다.\n2. 증명서 발급 메뉴로 갑니다.\n3. 재직증명서(HR-07)를 선택합니다.\n4. 출력 버튼을 누릅니다."),
+    dict(id="ok27", cat="번호 목록", legible=True,
+         answer="- 식비: 1일 3만원\n- 숙박비: 1박 8만원\n- 정산 기한: 종료 후 5영업일"),
+    dict(id="ok28", cat="번호 목록", legible=True,
+         answer="① 팀장 승인 → ② 구매팀 검토(500만원 이상) → ③ 발주 → ④ 입고(통상 10영업일)"),
+    dict(id="ok29", cat="번호 목록", legible=True,
+         answer="• VPN 클라이언트 설치\n• 사내 인증서로 로그인\n• 인증서는 1년마다 갱신 (만료 30일 전부터 가능)"),
+    dict(id="ok30", cat="긴 정상", legible=True,
+         answer="해외 출장비 정산과 관련하여 안내드리겠습니다. 먼저 해외 출장을 다녀오신 경우에는 출장이 종료된 날로부터 "
+                "5영업일 이내에 정산서를 제출해 주셔야 합니다. 정산서에는 출장 기간과 방문지, 그리고 지출하신 항목을 "
+                "구분하여 기재해 주시면 됩니다.\n\n숙박비의 경우에는 실비 정산을 원칙으로 하고 있으므로, 숙박하신 "
+                "호텔에서 발급받은 영수증을 반드시 첨부해 주셔야 합니다. 영수증이 누락되면 정산이 지연될 수 있으니 "
+                "출장 중에 미리 챙겨두시는 것을 권해 드립니다."),
+    dict(id="ok31", cat="긴 정상", legible=True,
+         answer="연차유급휴가 제도에 대해 안내드리겠습니다. 연차는 그룹웨어를 통해 사전에 신청하시는 것이 원칙이며, "
+                "신청하신 내용은 팀장님의 승인을 거쳐 확정됩니다. 승인이 완료되면 알림이 발송되므로 확인하실 수 있습니다. "
+                "연차는 하루 단위뿐 아니라 반차 단위로도 사용하실 수 있어서, 반나절만 필요하신 경우에도 유연하게 쓰실 수 "
+                "있습니다. 다만 팀 업무 일정과 겹치지 않도록 사전에 팀 내 공유를 해주시는 것이 좋습니다."),
+    dict(id="ok32", cat="긴 정상", legible=True,
+         answer="사내 자료의 외부 반출은 보안심의를 거쳐야 합니다. 절차는 다음과 같습니다. 먼저 반출 사유서와 반출 대상 자료 "
+                "목록을 준비하시고, 정보보안팀에 심의를 신청합니다. 심의는 통상 3영업일이 걸리며, 승인되면 승인번호가 "
+                "발급됩니다. USB 등 이동식 저장매체를 쓰시는 경우에는 별도로 사전 승인이 필요하니 참고해 주세요."),
+    dict(id="ok33", cat="거절", legible=True,
+         answer="죄송하지만 개인별 급여 정보는 보안 정책상 이 채널에서 안내해 드릴 수 없습니다. 급여 담당자에게 직접 문의해 주세요."),
+    dict(id="ok34", cat="거절", legible=True,
+         answer="해당 요청은 권한이 필요한 정보라 답변드리기 어렵습니다. 부서장 승인 후 인사팀에 요청해 주시기 바랍니다."),
+    dict(id="ok35", cat="거절", legible=True,
+         answer="문서에서 관련 내용을 찾지 못했습니다. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아보겠습니다."),
+    dict(id="ok36", cat="약어·용어", legible=True,
+         answer="사외에서 사내망 접속은 VPN + MFA 입니다. MFA 는 사내 앱 OTP 또는 SMS 로 하시면 되고, 계정 잠김은 IT헬프데스크(내선 1234)에서 해제합니다."),
+    dict(id="ok37", cat="약어·용어", legible=True,
+         answer="ERP 의 GL 전표는 AP 모듈에서 PO 와 GR 을 매칭한 뒤 승인 워크플로(WF)로 넘어갑니다. SoD 위반 시 반려됩니다."),
+    dict(id="ok38", cat="약어·용어", legible=True,
+         answer="K8s 파드가 CrashLoopBackOff 면 kubectl logs -p 로 이전 컨테이너 로그를 먼저 보세요. OOMKilled 면 limits.memory 를 올립니다."),
+    dict(id="ok39", cat="숫자 위주", legible=True,
+         answer="식비 30,000원/일 · 숙박 80,000원/박 · 정산 D+5 영업일 · 초과분 본인 부담"),
+    dict(id="ok40", cat="숫자 위주", legible=True,
+         answer="2026-03-01 ~ 2026-03-03 (2박 3일), 서울→부산 KTX 59,800원 ×2, 숙박 80,000원 ×2 = 279,600원"),
+]

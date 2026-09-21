@@ -100,3 +100,21 @@ def test_strip_reasoning_uses_the_last_tag_not_the_first():
 
     # 반복되거나 중첩된 블록에서도 마지막 뒤를 취해야 한다.
     assert strip_reasoning("<think>a</think>중간<think>b</think>진짜답") == "진짜답"
+
+
+def test_a_closing_think_tag_inside_a_json_string_does_not_cut_the_json():
+    """읽기 판정이 <think> 가 새어 나온 답변을 인용하면 JSON 안에 </think> 가 들어온다.
+
+    마지막 태그 뒤를 취하던 시절에는 JSON 의 앞부분이 잘려 나가 3회 연속 형식 실패였다.
+    추론 블록은 JSON 앞에 오므로, 뒤 태그부터 잘라 보다가 JSON 으로 읽히는 첫 후보를 쓴다.
+    """
+    import json
+
+    raw = ('<think>먼저 답변을 본다</think>\n'
+           '{"reasoning": "내부 사고가 새어 나옴", '
+           '"quote": "<think>사용자가 연차 이월을 묻고 있다</think><think>그러면", "legible": false}')
+    assert json.loads(extract_json(raw))["legible"] is False
+
+    # 추론 블록 안의 중괄호는 여전히 집지 않는다
+    raw = '<think>{"x": 1} 를 고려하면</think>\n{"legible": true}'
+    assert extract_json(raw) == '{"legible": true}'

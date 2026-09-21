@@ -208,3 +208,15 @@ if __name__ == "__main__":
     for cid, n in coverage().items():
         meta = taxonomy.get(cid)
         print(f"{cid:<8}{meta.name:<24}{n:>3}" + ("" if meta.diagnosable else "   (판정 불가)"))
+
+
+def test_legibility_golden_set_is_well_formed():
+    """붕괴 쪽은 코드 규칙이 못 잡는 모양만 담는다 - 규칙이 잡는 것은 여기 있을 자리가 아니다."""
+    from ragdiag.features.short_circuit.degenerate import check_degenerate
+
+    ids = [c["id"] for c in judgments.LEGIBILITY]
+    assert len(ids) == len(set(ids))
+    assert sum(not c["legible"] for c in judgments.LEGIBILITY) == 20
+    assert sum(c["legible"] for c in judgments.LEGIBILITY) == 40, "정상을 붕괴의 두 배로 둔다 - 재는 것이 오탐이다"
+    caught = [c["id"] for c in judgments.LEGIBILITY if check_degenerate(c["answer"]).violated]
+    assert not caught, f"코드 규칙이 먼저 잡는다: {caught}"
