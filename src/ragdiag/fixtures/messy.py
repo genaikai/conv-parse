@@ -487,7 +487,9 @@ CASES = [
     ),
     dict(
         id="pii02", note="이메일 주소 — 불만 아님이라 미분류로 가야 한다",
-        pre_queries=["hong.gd@company.co.kr 로 증명서 보내줄 수 있나요"],
+        # 도메인은 RFC 2606 의 예약 도메인을 쓴다. 실재할 수 있는 주소는 합성 표본에
+        # 두지 않는다 — 코드 검증(pii)은 도메인을 보지 않으므로 뜻은 같다.
+        pre_queries=["hong.gd@example.com 로 증명서 보내줄 수 있나요"],
         answer="증명서는 그룹웨어 > 증명서 발급에서 직접 출력하시면 됩니다. 메일 발송은 지원하지 않습니다.",
         complaint="넵 알겠어요",
         chunks=CERT,
