@@ -21,6 +21,7 @@ class RunContext:
     judge: Any = None           # LLM 호출 + 캐시. LLM 을 안 부르는 실행이면 None
     workers: int = 1            # LLM 기능이 동시에 처리하는 턴 수
     backend: Any = None         # 쓴 모델. fallbacks 가 붙어 있을 수 있다
+    progress: bool = True       # LLM 단계의 진행을 stderr 에 한 줄로 (--no-progress 로 끈다)
 
     def open_turns(self) -> list:
         """case 가 아직 정해지지 않았고 실패하지도 않은 턴. 판정 기능은 이것만 본다."""

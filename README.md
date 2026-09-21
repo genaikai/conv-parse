@@ -168,6 +168,7 @@ export LLM_API_KEY=<키>
 | `--turns <목록>` | 필터 대신 고른 턴 목록 |
 | `--limit N` · `--workers N` | 앞에서 N건만 · 동시 판정 턴 수 |
 | `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
+| `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄) |
 | `--golden` · `--legacy-regression` | 판정 품질 채점 · 회귀 기준선 23건 |
 | `--output-dir` · `--out` | 결과 위치 (기본 `./output`) |
 
@@ -214,7 +215,7 @@ src/
     conv.py · filters.py · labels.py          로그 파싱 · 짝짓기 · 필터 (여기 전용)
     judge.py · backends.py · prompts.py       LLM 호출 · 캐시 · 프롬프트
     results.py · verify.py · taxonomy.py      턴 판정 결과 · 인용 대조 · case 메타데이터
-    output.py · pipeline.py                   출력 JSON · 단계별 함수
+    output.py · pipeline.py · progress.py     출력 JSON · 단계별 함수 · 진행 표시
     __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
     fixtures/         합성 데이터 · 골든셋 · 회귀셋 (코드로 생성)
     load.py · decide.py · report.py   구 파이프라인 전용 — 새 코드에서 쓰지 않는다
@@ -244,6 +245,7 @@ python log_analysis/src/run.py --dry-run
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
 ragdiag/backends.py   ragdiag/judge.py    ragdiag/decide.py     ragdiag/verify.py
 ragdiag/output.py
-ragdiag/pipeline.py   ragdiag/results.py  ragdiag/features/   (폴더 통째)
+ragdiag/pipeline.py   ragdiag/results.py  ragdiag/progress.py
+ragdiag/features/   (폴더 통째)
 ```
 <!-- /copy-list -->

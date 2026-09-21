@@ -33,6 +33,7 @@ CORE = [
     "ragdiag.verify",       # 인용 대조
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
+    "ragdiag.progress",     # 진행 표시 (표준 라이브러리만)
     "ragdiag.features",     # 기능 등록부 — 판정 순서와 집계 (폴더 통째)
 ]
 

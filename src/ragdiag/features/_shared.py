@@ -7,6 +7,8 @@
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
+from ragdiag.progress import Progress
+
 
 def top_cases(turns, limit: int = 5):
     """상위 case 몇 개. 지표 이름은 사이클 사이에 바뀌지 않아야 한다."""
@@ -23,8 +25,13 @@ def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
 
     parallel 은 LLM 을 부르는 기능만 켠다. 턴 하나는 한 스레드만 만지므로 락이
     필요 없다.
+
+    진행 표시도 parallel 인 기능에만 붙인다 - 코드 검증기는 눈 깜빡할 새에 끝나서
+    줄만 깜빡이고, 정작 수십 분이 걸리는 것은 LLM 을 부르는 셋뿐이다.
     """
     turns = [t for t in ctx.open_turns() if where is None or where(t)]
+    bar = Progress(name, len(turns),
+                   enabled=parallel and getattr(ctx, "progress", True))
 
     def run(turn):
         try:
@@ -32,6 +39,7 @@ def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
         except Exception as e:
             # 타입명을 남겨서 예상 못 한 예외가 조용히 묻히지 않게 한다.
             turn.error = f"[{name}] {type(e).__name__}: {e}"
+        bar.done(ok=turn.error is None)
 
     if parallel and len(turns) > 1:
         with ThreadPoolExecutor(max_workers=max(1, ctx.workers)) as pool:
@@ -39,6 +47,7 @@ def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
     else:
         for turn in turns:
             run(turn)
+    bar.finish()
 
 
 def call_llm(turn, pair):

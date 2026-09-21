@@ -600,6 +600,8 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--history-turns", type=int,
                    help="Step 1 에 넘길 이전 질문 개수 상한. 0 이면 제한 없음")
     p.add_argument("--no-cache", action="store_true")
+    p.add_argument("--no-progress", action="store_true",
+                   help="LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄)")
     p.add_argument("--dry-run", action="store_true",
                    help="합성 데이터 스모크. 필터까지만 적용하고 LLM 을 부르지 않는다")
     args = p.parse_args(argv)
@@ -841,6 +843,7 @@ def main(argv=None, backend=None) -> int:
         judge=make_judge(backend, use_cache=use_cache),
         workers=workers or settings.DEFAULT_WORKERS,
         backend=backend,
+        progress=not args.no_progress,
     )
     got, said = features.collect(ctx)
     outcome = build_outcome(selection.owners, ctx.turns, selection.report)

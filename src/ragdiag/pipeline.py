@@ -64,7 +64,8 @@ class Outcome:
 
 
 def judge_cases(cases: list[Case], judge: Judge,
-                workers: Optional[int] = None) -> list[TurnResult]:
+                workers: Optional[int] = None,
+                progress: bool = True) -> list[TurnResult]:
     """Case 목록을 판정한다. features.FEATURES 를 처음부터 끝까지 돌린다.
 
     한 턴이 실패해도 나머지는 계속 간다 - 결과의 error 필드로 확인할 것.
@@ -77,6 +78,7 @@ def judge_cases(cases: list[Case], judge: Judge,
         # 기본 인자는 def 시점에 굳어 --config 적용이 안 먹는다. 여기서 푼다.
         workers=workers or settings.DEFAULT_WORKERS,
         backend=getattr(judge, "backend", None),
+        progress=progress,
     )
     features.collect(ctx)
     return ctx.turns
