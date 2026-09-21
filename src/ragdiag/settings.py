@@ -113,5 +113,8 @@ MODEL_VAR = "RAGDIAG_MODEL"
 
 CACHE_DIR = ".cache"
 DEFAULT_WORKERS = 4
+# ④′ 읽기 - 답변만 보고 "읽을 수 있는 글인가" 를 LLM 에 묻는다 (턴당 +1 호출). 코드 규칙이
+# 못 잡는 붕괴(토큰 잡탕 · 중간부터 깨짐 · 프롬프트 유출)를 잡는다. 호출을 아끼려면 끈다.
+LEGIBILITY = True
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_TIMEOUT_SEC = 600

@@ -536,12 +536,14 @@ def main() -> None:
     # 서비스 자원 부족(case9)은 모델이 답을 만든 적이 없는 턴이다. 품질 분포에
     # 섞어 두면 "챗봇이 나쁘다"로 읽히는데 실제로는 인프라가 모자랐던 것이다.
     service = int((view["case"] == "case9").sum())
+    # 생성 붕괴(case30)도 모델이 답을 만든 적이 없는 것과 같다 - 품질 분포에서 뺀다.
+    collapsed = int((view["case"] == "case30").sum())
 
     # case0 은 실패가 아니다. 필터가 넓게 잡아 들어온 정상 턴이라 실패율 분모에서
     # 빼야 하고, 이 숫자가 가리키는 것은 챗봇이 아니라 필터다.
     normal = int((view["case"] == "case0").sum())
 
-    cols = st.columns(6)
+    cols = st.columns(7)
     cols[0].metric("분류된 턴", len(view),
                    delta=f"-{normal} 정상" if normal else None, delta_color="off",
                    help="case0(정상)을 빼면 실제 실패 건수가 된다.")
@@ -556,7 +558,10 @@ def main() -> None:
     cols[4].metric("서비스 오류", service,
                    help="case9 — 모델 자원 부족으로 서비스가 안내 문구를 낸 턴. "
                         "검색·생성 품질과 무관하므로 아래 분포를 읽을 때 빼고 봐야 한다.")
-    cols[5].metric("정상", normal,
+    cols[5].metric("생성 붕괴", collapsed,
+                   help="case30 — 5555… 같은 반복이나 읽을 수 없는 글. 코드가 잡으면 high, "
+                        "읽기 판정(LLM)이 잡으면 medium. 고칠 곳은 모델·서빙이다.")
+    cols[6].metric("정상", normal,
                    help="case0 — 후속 발화가 앞 답변을 문제 삼지 않은 턴. "
                         "필터가 넓게 잡아 들어온 것이라 챗봇이 아니라 필터를 가리킨다.")
     if normal:
@@ -1207,7 +1212,7 @@ def detail(row: pd.Series) -> None:
     # llm_calls 는 **이번 실행에서 실제로 부른 횟수**다. 캐시가 맞으면 0 이 된다.
     # 그대로 "LLM 호출 0" 이라 적으면 case22 처럼 LLM 이 세 번 필요한 판정도
     # LLM 이 관여 안 한 것처럼 읽힌다. 어디까지 봤는지를 evidence 로 보여준다.
-    ran = [name for name, key in [("관측", "observation"), ("충족도", "sufficiency"),
+    ran = [name for name, key in [("읽기", "legibility"), ("관측", "observation"), ("충족도", "sufficiency"),
                                   ("근거활용", "grounding")]
            if (row["_원본"].get("classification", {}).get("evidence") or {}).get(key)]
     meta[3].metric("판정 단계", " · ".join(ran) if ran else "코드만",
@@ -1241,6 +1246,15 @@ def detail(row: pd.Series) -> None:
         boxed(original.get("current_query", "") or "—", 1, st.warning)
 
     st.info(f"**판정 근거** — {row['판정근거']}")
+    legibility = (row["_원본"].get("classification", {}).get("evidence") or {}).get("legibility")
+    if legibility and not legibility.get("legible"):
+        # 읽을 수 없다는 판정. 인용이 안 맞아 무효가 된 것도 보인다 - 그 판정이 왜 안
+        # 먹었는지가 여기서 확인된다.
+        if legibility.get("quote_verified"):
+            st.error(f"읽을 수 없는 답변으로 판정 — 인용: {legibility.get('quote', '')[:80]}")
+        else:
+            st.caption(f"읽기 판정자가 '읽을 수 없다' 고 했으나 인용이 원문과 맞지 않아 무효 — "
+                       f"{legibility.get('quote', '')[:60]!r}")
     if row["부가"]:
         st.caption(f"부가 케이스: {', '.join(row['부가'])} "
                    "(주 라벨과 별개로 성립한다)")

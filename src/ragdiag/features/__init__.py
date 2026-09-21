@@ -30,6 +30,7 @@ from . import (
     history_quote,
     injection,
     language,
+    legibility,
     length,
     llm_fallback,
     observe,
@@ -63,6 +64,7 @@ CHECKS = (
 
 FEATURES = (
     short_circuit,     # LLM 전에 case 를 확정하는 규칙들 (규칙끼리의 순서는 그 안의 RULES)
+    legibility,        # ④′ 읽을 수 있는 글인가 · LLM (답변만 본다) — 아니면 case30 으로 끝
     observe,           # Step 1 관측 · LLM
     complaint_quote,   # "불만 아님" 의 근거를 후속 발화와 대조
     request_quote,     # 요구의 인용을 이전 질문들과 대조 — 없으면 요구를 지운다

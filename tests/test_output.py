@@ -104,6 +104,10 @@ def test_failed_turn_names_the_step_it_died_in():
         def __init__(self, at):
             self.at = at
 
+        def check_legibility(self, case):
+            from ragdiag.schema import LegibilityCheck
+            return LegibilityCheck(reasoning="r", quote="", legible=True), Usage()
+
         def observe(self, case):
             if self.at == "observe":
                 raise RuntimeError("잘림")
@@ -131,6 +135,10 @@ def test_no_complaint_skips_the_sufficiency_step():
     class _Judge:
         def __init__(self):
             self.asked = []
+
+        def check_legibility(self, case):
+            from ragdiag.schema import LegibilityCheck
+            return LegibilityCheck(reasoning="r", quote="", legible=True), Usage()
 
         def observe(self, case):
             self.asked.append("observe")

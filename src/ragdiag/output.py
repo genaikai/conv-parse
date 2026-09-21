@@ -35,6 +35,15 @@ def _check_payload(result: TurnResult) -> list[dict]:
 def _evidence_payload(result: TurnResult) -> dict:
     """판정 근거. 왜 그 case 가 나왔는지 사후에 추적할 수 있어야 한다."""
     payload: dict = {}
+    if result.legibility is not None:
+        # ④′ 읽기. 읽을 수 없다고 했는데 인용이 안 맞아 무효가 된 것도 남긴다 -
+        # "판정자가 그렇게 봤지만 근거를 못 댔다" 는 사실이 다음 사이클의 단서다.
+        payload["legibility"] = {
+            "legible": result.legibility.legible,
+            "quote": result.legibility.quote,
+            "quote_verified": (result.legibility_quote.verified
+                               if result.legibility_quote else None),
+        }
     if result.observation:
         obs = result.observation
         payload["observation"] = {

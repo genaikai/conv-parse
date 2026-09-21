@@ -82,6 +82,17 @@ class SufficiencyJudgment(BaseModel):
     missing: str = Field(description="문서에 없어서 답할 수 없었던 것. sufficient면 빈 문자열")
 
 
+class LegibilityCheck(BaseModel):
+    """④′ 출력. 답변 문자열만 보고 "사람이 읽을 수 있는 글인가" 하나만 답한다."""
+
+    reasoning: str = Field(description="어디가 읽을 수 없는지 한두 문장. 읽을 수 있으면 그렇다고만")
+    quote: str = Field(
+        default="",
+        description="읽을 수 없다면 그 구절을 답변에서 **글자 그대로** 따온 것. 읽을 수 있으면 빈 문자열. "
+                    "지어낸 구절은 원문 대조에서 걸러지고, 걸러지면 이 판정은 무효가 된다")
+    legible: bool = Field(description="사람이 읽고 뜻을 잡을 수 있는 글인가")
+
+
 class GroundingCheck(BaseModel):
     """Stage 3 출력. verdict가 sufficient일 때만 실행된다."""
 

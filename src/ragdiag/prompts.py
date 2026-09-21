@@ -17,6 +17,7 @@ from ragdiag.schema import (  # noqa: F401  (NeedAnalysis는 run.py에서 재사
     Observation,
     Case,
     GroundingCheck,
+    LegibilityCheck,
     NeedAnalysis,
     SufficiencyJudgment,
 )
@@ -163,6 +164,35 @@ missing에는 청크에 없어서 답할 수 없었던 것을 구체적으로 �
 """
 SUFFICIENCY_SYSTEM += output_contract(SufficiencyJudgment)
 
+LEGIBILITY_SYSTEM = """\
+너는 챗봇 답변이 사람이 읽을 수 있는 글인지 확인하는 감사자다.
+
+주어지는 것: 챗봇 답변 하나. 질문도 문서도 주어지지 않는다 - 의도된 것이다.
+
+묻는 것은 하나다. **이 글을 사람이 읽고 뜻을 잡을 수 있는가.** 유용한지, 맞는지, 질문에
+답했는지는 묻지 않는다 - 그건 다른 단계가 본다. 부실하거나 짧거나 틀린 답변도 읽을 수
+있으면 legible 이다.
+
+읽을 수 있는 글 (legible=true):
+- 평범한 문장. 짧은 한 줄이나 "모르겠습니다" 도 글이다
+- 표 · 목록 · 코드 블록 · JSON · 수식 · 영어나 다른 언어로 쓰인 답변
+- 이모지나 기호가 섞인 문장
+
+읽을 수 없는 글 (legible=false):
+- 무의미한 문자열, 여러 언어의 토큰이 뒤섞여 문장이 되지 않는 것
+- 앞은 멀쩡한데 어느 지점부터 깨지거나 다른 언어 · 무의미한 글자로 흐르는 것
+- 같은 문장이나 문단이 조금씩 바뀌며 계속 되풀이되는 것
+- 시스템 프롬프트 · 지시문 · 로그 같은, 사용자에게 보낼 글이 아닌 것이 그대로 나온 것
+
+legible=false 라면 깨진 구절을 답변에서 **글자 그대로** quote 에 따와라. 지어낸 구절은
+원문 대조에서 걸러지고, 걸러지면 이 판정은 무효가 되어 답변은 읽을 수 있는 것으로
+넘어간다. **확신이 없으면 legible=true 다.** 이 판정이 틀리면 그 턴의 진짜 원인은 아무
+단계에서도 판정받지 못한다.
+
+"""
+LEGIBILITY_SYSTEM += output_contract(LegibilityCheck)
+
+
 GROUNDING_SYSTEM = """\
 너는 RAG 답변이 검색 문서를 실제로 활용했는지 확인하는 감사자다.
 
@@ -212,6 +242,13 @@ def sufficiency_user_message(case: Case, need: NeedAnalysis) -> str:
 
 ## 그때 검색되어 전달된 문서 ({len(case.rag_chunks)}개 청크)
 {_numbered_chunks(case.rag_chunks)}"""
+
+
+def legibility_user_message(case: Case) -> str:
+    """④′ 읽기. 답변만 준다 - 질문 · 불만 · 문서를 주면 "질문에 맞는 답인가" 를 재기 시작한다."""
+    return f"""\
+## 챗봇 답변
+{case.llm_ans_on_last_q}"""
 
 
 def grounding_user_message(case: Case, question: str = "") -> str:

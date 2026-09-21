@@ -11,7 +11,7 @@ from typing import Literal, Optional
 
 from ragdiag import taxonomy
 from ragdiag.backends import Usage
-from ragdiag.schema import Case, GroundingCheck, Observation, SufficiencyJudgment
+from ragdiag.schema import Case, GroundingCheck, LegibilityCheck, Observation, SufficiencyJudgment
 from ragdiag.verify import CitationCheck, QuoteCheck
 
 Verdict = Literal["ok", "violated", "not_applicable", "undetermined"]
@@ -60,6 +60,10 @@ class Classification:
 @dataclass
 class TurnResult:
     case: Case
+    # ④′ 읽기. 답변만 보고 "읽을 수 있는 글인가" 를 LLM 이 판정한 것과 그 인용의 대조 결과.
+    # 안 돌렸으면(설정으로 껐거나 앞에서 끝났으면) None.
+    legibility: Optional[LegibilityCheck] = None
+    legibility_quote: Optional[QuoteCheck] = None
     observation: Optional[Observation] = None
     checks: dict[str, Check] = field(default_factory=dict)
     judgment: Optional[SufficiencyJudgment] = None

@@ -23,6 +23,7 @@ from ragdiag.decide import Diagnosis, decide
 from ragdiag.schema import (
     Case,
     GroundingCheck,
+    LegibilityCheck,
     NeedAnalysis,
     Observation,
     SufficiencyJudgment,
@@ -115,6 +116,12 @@ class Judge:
         return self._call(
             "sufficiency", prompts.SUFFICIENCY_SYSTEM,
             prompts.sufficiency_user_message(case, obs), SufficiencyJudgment,
+        )
+
+    def check_legibility(self, case: Case) -> tuple[LegibilityCheck, Usage]:
+        return self._call(
+            "legibility", prompts.LEGIBILITY_SYSTEM,
+            prompts.legibility_user_message(case), LegibilityCheck,
         )
 
     def check_grounding(self, case: Case, question: str = "") -> tuple[GroundingCheck, Usage]:

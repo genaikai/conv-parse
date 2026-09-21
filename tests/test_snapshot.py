@@ -26,7 +26,8 @@ from ragdiag import settings
 from ragdiag.backends import Usage
 from ragdiag.output import build_turn
 from ragdiag.pipeline import judge_cases
-from ragdiag.schema import Case, Evidence, GroundingCheck, Observation, SufficiencyJudgment
+from ragdiag.schema import (Case, Evidence, GroundingCheck, LegibilityCheck, Observation,
+                            SufficiencyJudgment)
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "judgment.py"
 
@@ -159,7 +160,7 @@ def scenarios():
             for j, g in pairs:
                 yield f"{text}|{o}|{j}|{g}|ok"
     # 실패는 그 단계 이름으로 남아야 하고, 캐시 적중은 LLM 호출로 세지 않는다
-    for mode in ("fail-observe", "fail-sufficiency", "fail-grounding", "cached"):
+    for mode in ("fail-observe", "fail-sufficiency", "fail-grounding", "cached", "illegible"):
         yield f"rich|missing|sufficient|used|{mode}"
 
 
@@ -183,6 +184,14 @@ class ScriptedJudge:
     @staticmethod
     def _usage(mode):
         return Usage() if mode == "cached" else Usage(input_tokens=10, output_tokens=5)
+
+    def check_legibility(self, case):
+        _, _, _, mode = self._parts(case)
+        if mode == "illegible":
+            # 답변 전체를 따온다 - 인용 대조를 통과해 여기서 case30 으로 끝난다
+            return (LegibilityCheck(reasoning="토큰이 뒤섞임", quote=case.llm_ans_on_last_q,
+                                    legible=False), self._usage(mode))
+        return LegibilityCheck(reasoning="r", quote="", legible=True), self._usage(mode)
 
     def observe(self, case):
         o, _, _, mode = self._parts(case)
@@ -264,11 +273,11 @@ def test_snapshot_walks_every_branch_of_a_turn():
     cases = {v.get("case") for v in want.values()}
     assert {"case0", "case1", "case9", "case10", "case12", "case13", "case17",
             "case18", "case20", "case21", "case22", "case28", "case29",
-            "unclassified"} <= cases, sorted(cases - {None})
+            "case30", "unclassified"} <= cases, sorted(cases - {None})
     # 요구가 인용 대조를 통과한 턴과 떨어진 턴이 둘 다 있어야 한다
     assert {v.get("request_verified") for v in want.values()} >= {True, False}
     assert {v.get("history_verified") for v in want.values()} >= {True, False}
-    # LLM 0회(case9 · 캐시) · 1회(관측만) · 2회(+충족도) · 3회(+근거 활용)
-    assert {v.get("llm_calls") for v in want.values()} >= {0, 1, 2, 3}
+    # LLM 0회(case9 · 캐시) · 1회(읽기에서 끝) · 2회(+관측) · 3회(+충족도) · 4회(+근거 활용)
+    assert {v.get("llm_calls") for v in want.values()} >= {0, 1, 2, 3, 4}
     stages = {v["error"].split("]")[0] + "]" for v in want.values() if "error" in v}
     assert stages == {"[observe]", "[sufficiency]", "[grounding]"}
