@@ -57,6 +57,10 @@ _ROWS = [
     # 잘림으로 오분류되는 일이 너무 많았다. finish_reason 이 로그에 생기면 되살린다.
     ("case8", "출력 잘림", "TYPE2", "서비스 안정성 문제", "category_2", "high", False),
     ("case9", "서비스 자원 부족 응답", "TYPE2", "서비스 안정성 문제", "category_2", "high", True),
+    # 원본에 없다. 같은 글자 · 기호의 반복뿐인 답변이 실제 로그에 있었고, 관측에 넣으면
+    # 거절이나 무응답으로 읽혀 엉뚱한 case 로 갔다. 고칠 곳이 모델 · 서빙이라 TYPE2 다.
+    # 번호는 taxonomy 뒤에 붙였지만 **자리는 여기다** - 목록 순서는 type 이 먼저다.
+    ("case30", "생성 붕괴", "TYPE2", "서비스 안정성 문제", "category_2", "high", True),
 
     # category_2 · TYPE3 의도 파악 실패
     ("case10", "요구 언어 불이행", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "high", True),
@@ -90,10 +94,6 @@ _ROWS = [
     ("case28", "보안 정책상 답변 불가", "TYPE7", "보안/정책 제한", "category_2", "medium", True),
     ("case29", "간접 프롬프트 인젝션", "TYPE7", "보안/정책 제한", "category_2", "medium", True),
 
-    # 원본에 없다. 같은 글자 · 기호의 반복뿐인 답변이 실제 로그에 있었고, 관측에 넣으면
-    # 거절이나 무응답으로 읽혀 엉뚱한 case 로 갔다. 코드로 짚을 수 있는 신호라 TYPE2 에
-    # 둔다. 번호가 맨 뒤인 것은 목록이 번호순이어야 해서다.
-    ("case30", "생성 붕괴", "TYPE2", "서비스 안정성 문제", "category_2", "high", True),
 ]
 
 
@@ -193,18 +193,28 @@ UNCLASSIFIED = "unclassified"
 OUT_OF_TAXONOMY = "out_of_taxonomy"
 
 
-def sort_key(case_id: str) -> tuple[int, int, str]:
-    """case 번호를 **숫자로** 정렬한다.
+def sort_key(case_id: str) -> tuple[int, int, int, str]:
+    """**type 이 먼저, 그 안에서 번호.** 번호는 문자열이 아니라 숫자로 본다.
 
     문자열로 정렬하면 case10 이 case2 앞에 온다. 30개짜리 목록에서 이걸 만나면
     "정렬이 안 돼 있다"로 읽고 원하는 번호를 눈으로 훑게 된다.
 
+    **type 을 앞에 두는 이유:** 번호는 원본 taxonomy 의 것이고 우리가 더한 case 는
+    뒤 번호를 받는다 (case30 생성 붕괴는 TYPE2 인데 번호가 맨 뒤다). 번호만으로
+    정렬하면 그 case 가 제 묶음에서 떨어져 목록 끝에 혼자 남고, 조직 탭의 표는
+    type 순으로 열을 놓으므로 **표에서 본 case 를 고르는 자리에서 못 찾는다.**
+    실제로 그 상태였다. case0~29 는 번호순과 type 순이 일치하므로 달라지는 것은
+    우리가 더한 case 뿐이다.
+
     taxonomy 밖의 값(unclassified 등)은 뒤로 보낸다 - 번호가 없으므로 사이에
     끼면 그것도 순서가 없어 보인다.
     """
+    case = CASES.get(case_id)
+    if case is not None and case_id[4:].isdigit():
+        return (0, int(case.type_id[4:]), int(case_id[4:]), "")
     if case_id.startswith("case") and case_id[4:].isdigit():
-        return (0, int(case_id[4:]), "")
-    return (1, 0, case_id)
+        return (0, 99, int(case_id[4:]), "")      # taxonomy 에 없는 번호
+    return (1, 99, 0, case_id)
 
 
 def ordered(case_ids) -> list[str]:

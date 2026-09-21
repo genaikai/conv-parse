@@ -716,21 +716,63 @@ def test_dashboard_deps_are_not_in_the_main_requirements():
 # process_flow.md 가 코드보다 앞서 나가지 않도록
 # ---------------------------------------------------------------------------
 
-def test_case_ids_sort_by_number_not_by_string():
-    """문자열로 정렬하면 case10 이 case2 앞에 온다.
+def _dashboard_symbols(*names):
+    """streamlit 없이 dashboard.py 의 함수만 꺼낸다. import 하면 런타임을 요구한다."""
+    import types
+
+    source = (ROOT / "src" / "dashboard.py").read_text(encoding="utf-8")
+    body = source.split("from ragdiag import taxonomy as tx", 1)[1]
+    module = types.ModuleType("dash_fns")
+    from ragdiag import taxonomy as tx
+    module.__dict__.update(tx=tx)
+    # 함수 정의만 골라 넣는다 - st.* 를 부르는 줄은 실행하지 않는다.
+    wanted, keep, indent = set(names), [], False
+    for line in body.splitlines():
+        if line.startswith("def "):
+            indent = line.split("(")[0][4:] in wanted
+        elif line and not line[0].isspace():
+            indent = False
+        if indent:
+            keep.append(line)
+    module.__dict__["re"] = __import__("re")
+    exec("\n".join(keep), module.__dict__)
+    return tuple(module.__dict__[n] for n in names)
+
+
+def test_case_ids_sort_by_type_then_number():
+    """문자열로 정렬하면 case10 이 case2 앞에 온다. 번호만으로 정렬하면 우리가 더한
+    case 가 제 묶음에서 떨어진다.
 
     30개짜리 목록에서 이걸 만나면 "정렬이 안 돼 있다"로 읽고 원하는 번호를 눈으로
-    훑게 된다. 실제로 대시보드 사이드바가 그 상태였다 - 표는 번호순인데 고르는
-    자리는 아니어서, 표에서 본 케이스를 목록에서 못 찾았다.
+    훑게 된다. 실제로 두 번 그랬다 - 대시보드 사이드바가 문자열 정렬이었고, 그 뒤
+    case30(TYPE2 생성 붕괴)이 번호 때문에 목록 끝에 혼자 남아 조직 탭 표(type 순)와
+    어긋났다. 표에서 본 case 를 고르는 자리에서 못 찾는다.
     """
     from ragdiag import taxonomy as tx
 
-    shuffled = ["case21", "case2", "case10", "case0", "unclassified", "case9"]
+    shuffled = ["case21", "case2", "case10", "case0", "unclassified", "case9", "case30"]
     assert tx.ordered(shuffled) == [
-        "case0", "case2", "case9", "case10", "case21", "unclassified"], tx.ordered(shuffled)
+        "case0", "case2", "case9", "case30", "case10", "case21",
+        "unclassified"], tx.ordered(shuffled)
 
-    # taxonomy 밖의 값은 뒤로. 사이에 끼면 그것도 순서가 없어 보인다.
+    # 등록 순서가 곧 표시 순서다. 문서의 개요표도 이 순서를 따른다.
     assert tx.ordered(list(tx.CASES)) == list(tx.CASES)
+    types = [tx.get(c).type_id for c in tx.CASES]
+    assert types == sorted(types, key=lambda x: int(x[4:])), "type 묶음이 끊긴다"
+
+
+def test_the_case_picker_and_the_crosstab_agree_on_order():
+    """고르는 자리와 보는 자리가 같은 순서여야 한다 - 다르면 표에서 본 것을 못 찾는다."""
+    import sys
+
+    from ragdiag import taxonomy as tx
+
+    sys.path.insert(0, str(ROOT / "src"))
+    order, label = _dashboard_symbols("column_order", "column_label",
+                                      "type_of", "case_of")[:2]
+    picker = tx.ordered(list(tx.CASES))
+    columns = sorted((label(c) for c in tx.CASES), key=order)
+    assert [c.rsplit("/", 1)[-1] for c in columns] == picker
 
 
 def test_one_type_does_not_use_two_words_for_the_same_thing():

@@ -333,11 +333,13 @@ def type_of(column: str) -> str:
 def column_order(name: str):
     """type 번호가 먼저, 그 안에서 case 번호. 두 모양 다 이 키로 정렬된다.
 
-    문자열로 두면 TYPE1 뒤에 TYPE10 이 아니라 case10 이 case2 앞에 오는 것과
-    같은 일이 난다. 묶기를 바꿔도 열 순서가 같은 규칙을 따라야 한다.
+    tx.sort_key 가 이미 (type, 번호) 다 - 사이드바에서 고르는 순서와 같아야 하므로
+    같은 함수를 쓴다. 열 머리글이 type 만 담고 있을 때(type별 묶기)는 그 번호를 쓴다.
     """
     kind = type_of(name)
-    return (int(kind[4:]) if kind else 99, tx.sort_key(case_of(name)))
+    if not tx.get(case_of(name)) and kind:
+        return (0, int(kind[4:]), -1, "")        # "TYPE5 · 이름" 처럼 type 만인 열
+    return tx.sort_key(case_of(name))
 
 
 def case_tooltips(columns, numeric: bool = True) -> dict:
