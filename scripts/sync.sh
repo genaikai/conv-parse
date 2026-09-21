@@ -60,10 +60,10 @@ yaml_keys() {
 #
 #   - **고정 문구다. 정규식이 아니다** (grep -F). `.*` 로 전부 열 수 없다
 #   - 여덟 바이트 미만은 거부한다. 짧은 조각은 뜻하지 않은 줄까지 열어버린다.
-#     글자가 아니라 바이트로 세는 것은 awk 의 length() 가 로케일 없이는 바이트를
-#     세기 때문이다. 글자로 재려면 UTF-8 로케일이 있어야 하는데, 없는 환경에서
-#     조용히 바이트로 떨어지면 가드가 **약해지는** 쪽으로 틀린다. 바이트 수는
-#     언제나 글자 수 이상이라 이쪽으로 세면 틀려도 엄격해지는 쪽이다
+#     **LC_ALL=C 를 붙여 바이트로 센다.** awk 의 length() 는 로케일을 타서, 같은
+#     문구가 macOS awk 에서는 바이트(13)로 gawk+UTF-8 에서는 글자(5)로 세어진다.
+#     고정하지 않으면 개발 장비에서는 살아남은 문구가 운영 장비에서만 잘려나가
+#     preflight 는 OK 인데 사본 점검만 FAILED 가 된다 — 실제로 그렇게 한 번 막혔다.
 #     (여덟 바이트 = 한글 세 글자 · 영문 여덟 글자)
 #   - 파일이 없으면 아무것도 안 거른다. 예외를 쓰지 않는 프로젝트가 기본이다
 #
@@ -73,12 +73,12 @@ c9_allowed() {
   if [[ ! -f "$f" ]]; then cat; return; fi
   pat=$(grep -vE '^[[:space:]]*(#|$)' "$f" || true)
   local short
-  short=$(printf '%s\n' "$pat" | awk 'length($0) > 0 && length($0) < 8')
+  short=$(printf '%s\n' "$pat" | LC_ALL=C awk 'length($0) > 0 && length($0) < 8')
   if [[ -n "$short" ]]; then
     warn "sync-allow.txt 에 너무 짧은 문구가 있어 무시한다 (8바이트 이상만):"
     printf '      %s\n' "$short" >&2
   fi
-  pat=$(printf '%s\n' "$pat" | awk 'length($0) >= 8')
+  pat=$(printf '%s\n' "$pat" | LC_ALL=C awk 'length($0) >= 8')
   if [[ -z "$pat" ]]; then cat; return; fi
   grep -vF -f <(printf '%s\n' "$pat") || true
 }
