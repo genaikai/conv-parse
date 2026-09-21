@@ -1149,6 +1149,21 @@ ANSWER_BOX_PX = 300
 FITS_PER_WEIGHT = 100
 
 
+def history_text(prior: list[str]) -> str:
+    """앞 질문 전부를 한 상자에. 마지막 것이 판정 대상의 질문이라 굵게 친다.
+
+    직전 질문만 보이면 "미주 말고 유럽" 처럼 요구가 좁혀진 것이나 앞 조건을 잊은
+    것(case14)을 화면에서 확인할 수 없다 - Step 1 은 이 질문들을 전부 보고 판정했다.
+    """
+    if not prior:
+        return "—"
+    if len(prior) == 1:
+        return prior[0]
+    lines = [f"{i}. {q}" for i, q in enumerate(prior[:-1], 1)]
+    lines.append(f"**{len(prior)}. {prior[-1]}**  ← 이 답이 판정 대상")
+    return "\n\n".join(lines)
+
+
 def _bordered(text: str) -> None:
     with st.container(border=True):
         st.write(text)
@@ -1213,10 +1228,9 @@ def detail(row: pd.Series) -> None:
     asked, said, complained = st.columns([1, 3, 1])
     with asked:
         st.markdown("**앞 질문**")
-        st.caption("이 질문에 대한 답이 판정 대상이다")
-        boxed(prior[-1] if prior else "—", 1, _bordered)
-        if len(prior) > 1:
-            st.caption(f"그 앞에 {len(prior) - 1}개 더 (아래 접힘 상자)")
+        st.caption("마지막 질문에 대한 답이 판정 대상이다. 그 앞 질문들은 Step 1 이 "
+                   "맥락으로 봤다 — 요구가 좁혀졌는지 · 앞 조건을 잊었는지가 여기서 갈린다")
+        boxed(history_text(prior), 1, _bordered)
     with said:
         st.markdown("**비판받은 답변**")
         st.caption("이것이 판정 대상이다")
@@ -1280,13 +1294,9 @@ def detail(row: pd.Series) -> None:
                     "결과", help="violated 면 그 case 로 확정된다"),
                 "detail": st.column_config.TextColumn("근거", width="large")})
 
-    # 답변·불만은 위로 올렸다. 여기 남는 것은 부피가 큰 것들이다.
+    # 답변 · 불만 · 앞 질문은 위로 올렸다. 여기 남는 것은 부피가 큰 문서다.
     chunks = original.get("chunk_data", [])
-    with st.expander(f"그때 검색된 문서 {len(chunks)}개 · 이전 질문 {len(prior)}개"):
-        if prior:
-            st.markdown("**이전 질문들**")
-            for q in prior:
-                st.markdown(f"- {q}")
+    with st.expander(f"그때 검색된 문서 {len(chunks)}개"):
         if chunks:
             st.markdown("**검색된 문서** — Step 2 가 이것만 보고 충족도를 판정했다")
             for i, chunk in enumerate(chunks):

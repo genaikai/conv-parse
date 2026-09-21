@@ -1429,3 +1429,17 @@ def test_bar_chart_labels_are_not_truncated(result_file, tmp_path):
         assert spec["encoding"]["y"]["axis"]["labelLimit"] >= 300, spec["encoding"]["y"]
     # 누적 곡선의 세로 축 제목은 없다 - 세로로 세운 한글은 글자가 따로 논다.
     assert '"title": "누적 비율"' not in json.dumps(specs[2], ensure_ascii=False)
+
+
+def test_all_prior_questions_are_in_the_box_with_the_last_one_marked(result_file, tmp_path):
+    """직전 질문만 보이면 요구가 좁혀진 것(미주 → 유럽)이나 앞 조건을 잊은 것(case14)을
+    화면에서 확인할 수 없다 - Step 1 은 앞 질문을 전부 보고 판정했다."""
+    def edit(turns):
+        turns[0]["pre_queries"] = ["미주 출장 숙박비 상한이요", "유럽은요?", "1박에 얼마까지요"]
+    at = render(_rewrite(result_file, tmp_path, "history", edit))
+    texts = [str(m.value) for m in at.tabs[2].markdown]
+    box = next((t for t in texts if "미주 출장 숙박비 상한이요" in t), None)
+    assert box, "앞 질문 상자에 첫 질문이 없다"
+    assert "유럽은요?" in box and "**3. 1박에 얼마까지요**" in box, box
+    assert "이전 질문" not in " ".join(e.label for e in at.tabs[2].expander), \
+        "앞 질문이 위 상자에 있으니 접힘 상자에서 되풀이하지 않는다"
