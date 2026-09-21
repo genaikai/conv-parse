@@ -14,7 +14,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ComplaintType = Literal["content_gap", "wrong_content", "format_or_style", "other"]
 Verdict = Literal["sufficient", "partial", "insufficient"]
 UsedRag = Literal["used", "ignored", "contradicted"]
 
@@ -48,22 +47,6 @@ class Case:
     @property
     def last_query(self) -> str:
         return self.pre_queries[-1] if self.pre_queries else ""
-
-
-class NeedAnalysis(BaseModel):
-    """Stage 1 출력. rag_data를 보지 않고 사용자 쪽 신호만으로 채운다."""
-
-    reasoning: str = Field(description="불만을 어떻게 읽었는지 2~3문장")
-    resolved_question: str = Field(
-        description="대화 맥락을 반영해 대명사와 생략을 모두 푼, 그 자체로 이해되는 질문"
-    )
-    unmet_need: str = Field(
-        description="사용자가 원했는데 받지 못한 정보를 구체적으로. 형식 불만이면 그렇게 적는다"
-    )
-    complaint_type: ComplaintType
-    context_dependent: bool = Field(
-        description="마지막 질문 문장만으로 검색 쿼리를 만들 때 핵심 검색어가 빠지는가"
-    )
 
 
 class Evidence(BaseModel):
@@ -103,7 +86,7 @@ class GroundingCheck(BaseModel):
 # ---------------------------------------------------------------------------
 # Step 1 관측 스키마  (taxonomy 30개 확장용)
 #
-# 기존 NeedAnalysis 를 일반화한 것이다. 핵심 차이는 **case를 고르지 않는다**는 점이다.
+# 핵심은 **case를 고르지 않는다**는 점이다.
 # 관측 가능한 사실만 내고, case는 코드 검증기(features/)의 결정적 검증과 함께 코드가 도출한다.
 #
 # 이렇게 두면 taxonomy 를 고쳐도 이 값들은 그대로 재사용된다 — 관측은 taxonomy 와
@@ -165,7 +148,7 @@ class Observation(BaseModel):
 
     reasoning: str = Field(description="불만과 질문을 어떻게 읽었는지 2~3문장")
 
-    # --- 사용자가 원한 것 (기존 NeedAnalysis 계승) ---
+    # --- 사용자가 원한 것 ---
     resolved_question: str = Field(
         description="대화 맥락을 반영해 대명사와 생략을 모두 푼, 그 자체로 이해되는 질문"
     )

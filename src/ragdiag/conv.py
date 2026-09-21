@@ -29,14 +29,41 @@ Stage 1의 대명사 해소가 정확해진다.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from ragdiag import settings
-from ragdiag.load import mask
 from ragdiag.schema import Case
+
+
+def mask(value: str) -> str:
+    """user_id · db_login_id 를 결정적 해시로. 로딩 단계에서 치환하면 원본 식별자가 어떤
+    산출물에도 안 들어간다. salt 가 없어 그룹핑은 그대로 되고 원본에서 역조회도 된다."""
+    if not value:
+        return "unknown"
+    return "u_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+_PARA_BREAK = re.compile(r"\n\s*\n")
+
+
+def split_concatenated(text: str) -> list[str]:
+    """청크를 이어붙인 통문자열에서 경계를 복원한다.
+
+    빈 줄(\n\n)을 먼저 시도하고, 그걸로 안 쪼개질 때만 단일 개행으로 내려간다. 순서가
+    중요하다 - 청크 내부에도 개행이 있을 수 있으므로, 단일 개행부터 쪼개면 한 청크가
+    여러 조각으로 찢어진다. 청크가 단일 개행으로 이어붙여져 있고 내부에도 개행이 있으면
+    경계는 원리적으로 복원 불가능하다 - 인용 검증은 전 청크를 훑으므로(verify_evidence)
+    잘못 쪼개진 경계는 index_corrected 로 흡수된다.
+    """
+    parts = [p.strip() for p in _PARA_BREAK.split(text) if p.strip()]
+    if len(parts) > 1:
+        return parts
+    return [p.strip() for p in text.split("\n") if p.strip()]
 
 # Step 1 에 넘길 이전 질문의 최대 개수.
 # 대명사 해소에 필요한 것은 보통 직전 2~3턴이다. 그보다 오래된 질문은 노이즈에
@@ -92,8 +119,6 @@ def parse_retrieved(value: Any) -> list[str]:
             parsed = json.loads(text)
             items = parsed if isinstance(parsed, list) else [parsed]
         except json.JSONDecodeError:
-            from ragdiag.load import split_concatenated
-
             return split_concatenated(text)
     else:
         return [str(value)]

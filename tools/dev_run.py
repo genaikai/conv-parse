@@ -12,7 +12,6 @@
 
     python tools/dev_run.py --conv-data data/conv_eval.json
     python tools/dev_run.py --golden
-    python tools/dev_run.py --backend api --legacy-regression
 """
 
 from __future__ import annotations

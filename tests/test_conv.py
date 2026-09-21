@@ -13,7 +13,7 @@ from ragdiag.conv import (
     parse_retrieved,
     to_case,
 )
-from ragdiag.load import mask
+from ragdiag.conv import mask
 
 RAW = {
     "metadata": {"generated_at": "2026-07-14T18:08:10", "total_users": 1, "total_turns": 3},
@@ -292,3 +292,42 @@ def test_default_cap_is_three():
 
     assert MAX_HISTORY_TURNS == 3
     assert len(to_case(_long_conv(), followup_turn=8).pre_queries) == 3
+
+
+# ---------------------------------------------------------------------------
+# 청크 경계 복원 — 실데이터는 청크를 \n\n 또는 \n 으로 이어붙인 통문자열로 온다
+# ---------------------------------------------------------------------------
+
+def test_concatenated_string_is_split_on_blank_lines():
+    from ragdiag.conv import split_concatenated
+
+    assert split_concatenated("첫 청크입니다.\n\n둘째 청크입니다.\n\n셋째입니다.") == [
+        "첫 청크입니다.", "둘째 청크입니다.", "셋째입니다."]
+
+
+def test_blank_line_split_wins_over_single_newline():
+    # 청크 내부에도 개행이 있을 수 있다. 단일 개행부터 쪼개면 한 청크가 찢어진다.
+    from ragdiag.conv import split_concatenated
+
+    text = "제1조 목적\n이 규정은 출장비를 정한다.\n\n제2조 범위\n전 임직원에 적용한다."
+    assert split_concatenated(text) == [
+        "제1조 목적\n이 규정은 출장비를 정한다.", "제2조 범위\n전 임직원에 적용한다."]
+
+
+def test_falls_back_to_single_newline_when_no_blank_lines():
+    from ragdiag.conv import split_concatenated
+
+    assert split_concatenated("청크 하나\n청크 둘\n청크 셋") == ["청크 하나", "청크 둘", "청크 셋"]
+
+
+def test_single_chunk_string_stays_one_chunk():
+    from ragdiag.conv import split_concatenated
+
+    assert split_concatenated("경계가 없는 한 덩어리 문장.") == ["경계가 없는 한 덩어리 문장."]
+    assert split_concatenated("   ") == []
+
+
+def test_concatenated_retrieved_data_is_split_by_the_parser():
+    from ragdiag.conv import parse_retrieved
+
+    assert parse_retrieved("청크 A 내용\n\n청크 B 내용") == ["청크 A 내용", "청크 B 내용"]

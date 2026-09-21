@@ -941,7 +941,6 @@ def test_every_entry_script_runs_without_pythonpath():
 
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     for script, flag in [("src/run.py", "--help"),
-                         ("scripts/legacy_run.py", "--help"),
                          ("src/dashboard.py", None)]:
         path = ROOT / script
         if not path.exists():

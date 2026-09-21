@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from ragdiag.conv import Conversation, Turn
-from ragdiag.report import _pad, _w
+from ragdiag.textfmt import pad, text_width
 
 
 
@@ -75,11 +75,11 @@ def _dist(title: str, counter: Counter, total: int, limit: int = 12) -> list[str
     if not counter:
         return [f"  {title}: (값 없음)"]
     lines = [f"  {title}"]
-    name_width = min(28, max(_w(str(k)) for k in counter))
+    name_width = min(28, max(text_width(str(k)) for k in counter))
     for name, count in counter.most_common(limit):
         label = str(name) if str(name) else "(비어 있음)"
         lines.append(
-            f"    {_pad(label, name_width + 2)}{count:>6}  "
+            f"    {pad(label, name_width + 2)}{count:>6}  "
             f"{count / total:>5.1%}  {_bar(count, total)}"
         )
     remaining = len(counter) - limit
@@ -198,7 +198,7 @@ def survey(conversations: list[Conversation], metadata: Optional[dict] = None) -
     else:
         by_kind = Counter(i.kind for i in issues)
         for kind, count in by_kind.most_common():
-            out.append(f"  {_pad(kind, 24)}{count:>6}건")
+            out.append(f"  {pad(kind, 24)}{count:>6}건")
             for issue in [i for i in issues if i.kind == kind][:3]:
                 out.append(f"      {issue.conversation_id[:24]:<26} {issue.detail}")
         out.append("  └ 턴이 누락된 대화가 있으면 진단 결과를 믿을 수 없다.")
@@ -255,7 +255,7 @@ def preview_filter(
         before = len(current)
         current = [ct for ct in current if predicate(ct)]
         lines.append(
-            f"  {_pad(name, 36)}{len(current):>6}   (-{before - len(current)})"
+            f"  {pad(name, 36)}{len(current):>6}   (-{before - len(current)})"
         )
 
     lines += ["", f"  최종 진단 대상                         {len(current):>6}"]

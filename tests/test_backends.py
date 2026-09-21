@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from ragdiag.backends import Usage, extract_json
 from ragdiag.prompts import output_contract
-from ragdiag.schema import GroundingCheck, NeedAnalysis, SufficiencyJudgment
+from ragdiag.schema import GroundingCheck, Observation, SufficiencyJudgment
 
 
 def test_extracts_plain_json():
@@ -45,7 +45,7 @@ def test_malformed_input_raises(bad):
         extract_json(bad)
 
 
-@pytest.mark.parametrize("model", [NeedAnalysis, SufficiencyJudgment, GroundingCheck])
+@pytest.mark.parametrize("model", [Observation, SufficiencyJudgment, GroundingCheck])
 def test_contract_lists_every_field_in_declaration_order(model):
     # 필드 순서에 설계가 담겨 있다. reasoning이 먼저여야 결론이 근거의 결과가 된다.
     contract = output_contract(model)
@@ -55,8 +55,8 @@ def test_contract_lists_every_field_in_declaration_order(model):
 
 
 def test_contract_spells_out_enum_values():
-    contract = output_contract(NeedAnalysis)
-    for value in ["content_gap", "wrong_content", "format_or_style", "other"]:
+    contract = output_contract(Observation)
+    for value in ["content_missing", "content_wrong", "format", "none"]:
         assert f'"{value}"' in contract
 
 
@@ -72,9 +72,8 @@ def test_contract_forbids_extra_text():
 
 def test_schema_validation_rejects_bad_enum():
     with pytest.raises(ValidationError):
-        NeedAnalysis.model_validate_json(
-            '{"reasoning":"r","resolved_question":"q","unmet_need":"n",'
-            '"complaint_type":"엉뚱한값","context_dependent":false}'
+        SufficiencyJudgment.model_validate_json(
+            '{"reasoning":"r","evidence":[],"verdict":"엉뚱한값","missing":""}'
         )
 
 

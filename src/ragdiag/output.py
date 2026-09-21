@@ -151,7 +151,7 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
     """분류 분포. 어디를 고쳐야 하는지 보이게 하는 게 목적이다."""
     from collections import Counter
 
-    from ragdiag.report import _pad, _w
+    from ragdiag.textfmt import pad, text_width
 
     ok = [r for _, r in pairs if r.classification]
     errors = [r for _, r in pairs if r.error]
@@ -166,13 +166,13 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
         "[1] case 분포",
     ]
     counts = Counter(r.classification.primary_case for r in ok)
-    width = max(_w(c) for c in counts) + 2
+    width = max(text_width(c) for c in counts) + 2
     for case_id, count in counts.most_common():
         from ragdiag import taxonomy
 
         meta = taxonomy.describe(case_id)
         lines.append(
-            f"  {_pad(case_id, width)}{_pad(meta['case_name'], 26)}"
+            f"  {pad(case_id, width)}{pad(meta['case_name'], 26)}"
             f"{count:>5}  {count / len(ok):>5.1%}"
         )
 
@@ -184,13 +184,13 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
         for r in ok
     )
     for name, count in types.most_common():
-        lines.append(f"  {_pad(name, 34)}{count:>5}  {count / len(ok):>5.1%}")
+        lines.append(f"  {pad(name, 34)}{count:>5}  {count / len(ok):>5.1%}")
 
     lines += ["", "[3] 신뢰도"]
     conf = Counter(r.classification.confidence for r in ok)
     for level in ("high", "medium", "low"):
         if conf[level]:
-            lines.append(f"  {_pad(level, 10)}{conf[level]:>5}  {conf[level] / len(ok):>5.1%}")
+            lines.append(f"  {pad(level, 10)}{conf[level]:>5}  {conf[level] / len(ok):>5.1%}")
     if conf["low"]:
         lines.append("  └ low 는 판정자의 사전지식에 의존한다. 표본 검토 없이 집계하지 말 것.")
 
@@ -201,7 +201,7 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
         lines += ["", "[4] 부가 케이스 (주 라벨과 별개로 성립)"]
         for case_id, count in secondary.most_common():
             meta = taxonomy.describe(case_id)
-            lines.append(f"  {_pad(case_id, width)}{_pad(meta['case_name'], 26)}{count:>5}")
+            lines.append(f"  {pad(case_id, width)}{pad(meta['case_name'], 26)}{count:>5}")
 
     if errors:
         lines += ["", f"[!] 실패 {len(errors)}건"]

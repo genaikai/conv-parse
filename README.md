@@ -184,7 +184,6 @@ export LLM_API_KEY=<키>
 | `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
 | `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄 — `(실패 N · 포기 M)` 까지) |
 | `--golden` · `--golden-set {observations,messy,sufficiency}` | 골든셋 채점 — 관측 65 · 라우팅 78 · 충족도 78 + 인용 대조. 실행 환경의 모델로 그대로 돌릴 수 있다 |
-| `--legacy-regression` | 구 파이프라인 회귀 기준선 23건 |
 | `--output-dir` · `--out` | 결과 위치 (기본 `./output`) |
 
 설정 우선순위는 **CLI > 설정 파일 > 환경변수 > 기본값**이다. 모든 키는
@@ -237,10 +236,10 @@ src/
     judge.py · backends.py · prompts.py       LLM 호출 · 캐시 · 프롬프트
     results.py · verify.py · taxonomy.py      턴 판정 결과 · 인용 대조 · case 메타데이터
     output.py · pipeline.py · progress.py     출력 JSON · 단계별 함수 · 진행 표시
+    textfmt.py                                터미널 표 정렬 (표시 폭)
     __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
     fixtures/         합성 데이터 · 골든셋 다섯 벌(관측 · 라우팅 · 충족도 · 근거 활용 · 읽기) · 공개 규정 청크
-    load.py · decide.py · report.py   구 파이프라인 전용 — 새 코드에서 쓰지 않는다
-tools/                개발 장비 전용 (claude CLI · API 백엔드, 구 파이프라인)
+tools/                개발 장비 전용 (claude CLI · API 백엔드)
 ```
 
 ## 부록: 실행 환경으로 옮기기
@@ -264,8 +263,8 @@ python log_analysis/src/run.py --dry-run
 <!-- copy-list -->
 ```
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
-ragdiag/backends.py   ragdiag/judge.py    ragdiag/decide.py     ragdiag/verify.py
-ragdiag/output.py
+ragdiag/backends.py   ragdiag/judge.py    ragdiag/verify.py     ragdiag/output.py
+ragdiag/textfmt.py
 ragdiag/pipeline.py   ragdiag/results.py  ragdiag/progress.py
 ragdiag/features/   (폴더 통째)
 ```

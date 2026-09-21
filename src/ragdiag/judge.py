@@ -10,25 +10,20 @@ CLI 경로는 호출당 $0.05 안팎이라 특히 그렇다.
 from __future__ import annotations
 
 import hashlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol, TypeVar
 
 from pydantic import BaseModel
 
 from ragdiag import prompts
-from ragdiag.backends import JudgeError, Usage
-from ragdiag.decide import Diagnosis, decide
+from ragdiag.backends import Usage
 from ragdiag.schema import (
     Case,
     GroundingCheck,
     LegibilityCheck,
-    NeedAnalysis,
     Observation,
     SufficiencyJudgment,
 )
-from ragdiag.verify import verify_evidence
 
 T = TypeVar("T", bound=BaseModel)
 DEFAULT_MODEL = "claude-opus-5"
@@ -40,15 +35,6 @@ class Backend(Protocol):
     def complete(
         self, system: str, user: str, out_model: type[T], contract_hint: str = ""
     ) -> tuple[T, Usage]: ...
-
-
-@dataclass
-class CaseResult:
-    case_id: str
-    diagnosis: Optional[Diagnosis] = None
-    error: Optional[str] = None
-    usage: Usage = field(default_factory=Usage)
-    n_calls: int = 0
 
 
 class Judge:
@@ -89,19 +75,6 @@ class Judge:
             path.write_text(parsed.model_dump_json(), encoding="utf-8")
         return parsed, usage
 
-    def analyze_need(self, case: Case) -> tuple[NeedAnalysis, Usage]:
-        return self._call(
-            "need", prompts.NEED_SYSTEM, prompts.need_user_message(case), NeedAnalysis
-        )
-
-    def judge_sufficiency(
-        self, case: Case, need: NeedAnalysis
-    ) -> tuple[SufficiencyJudgment, Usage]:
-        return self._call(
-            "sufficiency", prompts.SUFFICIENCY_SYSTEM,
-            prompts.sufficiency_user_message(case, need), SufficiencyJudgment,
-        )
-
     def observe(self, case: Case) -> tuple[Observation, Usage]:
         """Step 1 — case 를 고르지 않고 관측 사실만 낸다."""
         return self._call(
@@ -112,7 +85,7 @@ class Judge:
     def judge_sufficiency_from(
         self, case: Case, obs
     ) -> tuple[SufficiencyJudgment, Usage]:
-        """Observation 으로 충족도를 판정한다. NeedAnalysis 와 필드가 같아 그대로 쓴다."""
+        """Step 2 - 관측이 뽑은 질문 · 요구로 문서 충족도를 판정한다."""
         return self._call(
             "sufficiency", prompts.SUFFICIENCY_SYSTEM,
             prompts.sufficiency_user_message(case, obs), SufficiencyJudgment,
@@ -129,51 +102,3 @@ class Judge:
             "grounding", prompts.GROUNDING_SYSTEM,
             prompts.grounding_user_message(case, question), GroundingCheck,
         )
-
-
-def diagnose(case: Case, judge: Judge) -> CaseResult:
-    """한 케이스를 끝까지 진단. 단계 건너뛰기 규칙이 여기 있다."""
-    usage, n_calls = Usage(), 0
-
-    def track(result: tuple) -> object:
-        nonlocal n_calls
-        value, u = result
-        usage.add(u)
-        n_calls += bool(u.input_tokens or u.output_tokens or u.cost_usd)
-        return value
-
-    try:
-        need = track(judge.analyze_need(case))
-
-        judgment = check = grounding = None
-        # 내용에 대한 불만일 때만 sufficiency를 묻는다. 형식 불만에 문서 충족도를
-        # 따지는 건 무의미하고, 호출만 낭비한다.
-        if need.complaint_type in ("content_gap", "wrong_content"):
-            judgment = track(judge.judge_sufficiency(case, need))
-            check = verify_evidence(judgment.evidence, case.rag_chunks)
-            # 인용이 살아남아 sufficient가 유지될 때만 생성 활용 여부가 의미를 갖는다.
-            if judgment.verdict == "sufficient" and check.n_kept > 0:
-                grounding = track(judge.check_grounding(case, need.resolved_question))
-
-        diag = decide(case.case_id, need, judgment, check, grounding)
-        diag.dept = case.dept
-        diag.job_grade = case.job_grade
-        diag.n_chunks = len(case.rag_chunks)
-        return CaseResult(
-            case_id=case.case_id, diagnosis=diag, n_calls=n_calls, usage=usage,
-        )
-    except Exception as e:
-        # 배치 실행 중 한 케이스의 실패가 나머지를 날리면 안 된다.
-        # 타입명을 남겨서 예상 못 한 예외가 조용히 묻히지 않게 한다.
-        return CaseResult(case_id=case.case_id, error=f"{type(e).__name__}: {e}")
-
-
-def run_pipeline(cases: list[Case], judge: Judge, max_workers: int = 4) -> list[CaseResult]:
-    results: list[CaseResult] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(diagnose, c, judge): c for c in cases}
-        for fut in as_completed(futures):
-            results.append(fut.result())
-    order = {c.case_id: i for i, c in enumerate(cases)}
-    results.sort(key=lambda r: order.get(r.case_id, 1 << 30))
-    return results

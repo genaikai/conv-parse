@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ragdiag.report import _pad, _w
+from ragdiag.textfmt import pad, text_width
 from ragdiag.schema import Observation
 
 
@@ -68,11 +68,11 @@ def render(scores: dict[str, FieldScore], per_case: dict[str, list[str]],
         "",
         "[1] 관측 필드별 일치율",
     ]
-    width = max((_w(s.field) for s in graded), default=10) + 2
+    width = max((text_width(s.field) for s in graded), default=10) + 2
     for entry in sorted(graded, key=lambda s: (s.rate, -s.total)):
         bar = "█" * round(20 * entry.rate) + "·" * (20 - round(20 * entry.rate))
         lines.append(
-            f"  {_pad(entry.field, width)}{entry.hits:>3}/{entry.total:<3} "
+            f"  {pad(entry.field, width)}{entry.hits:>3}/{entry.total:<3} "
             f"{entry.rate:>5.0%}  {bar}"
         )
 
@@ -80,7 +80,7 @@ def render(scores: dict[str, FieldScore], per_case: dict[str, list[str]],
     if misses:
         lines += ["", "[2] 어긋난 판정"]
         for name, (case_id, want, got) in misses:
-            lines.append(f"  {_pad(name, width)}{case_id:<10} 기대 {want!r} · 실제 {got!r}")
+            lines.append(f"  {pad(name, width)}{case_id:<10} 기대 {want!r} · 실제 {got!r}")
 
     if errors:
         lines += ["", f"[!] 관측 실패 {len(errors)}건"]
@@ -178,29 +178,29 @@ def render_judge(suf: JudgeScore, gnd: JudgeScore) -> str:
             return
         rate = s.verdict_hits / s.verdict_total
         bar = "█" * round(20 * rate) + "·" * (20 - round(20 * rate))
-        lines.append(f"  {_pad(title, 22)}{s.verdict_hits:>3}/{s.verdict_total:<3} "
+        lines.append(f"  {pad(title, 22)}{s.verdict_hits:>3}/{s.verdict_total:<3} "
                      f"{rate:>5.0%}  {bar}{extra}")
 
     block("충족도 verdict (3분류)", suf)
     if suf.verdict_total:
         rate = suf.routing_hits / suf.verdict_total
         bar = "█" * round(20 * rate) + "·" * (20 - round(20 * rate))
-        lines.append(f"  {_pad('sufficient 여부 (2분류)', 22)}{suf.routing_hits:>3}/"
+        lines.append(f"  {pad('sufficient 여부 (2분류)', 22)}{suf.routing_hits:>3}/"
                      f"{suf.verdict_total:<3} {rate:>5.0%}  {bar}   ← 라우팅이 보는 것")
     if suf.citation_total:
         rate = suf.citation_hits / suf.citation_total
         bar = "█" * round(20 * rate) + "·" * (20 - round(20 * rate))
-        lines.append(f"  {_pad('인용 위치', 22)}{suf.citation_hits:>3}/"
+        lines.append(f"  {pad('인용 위치', 22)}{suf.citation_hits:>3}/"
                      f"{suf.citation_total:<3} {rate:>5.0%}  {bar}")
     if suf.downgraded:
-        lines.append(f"  {_pad('인용 실패로 강등', 22)}{suf.downgraded:>3}건")
+        lines.append(f"  {pad('인용 실패로 강등', 22)}{suf.downgraded:>3}건")
     block("근거 활용", gnd)
     for title, score in (("충족도 범주별", suf), ("근거 활용 범주별", gnd)):
         if len(score.by_category) > 1:
             lines.append("")
             lines.append(f"  {title}")
             for cat, (hits, total) in sorted(score.by_category.items(), key=lambda kv: kv[1][0] / kv[1][1]):
-                lines.append(f"    {_pad(cat, 24)}{hits:>3}/{total:<3} {hits / total:>5.0%}")
+                lines.append(f"    {pad(cat, 24)}{hits:>3}/{total:<3} {hits / total:>5.0%}")
 
     lines.append("")
     lines.append(f"  지어낸 인용(원문 대조 실패): "
@@ -213,5 +213,5 @@ def render_judge(suf: JudgeScore, gnd: JudgeScore) -> str:
         lines.append("")
         lines.append("  어긋난 판정")
         for case_id, want, got, note in misses:
-            lines.append(f"    {_pad(case_id, 10)}기대 {want!r} · 실제 {got!r}   ({note})")
+            lines.append(f"    {pad(case_id, 10)}기대 {want!r} · 실제 {got!r}   ({note})")
     return "\n".join(lines)

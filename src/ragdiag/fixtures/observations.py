@@ -723,7 +723,7 @@ def build() -> tuple[dict, dict]:
             "db_dept_name": "관측검증", "db_job_name": "-", "db_position_name": "-",
             "conversations": [{"conversation_id": case["id"], "turns": turns}],
         })
-        from ragdiag.load import mask
+        from ragdiag.conv import mask
 
         expected[f"{mask(user_id)}:{case['id']}:{complaint_turn}"] = {
             "id": case["id"], "note": case["note"], "expect": case["expect"],

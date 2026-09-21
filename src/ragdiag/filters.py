@@ -287,13 +287,13 @@ def to_cases(selected: list[Selected], history_turns: int = 0) -> list[Case]:
 
 def render_steps(spec: Optional[FilterSpec], steps: list[Step]) -> str:
     """spec 이 None 이면 운영 필터가 고른 턴을 받은 경우다 (여기서 건 조건이 없다)."""
-    from ragdiag.report import _pad
+    from ragdiag.textfmt import pad
 
     title = f"필터 적용: {spec.name}" if spec else "운영 필터가 고른 턴을 받음"
     lines = ["=" * 78, title, "=" * 78, ""]
     for step in steps:
         suffix = f"   (-{step.dropped})" if step.dropped else ""
-        lines.append(f"  {_pad(step.name, 36)}{step.remaining:>6}{suffix}")
+        lines.append(f"  {pad(step.name, 36)}{step.remaining:>6}{suffix}")
     if spec and spec.unknown_labels:
         lines += [
             "",

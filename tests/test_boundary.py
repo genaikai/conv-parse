@@ -29,7 +29,7 @@ CORE = [
     "ragdiag.prompts",      # 시스템 프롬프트 4종
     "ragdiag.backends",     # LLM 접속
     "ragdiag.judge",        # 3스텝 호출
-    "ragdiag.decide",
+    "ragdiag.textfmt",      # 터미널 표 정렬 (표시 폭)
     "ragdiag.verify",       # 인용 대조
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
@@ -39,7 +39,6 @@ CORE = [
 
 # 여기 남는 것. 실행 환경에는 그쪽 구현이 있다.
 LOCAL_ONLY = [
-    "ragdiag.load",         # conv_eval 파일 읽기
     "ragdiag.conv",         # conv_eval → Case
     "ragdiag.filters",      # 필터 적용
     "ragdiag.labels",       # query · emotion 라벨표

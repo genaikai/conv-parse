@@ -13,12 +13,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from ragdiag.schema import (  # noqa: F401  (NeedAnalysis는 run.py에서 재사용)
+from ragdiag.schema import (
     Observation,
     Case,
     GroundingCheck,
     LegibilityCheck,
-    NeedAnalysis,
     SufficiencyJudgment,
 )
 
@@ -70,51 +69,6 @@ def output_contract(model: type[BaseModel]) -> str:
         "{\n" + "\n".join(lines) + "\n}"
     )
 
-
-NEED_SYSTEM = """\
-너는 업무 지식 챗봇의 대화 로그를 분석하는 감사자다.
-
-주어지는 것: 사용자의 이전 질문들, 마지막 질문에 대한 챗봇 답변, 그리고 그 답변에
-대한 사용자의 불만.
-
-할 일: 사용자가 무엇을 원했는데 받지 못했는지를 정확히 짚어내는 것.
-
-중요: 검색된 문서는 주어지지 않는다. 이건 의도된 것이다. 너는 오직 사용자 쪽 신호만
-보고 "무엇을 원했는가"를 판단해야 한다. 문서에 무엇이 있었을지 추측하지 마라.
-
-complaint_type 기준:
-- content_gap: 필요한 정보가 답변에 없거나 부족했다. 더 구체적/상세한 것을 원한 경우 포함.
-- wrong_content: 답변에 담긴 정보가 사실과 다르거나 잘못됐다.
-- format_or_style: 내용 자체는 맞는데 길이, 말투, 형식, 구성이 문제다.
-- other: 위 어디에도 맞지 않거나, 불만이 모호해서 판별할 수 없다.
-
-resolved_question은 "그거", "아까 말한 방법" 같은 대명사와 생략을 앞 대화로 모두 풀어서,
-그 문장만 읽어도 무엇을 묻는지 알 수 있게 다시 써라.
-
-context_dependent는 구조로 판별해라. 마지막 질문 문장 하나만 놓고 본다.
-- true: 지시대명사가 있다("그거", "그건", "저것", "아까 그 방법"). 또는 질문의
-  **대상 명사가 통째로 빠져** 무엇에 관한 질문인지 그 문장만으로는 알 수 없다.
-  예: "그거 연장도 가능한가요?" -> 무엇을 연장하는지 문장에 없다 -> true
-- false: 대상 명사가 문장에 있고, 배경이나 수식어만 생략됐다.
-  예: "미주랑 유럽 각각 1일 숙박비 상한 알려주세요" -> "해외 출장"이라는 배경은 빠졌지만
-  대상인 "숙박비 상한"이 문장에 있다 -> false
-
-**확신이 없으면 false다.** 대화의 후속 질문은 거의 언제나 무언가를 생략한다. 생략 자체를
-기준으로 삼으면 대부분이 true가 되어 이 플래그가 아무것도 걸러내지 못한다. 이건 소수의
-명확한 케이스를 짚기 위한 것이다.
-
-unmet_need는 추상적으로 쓰지 마라. "더 자세한 정보"가 아니라 "미주 지역 출장비의
-1일 상한 금액"처럼 검색으로 확인 가능한 수준까지 구체적으로 써라.
-
-다만 **사용자가 요구하지 않은 것을 덧붙이지 마라.** 구체적으로 쓰되, 사용자가 실제로
-표현한 범위 안에서만 구체적이어야 한다.
-"정확한 금액이요"라는 불만에 "직급·부서별 금액표"까지 요구로 적으면, 문서에 금액이
-멀쩡히 있어도 부족하다는 판정이 나온다. 요구를 넓히는 쪽이 좁히는 쪽보다 해롭다 -
-멀쩡한 코퍼스에 아무도 요청하지 않은 문서를 채우게 만들기 때문이다.
-불만이 모호하면 모호한 범위 그대로 적어라. 없는 구체성을 지어내지 마라.
-
-"""
-NEED_SYSTEM += output_contract(NeedAnalysis)
 
 SUFFICIENCY_SYSTEM = """\
 너는 RAG 검색 품질 감사자다.
@@ -226,20 +180,7 @@ def _numbered_chunks(chunks: list[str]) -> str:
     return "\n\n".join(f"[청크 {i}]\n{c}" for i, c in enumerate(chunks))
 
 
-def need_user_message(case: Case) -> str:
-    history = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(case.pre_queries)) or "(없음)"
-    return f"""\
-## 이전 질문들 (시간순, 마지막이 이번 답변을 부른 질문)
-{history}
-
-## 마지막 질문에 대한 챗봇 답변
-{case.llm_ans_on_last_q}
-
-## 그 답변에 대한 사용자의 불만
-{case.current_query}"""
-
-
-def sufficiency_user_message(case: Case, need: NeedAnalysis) -> str:
+def sufficiency_user_message(case: Case, need: Observation) -> str:
     return f"""\
 ## 사용자의 질문
 {need.resolved_question}
@@ -277,7 +218,7 @@ def grounding_user_message(case: Case, question: str = "") -> str:
 # ---------------------------------------------------------------------------
 # Step 1 · 관측 추출 (taxonomy 30개 분류용)
 #
-# NEED_SYSTEM 을 일반화한 것이다. 핵심은 **case 를 고르지 않는다**는 점이다.
+# 핵심은 **case 를 고르지 않는다**는 점이다.
 # 30지선다는 어떤 모델이든 정확도가 안 나오지만, 좁은 질문 8개는 안정적이다.
 # case 는 features/route 가 이 관측값과 코드 검증을 조합해 결정한다.
 # ---------------------------------------------------------------------------

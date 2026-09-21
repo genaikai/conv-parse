@@ -894,7 +894,7 @@ CASES = [
 def build() -> tuple[dict, dict]:
     """실행 로그 모양(pseudo_input)으로 조립한 conv_eval 페이로드와 케이스별 기대값."""
     from ragdiag.labels import EMOTION_LABELS, QUERY_LABELS
-    from ragdiag.load import mask
+    from ragdiag.conv import mask
 
     grades = ["Assistant Engineer", "Engineer", "Senior Engineer", "Staff Engineer",
               "Principal Engineer"]
