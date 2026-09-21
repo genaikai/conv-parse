@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -67,6 +68,12 @@ if not st.runtime.exists():
           "venv 를 activate 하지 않았을 때 command not found 가 납니다.")
 
 from ragdiag import taxonomy as tx
+
+# streamlit 1.49 에서 width= 가 use_container_width= 를 대체했고, 옛 인자는
+# 2025-12-31 이후 제거 예고다. 실행 환경 venv 의 버전을 알 수 없으므로 둘 다 받는다 -
+# 한쪽만 쓰면 어느 버전에서든 그 자리에서 죽고, 화면만 죽는 실패라 알아채기 어렵다.
+_VERSION = tuple(int(x) for x in re.findall(r"\d+", st.__version__)[:2])
+WIDE = {"width": "stretch"} if _VERSION >= (1, 49) else {"use_container_width": True}
 
 CONF_ORDER = ["high", "medium", "low"]
 CONF_LABEL = {"high": "높음 (코드 검증)", "medium": "중간 (LLM+인용)",
@@ -171,7 +178,9 @@ def load(path: str) -> pd.DataFrame:
                     "원한것": obs.get("unmet_need", ""),
                     "불만유형": obs.get("complaint_target", ""),
                     "질문성격": obs.get("question_domain", ""),
-                    "충족도": suf.get("verdict", ""),
+                    # 인용 대조를 거친 값. 옛 결과 파일에는 없어서 원판정으로 떨어진다.
+                    "충족도": suf.get("final_verdict") or suf.get("verdict", ""),
+                    "충족도원판정": suf.get("verdict", ""),
                     "없던것": suf.get("missing", ""),
                     "인용수": len(suf.get("evidence", [])),
                     "폐기인용": len(suf.get("dropped_evidence", [])),
@@ -593,7 +602,7 @@ def _distribution(view: pd.DataFrame) -> None:
                         lambda o: str(o.get("llm_ans_on_last_q", ""))[:120]),
                     "후속 발화": view.loc[is_zero, "_원본"].map(
                         lambda o: str(o.get("current_query", ""))),
-                }), use_container_width=True, hide_index=True,
+                }), **WIDE, hide_index=True,
                 column_config={
                     "후속 발화": st.column_config.TextColumn("후속 발화", width="large"),
                     "앞 답변": st.column_config.TextColumn("앞 답변", width="medium")})
@@ -767,7 +776,7 @@ def _by_org(view: pd.DataFrame, org: dict) -> None:
     st.caption(f"실패 {len(failures):,}건 기준 · "
                f"case0·판정 실패 {int(dropped.sum()):,}건은 뺐다")
     st.dataframe(baseline_row(table, table.sum(axis=0)),
-                 use_container_width=True,
+                 **WIDE,
                  column_config=case_tooltips(table.columns))
 
     # 색이 무엇을 가리킬지 고르게 한다.
@@ -797,7 +806,7 @@ def _by_org(view: pd.DataFrame, org: dict) -> None:
                "무슨 문제인지 나온다")
     st.dataframe(
         body.style.apply(lambda _: paint.map(heat), axis=None),
-        use_container_width=True,
+        **WIDE,
         column_config=case_tooltips(body.columns, numeric=False))
 
     _outliers(counts, ratio, axis, crossed if crossed in ORG_AXES else "무엇이")
@@ -860,7 +869,7 @@ def _outliers(counts: pd.DataFrame, ratio: pd.DataFrame, axis: str,
                "표본이 작으면 배수는 쉽게 커지므로 건수를 함께 본다.")
     st.dataframe(
         pd.DataFrame(found).sort_values("배수", ascending=False),
-        use_container_width=True, hide_index=True,
+        **WIDE, hide_index=True,
         column_config={
             "배수": st.column_config.NumberColumn(
                 "기대 대비", format="%.1f×",
@@ -905,7 +914,7 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
     # 표가 맞다 - 정렬 축(막힌 부서 수)이 곧 우선순위다.
     st.dataframe(
         grouped[["원한것", "부서수", "건수", "부서", "질문"]],
-        use_container_width=True, hide_index=True,
+        **WIDE, hide_index=True,
         column_config={
             "원한것": st.column_config.TextColumn("필요한 문서", width="medium"),
             "부서수": st.column_config.NumberColumn(
@@ -927,7 +936,7 @@ def _cases(view: pd.DataFrame) -> None:
              "신뢰도": CONF_LABEL.get(case.confidence, "—") if case else "—",
              "설명": tx.desc(cid)}
             for cid, n in counts.items()
-        ]), use_container_width=True, hide_index=True)
+        ]), **WIDE, hide_index=True)
 
     st.subheader("개별 케이스")
     st.caption("**행을 누르면** 그 케이스의 판정 근거가 아래에 펼쳐진다. "
@@ -998,7 +1007,7 @@ def _cases(view: pd.DataFrame) -> None:
     compact.iloc[state.case_idx, 0] = True
 
     edited = st.data_editor(
-        compact, use_container_width=True, height=280, hide_index=True,
+        compact, **WIDE, height=280, hide_index=True,
         key=f"cases-{state.case_nonce}",
         disabled=[c for c in compact.columns if c != "보기"],
         column_config={
@@ -1042,12 +1051,12 @@ def _navigate(state, total: int, where: str) -> bool:
     """
     back, position, forward = st.columns([1, 2, 1])
     moved = False
-    if back.button("← 이전", key=f"prev-{where}", use_container_width=True,
+    if back.button("← 이전", key=f"prev-{where}", **WIDE,
                    disabled=state.case_idx <= 0):
         state.case_idx -= 1
         moved = True
     position.markdown(f"**{state.case_idx + 1} / {total}**")
-    if forward.button("다음 →", key=f"next-{where}", use_container_width=True,
+    if forward.button("다음 →", key=f"next-{where}", **WIDE,
                       disabled=state.case_idx >= total - 1):
         state.case_idx += 1
         moved = True
@@ -1100,7 +1109,14 @@ def detail(row: pd.Series) -> None:
         st.caption(tx.desc(row["case"]))
     meta = st.columns(4)
     meta[0].metric("신뢰도", CONF_LABEL.get(row["신뢰도"], row["신뢰도"]))
-    meta[1].metric("충족도", row["충족도"] or "—")
+    # 강등됐으면 그 사실이 보여야 한다. sufficient 라고 했는데 case20 이면 화면이
+    # 파이프라인과 다른 말을 하는 것이고, 이 패널의 존재 이유가 그 설명이다.
+    demoted = row["충족도원판정"] and row["충족도원판정"] != row["충족도"]
+    meta[1].metric("충족도", row["충족도"] or "—",
+                   delta=f"LLM 은 {row['충족도원판정']}" if demoted else None,
+                   delta_color="inverse" if demoted else "off",
+                   help="인용 대조를 거친 값. 인용이 하나도 안 살아남으면 "
+                        "sufficient · partial 도 insufficient 로 내린다.")
     meta[2].metric("근거 활용", row["근거활용"] or "—")
     # llm_calls 는 **이번 실행에서 실제로 부른 횟수**다. 캐시가 맞으면 0 이 된다.
     # 그대로 "LLM 호출 0" 이라 적으면 case22 처럼 LLM 이 세 번 필요한 판정도
@@ -1167,7 +1183,7 @@ def detail(row: pd.Series) -> None:
     with third:
         # Step 1·2 는 자기 칸이 있는데 Step 3 만 지표 하나로 끝났다. 무엇을
         # 봤고 무슨 뜻인지가 없으면 case22 와 case18 이 왜 갈렸는지 알 수 없다.
-        st.markdown("**Step 3 · 근거 활용** — 질문과 불만을 주지 않고 답변과 문서만 본다")
+        st.markdown("**Step 3 · 근거 활용** — 불만을 주지 않고 질문 · 답변 · 문서만 본다")
         used = row["근거활용"]
         meaning = {"used": "문서를 썼다. 그런데도 불만이면 기대와 다른 것이다",
                    "ignored": "문서에 답이 있는데 답변이 쓰지 않았다 (case22)",
@@ -1186,7 +1202,7 @@ def detail(row: pd.Series) -> None:
                    "무엇을 말하든 이쪽이 이긴다.")
         checks = pd.DataFrame(row["검증"])
         st.dataframe(
-            checks, use_container_width=True, hide_index=True,
+            checks, **WIDE, hide_index=True,
             column_config={
                 "name": st.column_config.TextColumn("무엇을"),
                 "verdict": st.column_config.TextColumn(

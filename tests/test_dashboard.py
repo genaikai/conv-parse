@@ -1317,3 +1317,43 @@ def test_the_judged_answer_gets_the_widest_column(result_file):
                if getattr(getattr(c, "proto", None), "weight", None)]
     assert [0.2, 0.6, 0.2] in [weights[i:i + 3] for i in range(len(weights) - 2)], (
         f"1:3:1 인 줄이 없다: {weights}")
+
+
+def test_detail_shows_the_demoted_sufficiency_not_the_raw_one(result_file, tmp_path):
+    """인용이 다 폐기되어 case20 으로 간 턴이 sufficient 로 뜨면 화면이 라우팅과
+    다른 말을 한다. 강등된 값을 보이고, 원판정은 그 옆에 적는다."""
+    payload = json.loads(result_file.read_text(encoding="utf-8"))
+    turns = [t for u in payload["analysis_results"]
+             for c in u["conversations"] for t in c["turns"]]
+    turns[0]["classification"]["evidence"]["sufficiency"] = {
+        "verdict": "sufficient", "final_verdict": "insufficient", "missing": "금액",
+        "evidence": [], "dropped_evidence": [{"reason": "not_found", "quote": "지어낸 문장"}]}
+    log = tmp_path / "demoted.json"
+    log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    at = render(log)
+    metric = next(m for m in at.tabs[2].metric if m.label == "충족도")
+    assert metric.value == "insufficient", metric.value
+    assert "sufficient" in str(metric.delta), metric.delta
+
+
+def test_old_result_files_without_final_verdict_still_render(result_file, tmp_path):
+    """final_verdict 가 생기기 전 파일도 열려야 한다 - 결과는 실행마다 쌓인다."""
+    payload = json.loads(result_file.read_text(encoding="utf-8"))
+    for u in payload["analysis_results"]:
+        for c in u["conversations"]:
+            for t in c["turns"]:
+                suf = (t["classification"].get("evidence") or {}).get("sufficiency")
+                if suf:
+                    suf.pop("final_verdict", None)
+    log = tmp_path / "old.json"
+    log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    at = render(log)
+    assert not at.exception, [e.value for e in at.exception]
+
+
+def test_no_deprecated_width_argument_is_used():
+    """use_container_width 는 2025-12-31 이후 제거 예고다. 버전에 맞는 인자를 고른다."""
+    source = DASHBOARD.read_text(encoding="utf-8")
+    assert "use_container_width=True" not in source
+    assert source.count("**WIDE") >= 10

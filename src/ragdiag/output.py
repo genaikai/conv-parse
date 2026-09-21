@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from typing import Optional
 
 from ragdiag.results import TurnResult
+from ragdiag.verify import final_verdict
 if TYPE_CHECKING:                      # 런타임 의존을 만들지 않는다.
     # 쓰는 것은 .user 와 .conversation_id 두 개뿐이다. 실행 환경에서는 그쪽
     # 파서가 만든 객체가 들어올 수 있으므로 런타임에 conv 를 붙들지 않는다.
@@ -64,6 +65,9 @@ def _evidence_payload(result: TurnResult) -> dict:
     if result.judgment:
         payload["sufficiency"] = {
             "verdict": result.judgment.verdict,
+            # 인용 대조를 거친 값. 라우팅이 보는 것은 이쪽이다 - verdict 만 실으면
+            # 인용이 다 폐기되어 case20 으로 간 턴이 화면에 sufficient 로 뜬다.
+            "final_verdict": final_verdict(result.judgment, result.citation),
             "missing": result.judgment.missing,
             "evidence": [
                 {"chunk_index": e.chunk_index, "quote": e.quote,

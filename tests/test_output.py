@@ -168,3 +168,28 @@ def test_output_is_json_serializable():
 def test_summary_reports_case_and_confidence():
     text = summarize(_pairs())
     assert "case20" in text and "medium" in text
+
+
+def test_sufficiency_carries_the_verdict_after_citation_check():
+    """화면이 읽는 것은 강등 후 값이다.
+
+    verdict 만 실으면 인용이 다 폐기되어 case20 으로 간 턴이 대시보드에
+    sufficient 로 떠서, 화면이 라우팅과 다른 말을 한다.
+    """
+    conv = parse_conversations(RAW)[0]
+    case = to_case(conv, 2)
+    demoted = TurnResult(
+        case=case, observation=obs(), checks=checks(),
+        judgment=judgment("sufficient"), citation=citation(0),
+        classification=route(obs(), checks(), judgment("sufficient"), citation(0)))
+    suf = build_output([(conv, demoted)])["analysis_results"][0]["conversations"][0]["turns"][0][
+        "classification"]["evidence"]["sufficiency"]
+    assert (suf["verdict"], suf["final_verdict"]) == ("sufficient", "insufficient")
+
+    kept = TurnResult(
+        case=case, observation=obs(), checks=checks(),
+        judgment=judgment("sufficient"), citation=citation(1),
+        classification=route(obs(), checks(), judgment("sufficient"), citation(1)))
+    suf = build_output([(conv, kept)])["analysis_results"][0]["conversations"][0]["turns"][0][
+        "classification"]["evidence"]["sufficiency"]
+    assert suf["final_verdict"] == "sufficient"
