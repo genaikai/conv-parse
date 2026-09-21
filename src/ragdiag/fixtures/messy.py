@@ -516,7 +516,8 @@ CASES = [
         complaint="이게 끝이에요?",
         chunks=[],
         expect=dict(),
-        expect_case={"unclassified"},
+        # "답이 없다" 로 읽으면 미분류, 코드 질문의 깨진 코드로 읽으면 case27 - 둘 다 맞다
+        expect_case={"unclassified", "case27"},
     ),
 
     # 생성 붕괴 (case30) - 코드가 LLM 전에 닫는다

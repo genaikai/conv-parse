@@ -164,11 +164,16 @@ def scenarios():
         yield f"rich|missing|sufficient|used|{mode}"
 
 
+# 붕괴 시나리오의 답변 꼬리. 자모 조각과 같은 낱말의 되풀이 - 흔적 검사가 잡는 모양이다.
+BROKEN_TAIL = " ㅁㄴㅇㄹ the the the 승인을을을"
+
+
 def make_case(scenario: str) -> Case:
     text = TEXTS[scenario.split("|")[0]]
+    answer = text["answer"] + (BROKEN_TAIL if scenario.endswith("|illegible") else "")
     return Case(case_id=scenario, user_id="u", dept="d", job_grade="g", job_name="j",
                 position_name="p", conversation_id="c", turn=2,
-                pre_queries=text["pre_queries"], llm_ans_on_last_q=text["answer"],
+                pre_queries=text["pre_queries"], llm_ans_on_last_q=answer,
                 current_query=COMPLAINT, rag_chunks=text["chunks"])
 
 
@@ -188,8 +193,9 @@ class ScriptedJudge:
     def check_legibility(self, case):
         _, _, _, mode = self._parts(case)
         if mode == "illegible":
-            # 답변 전체를 따온다 - 인용 대조를 통과해 여기서 case30 으로 끝난다
-            return (LegibilityCheck(reasoning="토큰이 뒤섞임", quote=case.llm_ans_on_last_q,
+            # 붕괴 흔적이 있는 꼬리를 따온다 - 인용 대조와 흔적 검사를 통과해 case30 으로 끝난다.
+            # 멀쩡한 글을 통째로 따오면 흔적이 없어 무효가 된다 (그게 설계다).
+            return (LegibilityCheck(reasoning="토큰이 뒤섞임", quote=BROKEN_TAIL.strip(),
                                     legible=False), self._usage(mode))
         return LegibilityCheck(reasoning="r", quote="", legible=True), self._usage(mode)
 

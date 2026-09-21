@@ -100,3 +100,16 @@ def test_output_carries_the_legibility_block():
     turn = _run(_Judge(legible=False, quote="지어낸 구절입니다"))
     ev = _evidence_payload(turn)
     assert ev["legibility"] == {"legible": False, "quote": "지어낸 구절입니다", "quote_verified": False}
+
+
+def test_a_quote_from_inside_a_code_block_voids_the_judgment():
+    """코드는 문법이 틀리거나 도중에 끝나도 붕괴가 아니다 - 코드 검증기의 일이다."""
+    from ragdiag.features.legibility import inside_code_block
+
+    answer = "```sql\nSELECT emp_no FROM trip_expense GROUP BY\n```"
+    assert inside_code_block(answer, "SELECT emp_no FROM trip_expense GROUP BY")
+    assert inside_code_block("```python\nprint(f\n", "print(f")           # 안 닫힌 펜스
+    assert not inside_code_block("연차는 15일입니다. ㅁㄴㅇㄹ", "ㅁㄴㅇㄹ")
+
+    turn = _run(_Judge(legible=False, quote="SELECT emp_no FROM trip_expense GROUP BY"), answer=answer)
+    assert turn.classification is None and turn.legibility_quote.verified

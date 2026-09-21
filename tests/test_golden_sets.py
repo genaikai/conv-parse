@@ -217,6 +217,6 @@ def test_legibility_golden_set_is_well_formed():
     ids = [c["id"] for c in judgments.LEGIBILITY]
     assert len(ids) == len(set(ids))
     assert sum(not c["legible"] for c in judgments.LEGIBILITY) == 22
-    assert sum(c["legible"] for c in judgments.LEGIBILITY) == 44, "정상을 붕괴의 두 배로 둔다 - 재는 것이 오탐이다"
+    assert sum(c["legible"] for c in judgments.LEGIBILITY) == 50, "정상을 붕괴의 두 배 이상으로 둔다 - 재는 것이 오탐이다"
     caught = [c["id"] for c in judgments.LEGIBILITY if check_degenerate(c["answer"]).violated]
     assert not caught, f"코드 규칙이 먼저 잡는다: {caught}"
