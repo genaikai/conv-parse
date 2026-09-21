@@ -10,6 +10,7 @@
 |---|---|
 | [docs/process_flow.md](docs/process_flow.md) | 단계별 입력 · 출력, 일부러 안 쓰는 입력과 그 이유 |
 | [docs/taxonomy.md](docs/taxonomy.md) | case 전체 목록과 이 로그로 판정 가능한지 여부 |
+| [docs/design/](docs/design/) | 단계별 개선 기록 — 무엇을 재고 왜 그렇게 정했나 (관측 · 충족도 · 근거 활용 · 읽기) |
 
 ## 무엇을 하나
 
@@ -66,10 +67,10 @@ filter    ─┴─▶ 파싱 → 턴 고르기 → 짝짓기 (불만 턴 N+1 �
                  → 생성 붕괴?         코드   5555… · !!!!… 같은 반복이면 case30 으로 끝
                  → 읽을 수 있나?     LLM    답변만 본다 · 토큰 잡탕이면 case30 으로 끝
                  → Step 1 관측         LLM    문서를 주지 않는다
-                 → 코드 검증기 11종    코드   언어 · 포맷 · 개인정보 · 인용 · 계산 …
+                 → 코드 검증기 10종    코드   언어 · 포맷 · 개인정보 · 인용 · 계산 …
                  → Step 2 충족도       LLM    답변을 주지 않는다   (도메인 + 내용 불만일 때만)
                  → 인용 대조           코드   지어낸 인용을 버린다
-                 → Step 3 근거 활용    LLM    질문을 주지 않는다   (문서가 충분할 때만)
+                 → Step 3 근거 활용    LLM    불만을 주지 않는다   (문서가 충분할 때만)
                  → 라우팅              코드   관측 + 검증 → case
 ```
 
@@ -83,8 +84,13 @@ filter    ─┴─▶ 파싱 → 턴 고르기 → 짝짓기 (불만 턴 N+1 �
 - **case 는 LLM 이 고르지 않는다.** 30지선다는 정확도가 안 나오고, 한 번에 물으면 결론을 먼저
   정하고 관측을 끼워 맞춘다. 좁은 관측만 LLM 에 묻고 조합은 `features/route/` 의 진리표가 한다 —
   taxonomy 를 고쳐도 LLM 을 다시 돌리지 않는다.
-- **단계마다 입력을 일부러 뺀다.** 관측은 문서를 안 봐야 요구를 문서 쪽으로 끌어오지 않고,
-  충족도는 답변을 안 봐야 답변 품질을 문서 품질로 착각하지 않는다.
+- **단계마다 입력을 일부러 뺀다.** 읽기는 답변만 봐야 "질문에 맞는 답인가" 를 재지 않고,
+  관측은 문서를 안 봐야 요구를 문서 쪽으로 끌어오지 않고, 충족도는 답변을 안 봐야 답변
+  품질을 문서 품질로 착각하지 않고, 근거 활용은 불만을 안 봐야 "화났으니 안 썼겠지" 가 되지
+  않는다. 각 단계에 다른 단계의 결론을 유추하게 만드는 입력은 주지 않는다.
+- **약한 모델에서 프롬프트로 안 되는 것은 코드로 한다.** 요구 좁히기(`narrow_need`) · 인용
+  대조 · 생성 붕괴 규칙이 그렇다. 판단은 Haiku 생각 끔으로 골든셋을 3회 돌려 내린다
+  (`docs/design/`).
 - **"문서에 답이 있다"는 인용으로 증명해야 한다.** 판정자가 댄 인용을 코드가 원문과 대조하고,
   살아남은 인용이 없으면 insufficient 로 강등한다. 판정자의 사전지식이 섞이는 것을 구조로 막는다.
 
@@ -155,7 +161,7 @@ case 는 증상이 아니라 **누가 고치는가**로 묶인다. 같은 "답�
 | `failed at` | 실패가 몰린 단계 |
 
 기능(판정 단계 · 검증기 · 집계)을 더하려면 `src/ragdiag/features/template/` 을 복사하고
-`features/__init__.py` 의 `FEATURES` 에 한 줄 더한다. LLM 없이 case 를 바로 확정하는 규칙은
+`features/__init__.py` 의 `JUDGES`(판정, 턴 단위로 돈다) 또는 `REPORTS`(집계, 끝난 뒤 한 번) 에 한 줄 더한다. LLM 없이 case 를 바로 확정하는 규칙은
 `features/short_circuit/_template.py` 를 복사하고 그 폴더의 `RULES` 에 한 줄 더한다.
 
 ## 실행
@@ -177,7 +183,8 @@ export LLM_API_KEY=<키>
 | `--limit N` · `--workers N` | 앞에서 N건만 · 동시 판정 턴 수 |
 | `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
 | `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄 — `(실패 N · 포기 M)` 까지) |
-| `--golden` · `--legacy-regression` | 판정 품질 채점 · 회귀 기준선 23건 |
+| `--golden` · `--golden-set {observations,messy,sufficiency}` | 골든셋 채점 — 관측 65 · 라우팅 78 · 충족도 78 + 인용 대조. 실행 환경의 모델로 그대로 돌릴 수 있다 |
+| `--legacy-regression` | 구 파이프라인 회귀 기준선 23건 |
 | `--output-dir` · `--out` | 결과 위치 (기본 `./output`) |
 
 설정 우선순위는 **CLI > 설정 파일 > 환경변수 > 기본값**이다. 모든 키는
@@ -192,6 +199,9 @@ python src/run.py --config configs/env.yaml --dry-run
 - `llm_eval` · `llm_emotion` 의 **라벨 표는 `configs/query_taxonomy.md` · `configs/emotion_taxonomy.md`**
   에 있고 저장소에 함께 다닌다(형식: `A. 이름 -> 점수`). 분류 체계가 바뀌면 이 문서만 고친다.
   다른 점수표로 돌려보려면 `labels.query` · `labels.emotion` 으로 덮어쓴다.
+- 실행 환경에서는 `llm.timeout_sec` 를 **120 정도로** 낮추는 것을 권한다. 낙오 기준이 서기 전(절반이
+  끝나기 전)에 걸린 턴은 HTTP 타임아웃까지 기다리는데, 기본 600초는 사실상 무한 대기다.
+- `run.legibility: false` 면 읽기(④′) 호출이 빠진다 — 코드 규칙(5555… · !!!!…)은 그대로 돈다.
 - claude CLI · Anthropic API 로 판정하려면 `tools/dev_run.py` — 인자와 코드 경로가 같다.
 
 ## 대시보드
@@ -203,7 +213,9 @@ python src/run.py --config configs/env.yaml --dry-run
 
 `./output` 의 가장 최근 결과를 읽어 case 분포, 팀별로 겪는 실패, 유독 많은 case, 문서 보강 목록,
 개별 케이스의 판정 근거를 보여준다. 그보다 먼저 볼 **판정 건강**(지어낸 인용 · 신뢰도 낮음 ·
-미분류 · 서비스 오류 · 정상 건수)이 맨 위에 나온다 — 여기가 나쁘면 아래 집계를 믿을 수 없다.
+미분류 · 서비스 오류 · 생성 붕괴 · 정상 건수)이 맨 위에 나온다 — 여기가 나쁘면 아래 집계를 믿을 수 없다.
+사이드바에서 `output/` 의 다른 실행 결과로 바꿀 수 있고(옛 `conv_parsed_*.json` 도 찾는다),
+문서팀 · 필터 담당에게 넘기는 표(코퍼스 보강 · 유독 많은 것 · 필터 오탐)는 CSV 로 내려받는다.
 조직 분류 JSON 은 없어도 돈다 — 부서 · 직급이 로그 원본 값으로 나올 뿐이다.
 
 ## 구조
@@ -214,7 +226,8 @@ src/
   dashboard.py        대시보드
   ragdiag/
     features/         기능 등록부 — FEATURES 순서가 곧 판정 순서
-      short_circuit/                          LLM 전에 case 를 확정하는 규칙들 (service_error …)
+      short_circuit/                          LLM 전에 case 를 확정하는 규칙들 (service_error · degenerate)
+      legibility/                             ④′ 읽을 수 있는 글인가 — LLM, 답변만 본다
       observe/  sufficiency/  grounding/      LLM 판정 — Step 1 · 2 · 3
       complaint_quote/  request_quote/  citation/   판정자가 댄 인용을 원문과 대조
       pii/  language/  format/  arithmetic/ …  코드 검증기 10개
@@ -225,7 +238,7 @@ src/
     results.py · verify.py · taxonomy.py      턴 판정 결과 · 인용 대조 · case 메타데이터
     output.py · pipeline.py · progress.py     출력 JSON · 단계별 함수 · 진행 표시
     __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
-    fixtures/         합성 데이터 · 골든셋 · 회귀셋 (코드로 생성)
+    fixtures/         합성 데이터 · 골든셋 다섯 벌(관측 · 라우팅 · 충족도 · 근거 활용 · 읽기) · 공개 규정 청크
     load.py · decide.py · report.py   구 파이프라인 전용 — 새 코드에서 쓰지 않는다
 tools/                개발 장비 전용 (claude CLI · API 백엔드, 구 파이프라인)
 ```
