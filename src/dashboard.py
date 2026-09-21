@@ -68,6 +68,7 @@ if not st.runtime.exists():
           "venv 를 activate 하지 않았을 때 command not found 가 납니다.")
 
 from ragdiag import taxonomy as tx
+from ragdiag.features.sufficiency import narrow_need
 
 # streamlit 1.49 에서 width= 가 use_container_width= 를 대체했고, 옛 인자는
 # 2025-12-31 이후 제거 예고다. 실행 환경 venv 의 버전을 알 수 없으므로 둘 다 받는다 -
@@ -176,6 +177,11 @@ def load(path: str) -> pd.DataFrame:
                     "주의": cls.get("notes", []),
                     "질문": obs.get("resolved_question", ""),
                     "원한것": obs.get("unmet_need", ""),
+                    # Step 2 에 실제로 간 요구. Step 1 은 "정확한 금액이요" 에 절차 · 서류 ·
+                    # 기한을 덧붙이는 버릇이 있어, unmet_need 로 묶으면 같은 요구가
+                    # 부풀린 꼬리만큼 여러 줄로 흩어진다.
+                    "요구": narrow_need(obs.get("unmet_need", ""),
+                                      bool(obs.get("question_multi_intent"))),
                     "불만유형": obs.get("complaint_target", ""),
                     "질문성격": obs.get("question_domain", ""),
                     # 인용 대조를 거친 값. 옛 결과 파일에는 없어서 원판정으로 떨어진다.
@@ -183,7 +189,13 @@ def load(path: str) -> pd.DataFrame:
                     "충족도원판정": suf.get("verdict", ""),
                     "없던것": suf.get("missing", ""),
                     "인용수": len(suf.get("evidence", [])),
-                    "폐기인용": len(suf.get("dropped_evidence", [])),
+                    # 폐기 사유를 가른다. not_found 만 "지어낸 것" 이다 - too_short 는
+                    # 판정자가 너무 짧게 잘라 온 것이라 문서에 있는 문장일 수 있다.
+                    # 둘을 합쳐 세면 경고가 실제보다 크게 뜬다 (실측: 폐기 12건 중 지어낸 것 0).
+                    "지어낸인용": sum(1 for d in suf.get("dropped_evidence", [])
+                                   if d.get("reason", "not_found") != "too_short"),
+                    "짧은인용": sum(1 for d in suf.get("dropped_evidence", [])
+                                 if d.get("reason") == "too_short"),
                     "근거활용": (evidence.get("grounding") or {}).get("answer_used_rag", ""),
                     "검증": evidence.get("checks", []),
                     "LLM호출": cls.get("llm_calls", 0),
@@ -220,11 +232,22 @@ def load_org(dept_path: str | None, job_path: str | None, records: list[dict]):
     return result
 
 
+@st.cache_data
 def flat_records(path: str) -> list[dict]:
     """조직 필드 판별용 - 사용자 레코드만 뽑는다."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     return [{k: v for k, v in u.items() if k != "conversations"}
             for u in raw.get("analysis_results", [])]
+
+
+def download(df: pd.DataFrame, name: str) -> None:
+    """표를 CSV 로. 문서팀 · 필터 담당에게 그대로 넘기는 표에만 붙인다.
+
+    utf-8-sig 인 이유는 엑셀이다. BOM 이 없으면 한글이 깨진 채 열리고, 받는 쪽은
+    엑셀로 연다.
+    """
+    st.download_button("CSV 내려받기", data=df.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"{name}.csv", mime="text/csv", key=f"dl-{name}")
 
 
 # 판별된 로그 필드 -> 화면의 축. job_grade 는 여기 없다 - 직급은
@@ -492,7 +515,8 @@ def main() -> None:
     # --- 판정 건강 지표 (라벨 분포보다 먼저) ---------------------------------
     st.subheader("판정 건강")
     st.caption("라벨 분포보다 먼저 볼 숫자다. 여기가 나쁘면 아래 집계를 믿을 수 없다.")
-    dropped = int(view["폐기인용"].sum())
+    dropped = int(view["지어낸인용"].sum())
+    short = int(view["짧은인용"].sum())
     low = int((view["신뢰도"] == "low").sum())
     unclassified = int(view["case"].isin(["unclassified", "out_of_taxonomy"]).sum())
 
@@ -509,8 +533,9 @@ def main() -> None:
                    delta=f"-{normal} 정상" if normal else None, delta_color="off",
                    help="case0(정상)을 빼면 실제 실패 건수가 된다.")
     cols[1].metric("지어낸 인용", dropped,
-                   help="판정자가 제시한 인용이 원문과 대조되지 않은 건수. "
-                        "크면 사전지식 오염을 의심해야 한다.")
+                   help="판정자가 제시한 인용이 원문 어디에도 없는 건수(not_found). "
+                        "크면 사전지식 오염을 의심해야 한다. 너무 짧아서 버린 인용"
+                        "(too_short)은 여기 안 센다 - 문서에 있는 문장일 수 있다.")
     cols[2].metric("신뢰도 낮음", low,
                    help="판정 근거가 판정자의 사전지식뿐인 케이스")
     cols[3].metric("미분류", unclassified,
@@ -532,6 +557,9 @@ def main() -> None:
                 "검색·생성 품질 지표에서 빼고 읽어야 한다 — 고칠 곳은 인프라다.", icon="🔌")
     if dropped:
         st.warning(f"지어낸 인용이 {dropped}건 있다. 해당 케이스의 판정을 먼저 확인할 것.")
+    if short:
+        st.caption(f"짧아서 버린 인용 {short}건은 위 숫자에 넣지 않았다 - 판정자가 원문을 "
+                   "너무 짧게 잘라 온 것이라 지어낸 것과 다르다.")
 
     # --- 분포 ---------------------------------------------------------------
     # 절을 탭으로 가른다. 한 화면에 다 쌓으면 태블릿에서 계속 스크롤해야 하고,
@@ -595,17 +623,19 @@ def _distribution(view: pd.DataFrame) -> None:
         with st.expander(f"필터 오탐 {int(is_zero.sum()):,}건 — 어떤 발화가 걸렸나"):
             st.caption("앞 답변을 문제 삼지 않은 후속 발화다. 챗봇이 아니라 "
                        "필터의 어느 조건이 이걸 골랐는지를 본다.")
+            false_positives = pd.DataFrame({
+                "부서": view.loc[is_zero, "부서"],
+                "앞 답변": view.loc[is_zero, "_원본"].map(
+                    lambda o: str(o.get("llm_ans_on_last_q", ""))[:120]),
+                "후속 발화": view.loc[is_zero, "_원본"].map(
+                    lambda o: str(o.get("current_query", ""))),
+            })
             st.dataframe(
-                pd.DataFrame({
-                    "부서": view.loc[is_zero, "부서"],
-                    "앞 답변": view.loc[is_zero, "_원본"].map(
-                        lambda o: str(o.get("llm_ans_on_last_q", ""))[:120]),
-                    "후속 발화": view.loc[is_zero, "_원본"].map(
-                        lambda o: str(o.get("current_query", ""))),
-                }), **WIDE, hide_index=True,
+                false_positives, **WIDE, hide_index=True,
                 column_config={
                     "후속 발화": st.column_config.TextColumn("후속 발화", width="large"),
                     "앞 답변": st.column_config.TextColumn("앞 답변", width="medium")})
+            download(false_positives, "filter_false_positives")
 
     if failures.empty:
         st.info("실패로 분류된 턴이 없습니다.")
@@ -678,7 +708,7 @@ def _suspect_first(view: pd.DataFrame) -> pd.DataFrame:
     폐기된 인용이 있으면 판정자가 문서에 없는 문장을 지어냈다는 뜻이라 제일 먼저
     본다. 그 다음이 신뢰도 낮음(사전지식 의존), 분류 실패, 부가 케이스가 붙은 것.
     """
-    return view.assign(_의심=(view["폐기인용"].fillna(0) * 4
+    return view.assign(_의심=(view["지어낸인용"].fillna(0) * 4
                              + (view["신뢰도"] == "low") * 3
                              + view["case"].isin([tx.UNCLASSIFIED,
                                                   tx.OUT_OF_TAXONOMY]) * 2
@@ -877,6 +907,7 @@ def _outliers(counts: pd.DataFrame, ratio: pd.DataFrame, axis: str,
             "턴": st.column_config.NumberColumn("턴"),
             "전사에서는": st.column_config.TextColumn(
                 "전사 비율", help="이 case 가 전체 실패에서 차지하는 비율")})
+    download(pd.DataFrame(found).sort_values("배수", ascending=False), "outliers")
 
 
 def _corpus_gaps(view: pd.DataFrame) -> None:
@@ -888,13 +919,16 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
     문서팀이 받는 것은 "쓸 문서 목록"이므로 요구를 축으로 세운다.
     """
     gaps = view[view["case"].isin(["case20"]) & (view["없던것"] != "")]
-    grouped = (gaps.groupby("원한것")
+    # 묶는 축은 코드로 좁힌 요구(Step 2 가 실제로 본 것)다. 없던것은 Step 2 가 문서를
+    # 보고 적은 더 정확한 문장이지만 표현이 매번 달라 묶는 축으로는 못 쓴다 - 대표로 보인다.
+    grouped = (gaps.groupby("요구")
                .agg(건수=("질문", "size"),
                     부서=("부서", lambda x: " · ".join(sorted(set(x)))),
                     부서수=("부서", lambda x: len(set(x))),
+                    없던것=("없던것", "first"),
                     질문=("질문", "first"))
                .reset_index()
-               .sort_values(["부서수", "건수", "원한것"], ascending=[False, False, True]))
+               .sort_values(["부서수", "건수", "요구"], ascending=[False, False, True]))
 
     st.subheader(f"코퍼스 보강 목록 ({len(grouped)}종)")
     st.caption("문서에 없어서 답할 수 없었던 것. 문서팀에 그대로 넘길 수 있는 목록이다. "
@@ -912,16 +946,22 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
     # 마크다운 목록이었다. 항목이 스무 개면 회색 잔글씨 마흔 줄이 되어 읽히지
     # 않고, 정렬도 검색도 복사도 안 된다. 문서팀에 그대로 넘기는 목록이라
     # 표가 맞다 - 정렬 축(막힌 부서 수)이 곧 우선순위다.
+    table = grouped[["요구", "없던것", "부서수", "건수", "부서", "질문"]]
     st.dataframe(
-        grouped[["원한것", "부서수", "건수", "부서", "질문"]],
+        table,
         **WIDE, hide_index=True,
         column_config={
-            "원한것": st.column_config.TextColumn("필요한 문서", width="medium"),
+            "요구": st.column_config.TextColumn("필요한 문서", width="medium"),
+            "없던것": st.column_config.TextColumn(
+                "문서에 없던 것", width="medium",
+                help="Step 2 가 문서를 보고 적은 것. 같은 요구라도 표현이 조금씩 다르다"),
             "부서수": st.column_config.NumberColumn(
                 "막힌 부서", help="여러 부서가 같은 것에 막혔으면 공통 문서가 비어 있다"),
             "건수": st.column_config.NumberColumn("턴"),
             "부서": st.column_config.TextColumn("어느 부서", width="medium"),
             "질문": st.column_config.TextColumn("대표 질문", width="large")})
+    download(table.rename(columns={"요구": "필요한 문서", "없던것": "문서에 없던 것",
+                                   "부서수": "막힌 부서", "건수": "턴"}), "corpus_gaps")
 
 
 def _cases(view: pd.DataFrame) -> None:

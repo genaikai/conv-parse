@@ -1357,3 +1357,64 @@ def test_no_deprecated_width_argument_is_used():
     source = DASHBOARD.read_text(encoding="utf-8")
     assert "use_container_width=True" not in source
     assert source.count("**WIDE") >= 10
+
+
+def _rewrite(result_file, tmp_path, name, edit):
+    """fixture 결과의 턴들을 edit(turns) 로 고친 사본."""
+    payload = json.loads(result_file.read_text(encoding="utf-8"))
+    turns = [t for u in payload["analysis_results"]
+             for c in u["conversations"] for t in c["turns"]]
+    edit(turns)
+    out = tmp_path / f"{name}.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return out
+
+
+def test_short_dropped_quotes_are_not_counted_as_fabricated(result_file, tmp_path):
+    """폐기 12건 중 지어낸 것이 0건이던 실측이 있다. 합쳐 세면 경고가 거짓이 된다."""
+    def edit(turns):
+        turns[0]["classification"]["evidence"]["sufficiency"] = {
+            "verdict": "sufficient", "final_verdict": "insufficient", "missing": "",
+            "evidence": [], "dropped_evidence": [
+                {"reason": "too_short", "quote": "짧다"},
+                {"reason": "too_short", "quote": "이것도"},
+                {"reason": "not_found", "quote": "지어낸 문장"}]}
+    at = render(_rewrite(result_file, tmp_path, "drops", edit))
+    metric = next(m for m in at.main.metric if m.label == "지어낸 인용")
+    assert metric.value == "1", metric.value
+    assert any("짧아서 버린 인용 2건" in str(c.value) for c in at.main.caption)
+
+
+def test_corpus_gaps_merge_needs_that_step1_inflated(result_file, tmp_path):
+    """"금액" 하나를 물었는데 Step 1 이 절차 · 서류를 덧붙이면 같은 구멍이 여러 줄로
+    흩어진다. Step 2 가 실제로 본(코드로 좁힌) 요구로 묶어야 문서팀 목록이 합쳐진다."""
+    def edit(turns):
+        for turn, tail in zip(turns[:3], ["그 지급 절차", "신청 서류", "정산 기한"]):
+            cls = turn["classification"]
+            cls["case_id"] = "case20"
+            cls["evidence"]["observation"].update({
+                "unmet_need": f"유럽 지역 숙박비 상한, {tail}", "question_multi_intent": False})
+            cls["evidence"]["sufficiency"] = {
+                "verdict": "insufficient", "final_verdict": "insufficient",
+                "missing": f"유럽 숙박비 상한 ({tail})", "evidence": [], "dropped_evidence": []}
+    at = render(_rewrite(result_file, tmp_path, "gaps", edit))
+    frames = [f.value for f in at.tabs[3].get("dataframe")]
+    assert frames, "코퍼스 보강 표가 없다"
+    rows = frames[0]
+    assert (rows["요구"] == "유럽 지역 숙박비 상한").sum() == 1, rows["요구"].tolist()
+    assert int(rows.loc[rows["요구"] == "유럽 지역 숙박비 상한", "건수"].iloc[0]) == 3
+
+
+def test_handoff_tables_can_be_downloaded(result_file, tmp_path):
+    """문서팀 · 필터 담당에게 그대로 넘기는 표에는 내려받기가 붙는다."""
+    at = render(_with_cases(result_file, tmp_path, SPREAD))
+    assert at.tabs[0].get("download_button"), "필터 오탐 표에 내려받기가 없다"
+
+    def edit(turns):
+        cls = turns[0]["classification"]
+        cls["case_id"] = "case20"
+        cls["evidence"]["sufficiency"] = {
+            "verdict": "insufficient", "final_verdict": "insufficient",
+            "missing": "유럽 숙박비 상한", "evidence": [], "dropped_evidence": []}
+    at = render(_rewrite(result_file, tmp_path, "one_gap", edit))
+    assert at.tabs[3].get("download_button"), "코퍼스 보강 표에 내려받기가 없다"
