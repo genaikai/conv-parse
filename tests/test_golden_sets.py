@@ -176,8 +176,10 @@ def test_messy_set_looks_like_the_operational_log():
     assert {"user_id", "db_login_id", "job_grade"} <= set(user)
     turn = user["conversations"][0]["turns"][-1]
     assert {"timestamp", "user_question", "llm_response", "conversation_id",
-            "llm_eval_result", "llm_eval_score", "llm_eval_score_top1", "llm_alternatives",
-            "llm_emotion_result", "llm_emotion_alternatives"} <= set(turn)
+            "llm_eval_result", "llm_eval_score", "llm_eval_score_top1", "llm_eval_alternatives",
+            "llm_eval_context_summarized",
+            "llm_emotion_result", "llm_emotion_alternatives",
+            "llm_emotion_context_summarized"} <= set(turn)
     assert turn["conversation_id"].endswith("_conv_1")
 
 

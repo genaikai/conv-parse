@@ -17,7 +17,6 @@ def _flattened(payload: dict) -> dict:
         for conv in user["conversations"]:
             for turn in conv["turns"]:
                 t = dict(turn, conversation_id=conv["conversation_id"])
-                t["llm_eval_alternatives"] = t.pop("llm_alternatives", [])
                 turns.append(t)
         out["users"].append({**{k: v for k, v in user.items() if k != "conversations"},
                              "turns": turns})
@@ -38,14 +37,18 @@ def test_two_level_log_is_reported_as_a_structure_mismatch():
 
 
 def test_an_alias_key_is_named_next_to_the_missing_one():
-    """llm_alternatives 가 없고 llm_eval_alternatives 가 있으면 같은 필드라고 알려준다.
+    """llm_eval_alternatives 가 없고 옛 이름 llm_alternatives 가 있으면 같은 필드라고 알려준다.
 
     "없다" 와 "계약에 없는 키" 두 줄로 따로 뜨면 사람은 둘이 같은 것인 줄 모른다.
     """
-    report = check_log(_flattened(generate(seed=0)))
-    missing = [m for m in report.mismatches if m.field == "llm_alternatives"]
-    assert missing and "llm_eval_alternatives" in missing[0].detail
-    assert not [m for m in report.mismatches if m.field == "llm_eval_alternatives"], (
+    payload = _flattened(generate(seed=0))
+    for user in payload["users"]:
+        for turn in user["turns"]:
+            turn["llm_alternatives"] = turn.pop("llm_eval_alternatives", [])
+    report = check_log(payload)
+    missing = [m for m in report.mismatches if m.field == "llm_eval_alternatives"]
+    assert missing and "llm_alternatives" in missing[0].detail
+    assert not [m for m in report.mismatches if m.field == "llm_alternatives"], (
         "별칭은 '계약에 없는 키' 로 따로 세지 않는다")
 
 
@@ -67,5 +70,7 @@ def test_the_bundled_pseudo_log_is_caught():
     payload = json.loads(path.read_text(encoding="utf-8"))
     report = check_log(payload)
     fields = {m.field for m in report.mismatches}
-    assert {"conversations", "llm_alternatives"} <= fields, sorted(fields)
+    assert "conversations" in fields, sorted(fields)
+    assert "llm_eval_alternatives" not in fields, (
+        "실행 환경 로그의 이름이 계약의 이름이다 - 여기서 어긋나면 파서가 못 읽는다")
     assert shape(payload).endswith("0 conversations / 0 turns")

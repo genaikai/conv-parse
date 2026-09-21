@@ -33,7 +33,7 @@ RAW = {
                     "llm_response": "answer on aaaa", "user_question": "aaaa",
                     "trace_matched": "False",
                     "llm_eval_result": None, "llm_eval_score": None,
-                    "llm_eval_score_top1": None, "llm_alternatives": [],
+                    "llm_eval_score_top1": None, "llm_eval_alternatives": [],
                     "llm_emotion_result": None, "llm_emotion_score": None,
                     "llm_emotion_score_top1": None, "llm_emotion_alternatives": [],
                 }],
@@ -48,7 +48,7 @@ RAW = {
                         "llm_response": "숙박비는 실비 정산입니다.", "user_question": "숙박비 정산은?",
                         "trace_matched": "True",
                         "llm_eval_result": None, "llm_eval_score": None,
-                        "llm_eval_score_top1": None, "llm_alternatives": [],
+                        "llm_eval_score_top1": None, "llm_eval_alternatives": [],
                         "llm_emotion_result": None, "llm_emotion_score": None,
                         "llm_emotion_score_top1": None, "llm_emotion_alternatives": [],
                     },
@@ -60,7 +60,7 @@ RAW = {
                         "trace_matched": "True",
                         "llm_eval_result": "질의 폭스", "llm_eval_score": 45.57,
                         "llm_eval_score_top1": 45,
-                        "llm_alternatives": [
+                        "llm_eval_alternatives": [
                             {"label": "F", "name": "질의 폭스", " probability": 0.9},
                             {"label": "B", "name": "맥락 추가", "probability": 0.095},
                         ],

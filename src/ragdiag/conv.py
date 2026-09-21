@@ -218,7 +218,7 @@ def _parse_turn(raw: dict) -> Turn:
         eval_result=raw.get("llm_eval_result") or "",
         eval_score=_as_float(raw.get("llm_eval_score")),
         eval_score_top1=_as_float(raw.get("llm_eval_score_top1")),
-        eval_alternatives=_normalize_alternatives(raw.get("llm_alternatives")),
+        eval_alternatives=_normalize_alternatives(raw.get("llm_eval_alternatives")),
         emotion_result=raw.get("llm_emotion_result") or "",
         emotion_score=_as_float(raw.get("llm_emotion_score")),
         emotion_score_top1=_as_float(raw.get("llm_emotion_score_top1")),

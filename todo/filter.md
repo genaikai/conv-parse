@@ -157,7 +157,7 @@ status : NO DATA
 | eval · emotion 라벨 | 표기 변형을 흡수해 대조한다 |
 
 **점수를 다시 계산하는 이유** — 기록된 `llm_eval_score` 는 그때의 점수표로 계산된
-값이다. 점수표를 바꾸면 낡은 값이 되므로 `llm_alternatives` 에서 다시 계산해야 한다.
+값이다. 점수표를 바꾸면 낡은 값이 되므로 `llm_eval_alternatives` 에서 다시 계산해야 한다.
 
 ```
 score = Σ(확률 × 라벨점수) / Σ확률

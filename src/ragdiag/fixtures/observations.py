@@ -689,12 +689,14 @@ def build() -> tuple[dict, dict]:
                 "llm_eval_result": None if i == 0 else QUERY_LABELS["E"].name,
                 "llm_eval_score": None if i == 0 else 60,
                 "llm_eval_score_top1": None if i == 0 else 60,
-                "llm_alternatives": [] if i == 0 else [{"label": "E", "probability": 1.0}],
+                "llm_eval_alternatives": [] if i == 0 else [{"label": "E", "probability": 1.0}],
+                "llm_eval_context_summarized": False,
                 "llm_emotion_result": None if i == 0 else EMOTION_LABELS["E"].name,
                 "llm_emotion_score": None if i == 0 else 50,
                 "llm_emotion_score_top1": None if i == 0 else 50,
                 "llm_emotion_alternatives": [] if i == 0 else
                     [{"label": "E", "probability": 1.0}],
+                "llm_emotion_context_summarized": False,
             })
         complaint_turn = len(history) + 1
         turns.append({
@@ -707,10 +709,12 @@ def build() -> tuple[dict, dict]:
             "trace_matched": "True",
             "llm_eval_result": QUERY_LABELS["K"].name,
             "llm_eval_score": 25, "llm_eval_score_top1": 25,
-            "llm_alternatives": [{"label": "K", "probability": 1.0}],
+            "llm_eval_alternatives": [{"label": "K", "probability": 1.0}],
+            "llm_eval_context_summarized": False,
             "llm_emotion_result": EMOTION_LABELS["I"].name,
             "llm_emotion_score": 0, "llm_emotion_score_top1": 0,
             "llm_emotion_alternatives": [{"label": "I", "probability": 1.0}],
+            "llm_emotion_context_summarized": False,
         })
 
         user_id = f"obs-{case['id']}"

@@ -95,12 +95,17 @@ TURN_SCHEMA = (
     Field("llm_eval_score", "float", True, rng=(0, 100)),
     Field("llm_eval_score_top1", "float", True, rng=(0, 100),
           note="1순위 라벨의 점수. llm_eval_score 는 확률가중 기대점수일 수 있다"),
-    Field("llm_alternatives", "list", True,
+    Field("llm_eval_alternatives", "list", True,
           note="[{label, probability}]. 확률가중 기대점수 계산에 쓴다"),
+    Field("llm_eval_context_summarized", "bool", True, unused=True,
+          note="라벨을 매길 때 대화 맥락을 요약본으로 넣었는지. 파이프라인은 읽지 않는다 - "
+               "라벨 값이 미덥지 않을 때 이 값이 참인 턴을 갈라 보는 용도"),
     Field("llm_emotion_result", "str", True),
     Field("llm_emotion_score", "float", True, rng=(0, 100)),
     Field("llm_emotion_score_top1", "float", True, rng=(0, 100)),
     Field("llm_emotion_alternatives", "list", True),
+    Field("llm_emotion_context_summarized", "bool", True, unused=True,
+          note="감정 라벨 쪽의 같은 표시"),
 )
 
 # 로그 최상위에서 사용자 배열이 들어 있을 수 있는 키. 배포마다 다르다.
@@ -109,7 +114,7 @@ USER_ROOT_KEYS = ("users", "analysis_results", "data")
 # 계약의 이름 → 배포에서 본 다른 이름. 없다고만 하면 "새 필드인지 확인할 것" 이 옆 줄에
 # 따로 뜨고, 사람은 둘이 같은 필드인 줄 모른다. 파서는 계약의 이름만 읽는다.
 ALIASES = {
-    "llm_alternatives": ("llm_eval_alternatives",),
+    "llm_eval_alternatives": ("llm_alternatives",),
 }
 
 SCHEMAS = {

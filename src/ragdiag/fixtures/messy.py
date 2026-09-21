@@ -894,14 +894,16 @@ def build() -> tuple[dict, dict]:
                 "llm_eval_result": None if i == 0 else QUERY_LABELS["E"].name,
                 "llm_eval_score": None if i == 0 else 60,
                 "llm_eval_score_top1": None if i == 0 else 60,
-                "llm_alternatives": [] if i == 0 else [
+                "llm_eval_alternatives": [] if i == 0 else [
                     {"label": "E", "name": QUERY_LABELS["E"].name, "probability": 0.7},
                     {"label": "A", "name": QUERY_LABELS["A"].name, "probability": 0.3}],
+                "llm_eval_context_summarized": False,
                 "llm_emotion_result": None if i == 0 else EMOTION_LABELS["E"].name,
                 "llm_emotion_score": None if i == 0 else 50,
                 "llm_emotion_score_top1": None if i == 0 else 50,
                 "llm_emotion_alternatives": [] if i == 0 else [
                     {"label": "E", "name": EMOTION_LABELS["E"].name, "probability": 1.0}],
+                "llm_emotion_context_summarized": False,
             })
         complaint_turn = len(history) + 1
         turns.append({
@@ -913,12 +915,16 @@ def build() -> tuple[dict, dict]:
             "retrieved_data": "[]",
             "llm_eval_result": QUERY_LABELS["K"].name,
             "llm_eval_score": 25, "llm_eval_score_top1": 25,
-            "llm_alternatives": [{"label": "K", "name": QUERY_LABELS["K"].name, "probability": 0.8},
+            "llm_eval_alternatives": [{"label": "K", "name": QUERY_LABELS["K"].name, "probability": 0.8},
                                  {"label": "L", "name": QUERY_LABELS["L"].name, "probability": 0.2}],
+            # 맥락이 길면 라벨 판정에 요약본이 들어간다. 파이프라인은 이 값을 읽지
+            # 않지만, 로그 모양이 실제와 같아야 계약 대조가 의미를 갖는다.
+            "llm_eval_context_summarized": len(history) >= 4,
             "llm_emotion_result": EMOTION_LABELS["I"].name,
             "llm_emotion_score": 0, "llm_emotion_score_top1": 0,
             "llm_emotion_alternatives": [
                 {"label": "I", "name": EMOTION_LABELS["I"].name, "probability": 1.0}],
+            "llm_emotion_context_summarized": len(history) >= 4,
         })
         users.append({
             "user_id": user_id, "db_login_id": f"user{index:02d}.kim",

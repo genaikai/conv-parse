@@ -195,7 +195,7 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 | 직급 · 부서 · 직무 · 직위 | `job_grade` `db_dept_name` `db_job_name` `db_position_name` |
 | 턴 구간 | `turn` |
 | 기간 | `timestamp` |
-| 대화 유형 점수 · 라벨 | `llm_eval_result` `llm_eval_score` `llm_alternatives` |
+| 대화 유형 점수 · 라벨 | `llm_eval_result` `llm_eval_score` `llm_eval_alternatives` |
 | 감정 점수 · 라벨 | `llm_emotion_result` `llm_emotion_score` `llm_emotion_alternatives` |
 
 **출력** — 선별된 턴 + **단계별 탈락 기록**
