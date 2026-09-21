@@ -707,11 +707,40 @@ def test_detail_shows_what_was_judged_without_a_click(result_file):
         assert step in joined, f"{step} 이 없다"
 
 
-def test_bulky_things_stay_folded(result_file):
-    """검색된 문서는 부피가 크다. 펼쳐 두면 그 아래가 안 보인다."""
+def test_retrieved_chunks_are_visible_without_scrolling(result_file):
+    """문서가 있었는지를 맨 아래까지 스크롤해서 알아내야 했다.
+
+    개수 · 인용 여부는 표로 위에 두고, 부피가 큰 전문은 고른 하나만 펼친다 -
+    500자짜리 열 개를 늘어놓으면 그 아래 Step 1 · 2 · 3 이 화면 밖으로 밀린다.
+    """
+    tab = render(result_file).tabs[2]
+    heads = [m.value for m in tab.markdown]
+    assert any("그때 검색된 문서" in h for h in heads), heads
+
+    frames = [f.value for f in tab.get("dataframe")]
+    chunk_table = [f for f in frames if list(getattr(f, "columns", [])) == ["번호", "인용", "길이", "첫 줄"]]
+    assert chunk_table, [list(getattr(f, "columns", [])) for f in frames]
+    assert len(chunk_table[0]) >= 1, "청크가 표에 한 줄씩 있어야 한다"
+
+    # 전문은 셀렉트로 하나만
+    assert any(s.label == "청크 전문" or "청크" in str(s.options[:1])
+               for s in tab.selectbox if s.options), [s.label for s in tab.selectbox]
+
+
+def test_the_case_list_shows_how_many_chunks_were_retrieved(result_file, tmp_path):
+    """검색 0건 턴은 열어보지 않고도 훑을 수 있어야 한다 - case21 의 갈림길이다."""
     at = render(result_file)
-    labels = [e.label for t in at.tabs for e in t.expander]
-    assert any("검색된 문서" in l for l in labels), labels
+    frame = next(f.value for f in at.tabs[2].get("dataframe")
+                 if "보기" in getattr(f.value, "columns", []))
+    assert "문서수" in list(frame.columns), list(frame.columns)
+
+
+def test_zero_chunks_is_called_out_in_the_detail(result_file, tmp_path):
+    def edit(turns):
+        turns[0]["chunk_data"] = []
+    at = render(_rewrite(result_file, tmp_path, "nochunk", edit))
+    assert any("0건" in str(w.value) for w in at.tabs[2].warning), \
+        [str(w.value) for w in at.tabs[2].warning]
 
 
 def test_prev_and_next_walk_the_cases(result_file):

@@ -201,6 +201,8 @@ def load(path: str) -> pd.DataFrame:
                     "충족도": suf.get("final_verdict") or suf.get("verdict", ""),
                     "충족도원판정": suf.get("verdict", ""),
                     "없던것": suf.get("missing", ""),
+                    # 검색된 청크. 0 이면 검색 결과가 없었다는 뜻이고 그게 case21 의 갈림길이다.
+                    "문서수": len(turn.get("chunk_data") or []),
                     "인용수": len(suf.get("evidence", [])),
                     # 폐기 사유를 가른다. not_found 만 "지어낸 것" 이다 - too_short 는
                     # 판정자가 너무 짧게 잘라 온 것이라 문서에 있는 문장일 수 있다.
@@ -1078,7 +1080,7 @@ def _cases(view: pd.DataFrame) -> None:
     # st.dataframe 의 선택은 **프로그램으로 못 옮긴다** - session_state 에 넣어도
     # 조용히 무시된다(실제로 확인했다). 버튼으로 옮긴 자리에 표시가 따라오게
     # 하려면 체크 상태를 우리가 쥐고 있어야 해서 data_editor 를 쓴다.
-    compact = view[["부서", "턴", "case명", "신뢰도", "질문"]].copy()
+    compact = view[["부서", "턴", "case명", "신뢰도", "문서수", "질문"]].copy()
     compact.insert(0, "보기", False)
     compact.iloc[state.case_idx, 0] = True
 
@@ -1092,6 +1094,9 @@ def _cases(view: pd.DataFrame) -> None:
             "case명": st.column_config.TextColumn("무엇이", width="medium"),
             "신뢰도": st.column_config.TextColumn(
                 "신뢰도", help="낮음은 판정자의 사전지식에 의존한다"),
+            # 열어보지 않고도 검색 0건 턴을 훑을 수 있어야 한다 - 그게 case21 의 갈림길이다.
+            "문서수": st.column_config.NumberColumn(
+                "문서", help="그때 검색된 청크 수. 0 이면 검색 결과가 없었다 (case21 의 갈림길)"),
             "질문": st.column_config.TextColumn(
                 "질문(정리)", width="large",
                 help="대명사와 생략을 푼 것. 사용자가 실제로 친 말은 아래 상세에 있다")})
@@ -1193,12 +1198,57 @@ def boxed(text: str, weight: int, paint) -> None:
     st.caption(f"{len(text):,}자 — 상자 안에서 스크롤")
 
 
+def chunk_table(chunks: list, row: pd.Series) -> None:
+    """검색된 청크를 표로. 전문은 고른 하나만 펼친다.
+
+    전에는 상세 맨 아래 접힘 상자에 청크를 통째로 늘어놓았다. 문서가 있었는지조차
+    스크롤해서 봐야 했고, 열면 500자짜리 열 개가 쏟아져 어느 것이 판정에 쓰였는지
+    알 수 없었다. 표로 두면 개수 · 길이 · 인용 여부가 한 화면에 들어오고, 전문은
+    필요한 것만 본다.
+    """
+    suf = (row["_원본"].get("classification", {}).get("evidence") or {}).get("sufficiency") or {}
+    cited = {e.get("chunk_index"): e.get("quote", "") for e in suf.get("evidence", [])}
+
+    if not chunks:
+        st.warning("그때 검색된 문서가 0건이다. 서비스가 '검색 없이 답할 수 있다' 고 "
+                   "판단했을 수 있다 (case21) — 충족도는 물어볼 것도 없이 insufficient 다.", icon="🔍")
+        return
+
+    table = pd.DataFrame([{
+        "번호": i,
+        "인용": "✓" if i in cited else "",
+        "길이": len(c),
+        "첫 줄": c.strip().splitlines()[0][:120] if c.strip() else "(빈 청크)",
+    } for i, c in enumerate(chunks)])
+    st.markdown(f"**그때 검색된 문서 {len(chunks)}개** — Step 2 가 이것만 보고 충족도를 판정했다")
+    st.dataframe(
+        table, **WIDE, hide_index=True, height=min(240, 40 + 36 * len(chunks)),
+        column_config={
+            "번호": st.column_config.NumberColumn("청크", width="small"),
+            "인용": st.column_config.TextColumn(
+                "인용", width="small",
+                help="Step 2 가 근거로 댄 청크 (인용 대조를 통과한 것)"),
+            "길이": st.column_config.NumberColumn("글자", width="small"),
+            "첫 줄": st.column_config.TextColumn("첫 줄", width="large")})
+
+    # 전문은 하나씩. 열 개를 다 펼치면 아래 Step 1 · 2 · 3 이 화면 밖으로 밀린다.
+    picked = st.selectbox(
+        "청크 전문", range(len(chunks)), label_visibility="collapsed",
+        format_func=lambda i: (f"청크 {i}" + (" · Step 2 가 인용" if i in cited else "")
+                               + f" · {len(chunks[i])}자"),
+        key=f"chunk-{row.get('대화', '')}-{row.get('턴', 0)}")
+    with st.container(border=True, height=ANSWER_BOX_PX):
+        st.write(chunks[picked])
+    if picked in cited:
+        st.success(f"Step 2 의 인용 — {cited[picked][:200]}")
+
+
 def detail(row: pd.Series) -> None:
     """한 케이스의 판정 경로를 원본 값 그대로 보여준다."""
     st.markdown(f"### {row['case']} · {row['case명']}")
     if tx.desc(row["case"]):
         st.caption(tx.desc(row["case"]))
-    meta = st.columns(4)
+    meta = st.columns(5)
     meta[0].metric("신뢰도", CONF_LABEL.get(row["신뢰도"], row["신뢰도"]))
     # 강등됐으면 그 사실이 보여야 한다. sufficient 라고 했는데 case20 이면 화면이
     # 파이프라인과 다른 말을 하는 것이고, 이 패널의 존재 이유가 그 설명이다.
@@ -1218,6 +1268,16 @@ def detail(row: pd.Series) -> None:
     meta[3].metric("판정 단계", " · ".join(ran) if ran else "코드만",
                    help=f"이번 실행의 LLM 호출 {row['LLM호출']}회. "
                         "0 이면 캐시에 있었거나 코드만으로 판정된 것이다.")
+    # 문서가 있었나는 스크롤해서 찾을 것이 아니다. 0 건은 case21 의 갈림길이고,
+    # 인용 · 폐기 건수가 옆에 있어야 "문서는 있었는데 안 썼다" 가 한 줄에서 읽힌다.
+    chunk_n = int(row["문서수"])
+    meta[4].metric("검색 문서", f"{chunk_n}개" if chunk_n else "0개",
+                   delta=(f"인용 {int(row['인용수'])}"
+                          + (f" · 폐기 {int(row['지어낸인용'])}" if row["지어낸인용"] else "")
+                          if chunk_n else "검색 결과 없음"),
+                   delta_color="off" if chunk_n else "inverse",
+                   help="Step 2 가 이 청크만 보고 충족도를 판정했다. 0 이면 서비스가 "
+                        "'검색 없이 답할 수 있다' 고 판단했을 수 있다 (case21).")
 
     # 판정 대상인 답변과 사용자의 불만은 접어두면 안 된다. 이 패널은 "왜 이
     # 라벨이지"에 답하는 자리인데, 무엇을 보고 판정했는지가 없으면 답이 안 된다.
@@ -1260,6 +1320,8 @@ def detail(row: pd.Series) -> None:
                    "(주 라벨과 별개로 성립한다)")
     for note in row["주의"]:
         st.warning(note, icon="⚠️")
+
+    chunk_table(original.get("chunk_data", []), row)
 
     left, right, third = st.columns(3)
     with left:
@@ -1308,16 +1370,6 @@ def detail(row: pd.Series) -> None:
                     "결과", help="violated 면 그 case 로 확정된다"),
                 "detail": st.column_config.TextColumn("근거", width="large")})
 
-    # 답변 · 불만 · 앞 질문은 위로 올렸다. 여기 남는 것은 부피가 큰 문서다.
-    chunks = original.get("chunk_data", [])
-    with st.expander(f"그때 검색된 문서 {len(chunks)}개"):
-        if chunks:
-            st.markdown("**검색된 문서** — Step 2 가 이것만 보고 충족도를 판정했다")
-            for i, chunk in enumerate(chunks):
-                st.markdown(f"`{i}` {chunk}")
-        else:
-            st.caption("검색 결과가 0건이다. 서비스가 '검색 없이 답할 수 있다'고 "
-                       "판단했을 수 있다 (case21).")
 
 
 if __name__ == "__main__":
