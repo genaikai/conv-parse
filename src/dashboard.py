@@ -1282,7 +1282,7 @@ def detail(row: pd.Series) -> None:
 
     if row["검증"]:
         st.markdown("**코드 검증** — LLM 없이, 코드가 본 것")
-        st.caption("case6(질문 속 개인정보) · case9(서비스 자원 부족)는 "
+        st.caption("case6(질문 속 개인정보) · case9(서비스 자원 부족) · case30(생성 붕괴)은 "
                    "**여기서** 판정된다. 신뢰도가 high 인 이유이고, LLM 판정이 "
                    "무엇을 말하든 이쪽이 이긴다.")
         checks = pd.DataFrame(row["검증"])

@@ -17,13 +17,14 @@ from ragdiag import taxonomy
 from ragdiag.results import Check, Classification
 
 from .._shared import each_turn
-from . import service_error
+from . import degenerate, service_error
 
 NAME = "short_circuit"
 
 # 순서 = 우선순위. 처음 걸린 규칙이 case 를 정하고, 그 뒤 규칙은 보지 않는다.
 RULES = (
     service_error,
+    degenerate,
 )
 
 

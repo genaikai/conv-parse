@@ -678,3 +678,61 @@ def test_feb_29_without_a_year_is_not_judged():
     got = check_dates("2월 29일까지 제출하세요.")
     assert got.verdict == "undetermined"
     assert check_dates("2월 30일까지 제출하세요.").violated
+
+
+# ---------------------------------------------------------------------------
+# 생성 붕괴 (case30) — LLM 전에 코드로 닫는다
+# ---------------------------------------------------------------------------
+
+from ragdiag.features.short_circuit.degenerate import check_degenerate  # noqa: E402
+
+
+@pytest.mark.parametrize("answer", [
+    "5555555555555",
+    "!!!!!!!!!!!!!!!!!",
+    "ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ",
+    "!!!?!?!?!?!?!?",                              # 두 종의 기호
+    "안녕하세요안녕하세요안녕하세요안녕하세요",     # 조각 되풀이
+    "네 네 네 네 네 네 네 네 네 네",                 # 띄어쓰기 사이의 되풀이
+    "연차 이월은 인사규정을 따릅니다" + "!" * 80,   # 정상 문장 뒤에 붕괴
+    "………………………………",                              # 글자가 없다
+])
+def test_degenerate_answers_are_caught(answer):
+    assert check_degenerate(answer).violated, answer
+
+
+@pytest.mark.parametrize("answer", [
+    "출장 식비는 1일 3만원입니다.",
+    "네네",                                          # 짧으면 판단하지 않는다
+    "| 항목 | 상한 |\n|---|---|\n| 식비 | 3만원 |\n| 숙박비 | 8만원 |",   # 표
+    "요약\n" + "=" * 60 + "\n식비는 3만원입니다.",    # 마크다운 구분선
+    "식비는 3만원입니다.\n\n" + "-" * 70,             # 끝에 붙은 구분선
+    "정말 정말 정말 정말 감사합니다",               # 강조 반복은 말이다
+    "```python\nprint(1)\nprint(1)\nprint(1)\nprint(1)\n```",   # 코드의 반복
+    "😊😊😊",                                        # 짧다
+])
+def test_ordinary_answers_are_not_degenerate(answer):
+    assert not check_degenerate(answer).violated, answer
+
+
+def test_empty_answer_is_not_the_degenerate_rule_s_business():
+    assert check_degenerate("   \n").verdict == "not_applicable"
+
+
+def test_degenerate_answer_ends_the_turn_before_any_llm_call():
+    """5555… 를 관측에 넣으면 판정자가 무응답이나 거절로 읽어 엉뚱한 case 로 간다."""
+    from types import SimpleNamespace
+
+    from ragdiag.features import short_circuit
+    from ragdiag.results import TurnResult
+    from ragdiag.schema import Case
+
+    case = Case(case_id="c", user_id="-", dept="-", job_grade="-", job_name="-",
+                position_name="-", conversation_id="-", turn=2,
+                pre_queries=["출장비 정산 기한?"], llm_ans_on_last_q="5" * 30,
+                current_query="이게 뭐예요", rag_chunks=["출장비는 5영업일 이내 정산"])
+    turn = TurnResult(case=case)
+    short_circuit.process_data(SimpleNamespace(turns=[turn], open_turns=lambda: [turn]))
+    assert turn.classification.primary_case == "case30"
+    assert turn.classification.confidence == "high"
+    assert turn.checks["degenerate"].violated and not turn.checks["service_error"].violated

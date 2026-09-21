@@ -19,7 +19,7 @@ python <저장소>/src/run.py \
 ## 무엇으로 분류되나 — case 30개
 
 `taxonomy_v2.txt` 의 **29개** 중 **24개**에 라우팅이 도달하고, 여기에 우리가 더한
-`case0`(정상)이 붙어 실제로 나올 수 있는 라벨은 **25종**이다. `✗` 다섯은 로그에 필드가
+`case0`(정상)과 `case30`(생성 붕괴)이 붙어 실제로 나올 수 있는 라벨은 **26종**이다. `✗` 다섯은 로그에 필드가
 없어 판정할 수 없다 — 목록에서 지우지 않은 이유는 "우리 분류에는 그런 게 없다"가
 되지 않게 하기 위해서다.
 
@@ -56,6 +56,7 @@ python <저장소>/src/run.py \
 | ✗ | `case7` | 응답 지연으로 이탈 | medium |
 | ✗ | `case8` | 출력 잘림 | high |
 |  | `case9` | 서비스 자원 부족 응답 | high |
+|  | `case30` | 생성 붕괴 | high |
 
 **TYPE3 · 사용자의 의도를 파악하지 못함** — 고칠 곳: 생성 프롬프트 · 후처리
 
@@ -363,6 +364,7 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 | 검증기 | 입력 | 무엇을 |
 |---|---|---|
 | `service_error` | `llm_ans_on_last_q` | 자원 부족 확정 문구 (case9) |
+| `degenerate` | `llm_ans_on_last_q` | 같은 글자 · 기호의 반복뿐인 답변 (case30) — ④에서 LLM 전에 닫는다 |
 | `language` | `llm_ans_on_last_q` + `requested_language` | 요구 언어 불이행 (case10) |
 | `length` | `llm_ans_on_last_q` + `requested_length_*` | **재기만 한다** — 판정하지 않는다 (case11) |
 | `format` | `llm_ans_on_last_q` + `requested_format` | 요구 포맷 불이행 (case12) |
@@ -389,7 +391,7 @@ Step 1 이 내는 것        19개 (인용 세 칸만 기본값이 있고 나머
 | 검증기 | 낼 수 있는 verdict |
 |---|---|
 | `pii` | `ok` · `violated` |
-| `service_error` `sql_shape` `arithmetic` `format` | `ok` · `violated` · `not_applicable` |
+| `service_error` `degenerate` `sql_shape` `arithmetic` `format` | `ok` · `violated` · `not_applicable` |
 | `dates` | `ok` · `violated` · `not_applicable` · `undetermined` |
 | `language` | `ok` · `violated` · `not_applicable` · `undetermined` |
 | `injection` | `violated` · `not_applicable` · `undetermined` |
@@ -421,6 +423,7 @@ LLM 이 없으니 판정은 전부 **문자열 규칙**이다. 세 갈래로 갈
 | 검증기 | `not_applicable` | `undetermined` | `ok` / `violated` 를 가르는 규칙 |
 |---|---|---|---|
 | `service_error` | 답변이 비어 있음 | — | 공백 · 줄바꿈을 지운 답변에 확정 문구(역시 공백 제거)가 **부분 일치**하면 violated, 아니면 ok. 비슷한 문구는 잡지 않는다 |
+| `degenerate` | 답변이 비어 있음 | — | 공백을 지운 답변이 10자 미만이면 ok(판단 안 함). 서로 다른 글자가 2종 이하 · 1~30자 조각이 4번 이상 되풀이되어 90% 이상 · 한글/영문/한자/숫자가 하나도 없음 · 끝에 같은 글자 50개 이상(마크다운 구분선 글자 제외) 중 하나면 violated |
 | `language` | 언어 요구 없음 | 답변의 언어 판별 실패 | 문자 종류 비율로 판별한 언어(`ko` `ja` `zh` `en`)가 요구와 같으면 ok |
 | `length` | 길이 요구 없음 | 수치 요구인데 값이 없음 | `vague_short` 는 400자 초과면 violated. 수치 요구는 글자·문장·줄 수를 세어 비교 |
 | `format` | 포맷 요구 없음 | — | 요구한 구조가 **2개 이상** 있으면 ok — 번호 목록·불릿·표(구분선 포함)·코드펜스·JSON 파싱 성공 |
@@ -674,6 +677,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | # | 묻는 것 | 무엇이 정하나 | 걸리면 |
 |---|---|---|---|
 | 0 | 답변이 서비스 자원 부족 확정 문구인가 | 코드 | `case9` 서비스 자원 부족 응답 |
+| 0 | 답변이 같은 글자 · 기호의 반복뿐인가 | 코드 | `case30` 생성 붕괴 |
 | 1 | 답변이 정책·권한을 이유로 거절했나 | 관측 | `case28` 보안 정책상 답변 불가 |
 | 2 | 문서의 숨은 지시를 답변이 수행했나 | 코드 | `case29` 간접 프롬프트 인젝션 |
 | 3 | 애초에 불만이 아닌가 | 관측 + 코드 | `case0` 정상 — 불만 아님 |
@@ -776,6 +780,7 @@ near-miss 가 전부 partial 로 새어 "문서는 어느 정도 있었다"가 �
 | `case27` | 코드/도구 사용법 오답 | medium | 관측 + 코드 |
 | `case28` | 보안 정책상 답변 불가 | medium | 관측 |
 | `case29` | 간접 프롬프트 인젝션 | medium | 코드 |
+| `case30` | 생성 붕괴 | high | 코드 (④에서 LLM 전에 끝) |
 | `unclassified` | 분류 실패 | — | **"문제 없음"이 아니라 수동 검토 대상** |
 | `out_of_taxonomy` | taxonomy 에 없는 유형 | — | 쌓이면 케이스를 추가하라는 신호 |
 

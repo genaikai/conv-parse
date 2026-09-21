@@ -519,6 +519,26 @@ CASES = [
         expect_case={"unclassified"},
     ),
 
+    # 생성 붕괴 (case30) - 코드가 LLM 전에 닫는다
+    dict(
+        id="junk01", note="답변이 숫자 하나의 반복 — 관측에 넣으면 무응답으로 읽힌다",
+        pre_queries=["출장비 정산 기한 알려주세요"],
+        answer="5555555555555555555555",
+        complaint="이게 뭐예요?",
+        chunks=RULES,
+        expect=dict(),
+        expect_case={"case30"},
+    ),
+    dict(
+        id="junk02", note="멀쩡한 문장 뒤에 느낌표가 수십 개",
+        pre_queries=["연차 이월 되나요"],
+        answer="연차 이월은 인사규정을 따릅니다" + "!" * 80,
+        complaint="???",
+        chunks=LEAVE,
+        expect=dict(),
+        expect_case={"case30"},
+    ),
+
     # 서비스 오류 (case9)
     dict(
         id="svc02", note="인사말 뒤에 확정 문구, 사용자는 욕설 섞인 단답",
