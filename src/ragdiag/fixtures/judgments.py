@@ -1058,4 +1058,30 @@ LEGIBILITY = [
          answer="식비 30,000원/일 · 숙박 80,000원/박 · 정산 D+5 영업일 · 초과분 본인 부담"),
     dict(id="ok40", cat="숫자 위주", legible=True,
          answer="2026-03-01 ~ 2026-03-03 (2박 3일), 서울→부산 KTX 59,800원 ×2, 숙박 80,000원 ×2 = 279,600원"),
+    # 중간에 오류 문구 · 로그 조각이 있지만 답변의 내용이다. 끝은 멀쩡하다.
+    dict(id="ok41", cat="오류를 설명", legible=True,
+         answer="`KeyError: 'embedding'` 오류는 인덱스에 임베딩 컬럼이 없을 때 납니다. "
+                "먼저 `python build_index.py --rebuild` 로 인덱스를 다시 만들고, 그래도 같으면 "
+                "config 의 embedding_model 값을 확인해 주세요."),
+    dict(id="ok42", cat="오류를 설명", legible=True,
+         answer="VPN 접속 시 'error 809' 가 뜨면 방화벽이 UDP 500/4500 을 막고 있는 겁니다. "
+                "회사 밖 공용 와이파이에서 자주 나며, 휴대폰 핫스팟으로 바꾸면 대부분 해결됩니다. "
+                "그래도 안 되면 IT헬프데스크(내선 1234)로 연락 주세요."),
+    dict(id="ok43", cat="오류를 설명", legible=True,
+         answer="ERP 전표 저장 시 아래 메시지가 나올 수 있습니다.\n\n"
+                "    [E-1042] 결재선이 지정되지 않았습니다\n\n"
+                "결재선 탭에서 팀장을 추가한 뒤 다시 저장하시면 됩니다. 결재선은 상신 전에만 바꿀 수 있습니다."),
+    dict(id="ok44", cat="오류를 설명", legible=True,
+         answer="스크립트가 `Traceback (most recent call last)` 로 끝나면 마지막 줄의 예외 이름을 보세요. "
+                "FileNotFoundError 면 경로, PermissionError 면 권한 문제입니다. 로그 전체를 헬프데스크에 "
+                "첨부해 주시면 확인해 드립니다."),
+    # 앞은 멀쩡하고 마지막 몇 문장만 깨진다 - 붕괴는 끝에서 드러난다.
+    dict(id="bad21", cat="끝만 깨짐", legible=False,
+         answer="재직증명서(HR-07)는 그룹웨어 > 증명서 발급에서 즉시 출력하실 수 있습니다. 경력증명서(HR-08)는 "
+                "인사팀 확인 후 2영업일 내 발급됩니다. 은행 제출용이라면 직인이 필요한데 이 경우에는 "
+                "발급발급발급 인사팀 인사팀 the the 확인 확인 후에에에에 ㅁㄴㅇ 2영업 2영업 2영업일일일"),
+    dict(id="bad22", cat="끝만 깨짐", legible=False,
+         answer="법인카드 사용 내역은 매월 말일 기준으로 자동 집계되며, 집계된 내역은 다음 달 5일까지 "
+                "그룹웨어에서 확인하실 수 있습니다. 누락된 내역이 있으면 재무팀에 <|endoftext|> assistant: "
+                "법인카드 사용 내역은 매월 말일 기준으로 <|im_end|> <|im_start|>user"),
 ]

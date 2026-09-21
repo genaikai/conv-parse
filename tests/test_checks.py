@@ -736,3 +736,19 @@ def test_degenerate_answer_ends_the_turn_before_any_llm_call():
     assert turn.classification.primary_case == "case30"
     assert turn.classification.confidence == "high"
     assert turn.checks["degenerate"].violated and not turn.checks["service_error"].violated
+
+
+@pytest.mark.parametrize("answer", [
+    # 같은 문구가 다른 내용을 사이에 두고 되풀이된다 - 글의 구조이지 붕괴가 아니다
+    "다음 내용도 시도해보세요: AAAAAAA. 다음 내용도 시도해보세요: BBBBBBB. 다음 내용도 시도해보세요: CCCCCCCC. "
+    "다음 내용도 시도해보세요: DDDDDDD. 다음 내용도 시도해보세요: EEEEEEE.",
+    "확인해 보세요: 연차. 확인해 보세요: 반차. 확인해 보세요: 병가. 확인해 보세요: 경조사. "
+    "확인해 보세요: 공가. 확인해 보세요: 출장.",
+    "1. 신청서를 씁니다.\n2. 신청서를 제출합니다.\n3. 신청서가 승인됩니다.\n4. 신청서를 보관합니다.\n5. 신청서를 폐기합니다.",
+])
+def test_interleaved_repetition_is_structure_not_collapse(answer):
+    assert not check_degenerate(answer).violated, answer
+
+
+def test_the_same_phrase_back_to_back_is_collapse():
+    assert check_degenerate("다음 내용도 시도해보세요: AAAAAAA. " * 5).violated
