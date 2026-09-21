@@ -775,8 +775,8 @@ def test_output_dir_is_created_and_holds_both_artifacts(tmp_path):
          "--conv-data", str(log), "--output-dir", str(out)],
         cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
-    results = list(out.glob("conv_parsed_*.json"))
-    summaries = list(out.glob("run_summary_*.txt"))
+    results = list(out.glob("*_conv_eval_all.json"))
+    summaries = list(out.glob("*_summary.txt"))
     assert results, f"결과 파일이 없다: {list(out.iterdir())}"
     assert summaries, "RUN SUMMARY 사본이 없다"
     assert "RUN SUMMARY" in summaries[0].read_text(encoding="utf-8")
@@ -796,11 +796,11 @@ def test_filter_keeps_the_old_flag_name(tmp_path):
     assert "--filter" in proc.stdout
 
 
-def test_output_filename_carries_the_finish_time(tmp_path):
-    """같은 데이터를 여러 번 돌리면 어느 것이 언제 것인지 알 수 없다.
+def test_output_filename_carries_time_log_and_filter(tmp_path):
+    """<시각>_<로그>_<필터>.json. 이름만 보고 언제 · 무엇을 · 어떤 조건으로 돌렸는지 안다.
 
     실행 환경에서는 결과를 가져올 수 없어 이 파일들이 그 자리에 계속 쌓인다.
-    파일 이름에 시각이 없으면 덮어써지거나 뒤섞인다.
+    시각이 앞이라 이름순이 곧 시간순이다.
     """
     import json
     import re
@@ -822,16 +822,13 @@ def test_output_filename_carries_the_finish_time(tmp_path):
     # --output-dir 을 안 줘도 ./output 에 생긴다
     out = tmp_path / "output"
     assert out.is_dir(), f"기본 출력 디렉터리가 없다: {list(tmp_path.iterdir())}"
-    results = list(out.glob("conv_parsed_*.json"))
-    summaries = list(out.glob("run_summary_*.txt"))
-    assert results, f"시각이 붙은 결과 파일이 없다: {list(out.iterdir())}"
-    assert summaries, "RUN SUMMARY 사본이 없다"
+    results = [p for p in out.glob("*.json")]
+    assert results, f"결과 파일이 없다: {list(out.iterdir())}"
 
-    stamp = re.search(r"conv_parsed_(\d{8}-\d{6})\.json", results[0].name)
-    assert stamp, f"파일명에 시각이 없다: {results[0].name}"
-    # 결과와 요약이 같은 시각을 쓴다 — 짝을 찾을 수 있어야 한다
-    assert (out / f"run_summary_{stamp.group(1)}.txt").exists(), (
-        "결과와 RUN SUMMARY 의 시각이 다르다")
+    name = re.fullmatch(r"(\d{8}-\d{6})_conv_eval_all\.json", results[0].name)
+    assert name, f"이름이 <시각>_<로그>_<필터> 가 아니다: {results[0].name}"
+    # 요약은 같은 이름에 _summary.txt - 나란히 정렬되어 짝을 찾을 수 있다
+    assert (out / f"{results[0].stem}_summary.txt").exists(), "결과와 RUN SUMMARY 의 이름이 다르다"
 
 
 def test_out_flag_overrides_the_timestamp(tmp_path):

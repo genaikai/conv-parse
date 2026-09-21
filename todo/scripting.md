@@ -112,18 +112,19 @@ python log_analysis/src/run.py ... > "logs/$(date +%F).txt"   # 요약만 남긴
 
 ## 6. 결과 파일 찾기
 
-파일 이름에 **끝난 시각**이 붙는다. 같은 데이터를 여러 번 돌려도 덮어쓰지 않는다.
+파일 이름은 `<끝난 시각>_<로그 이름>_<필터 이름>` 이다. 같은 데이터를 여러 번 돌려도
+덮어쓰지 않고, 이름만 보고 무엇을 어떤 조건으로 돌렸는지 안다.
 
 ```
-output/conv_parsed_20260901-153854.json    분류 결과
-output/run_summary_20260901-153854.txt     RUN SUMMARY 사본 (같은 스탬프)
+output/20260901-153854_conv_eval_negative.json          분류 결과
+output/20260901-153854_conv_eval_negative_summary.txt   RUN SUMMARY 사본 (같은 이름)
 ```
 
 경로는 stderr 에 `결과: ...` 로 찍히지만 **거기서 긁어내지 마라.** 이름 규칙이
 계약이므로 최신 것을 고르면 된다:
 
 ```bash
-LATEST=$(ls -1 output/conv_parsed_*.json | tail -1)
+LATEST=$(ls -1 output/[0-9]*_*.json | tail -1)
 ```
 
 정렬이 곧 시간순이다 (`YYYYMMDD-HHMMSS`). 대시보드도 같은 방식으로 고른다.
@@ -193,7 +194,7 @@ if [[ $code -eq 2 ]]; then
   exit 2
 fi
 
-LATEST=$(ls -1 output/conv_parsed_*.json | tail -1)
+LATEST=$(ls -1 output/[0-9]*_*.json | tail -1)
 echo "결과: $LATEST"
 [[ $code -eq 1 ]] && echo "일부가 온전치 않습니다. RUN SUMMARY 를 확인하세요." >&2
 exit 0

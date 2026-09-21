@@ -2,7 +2,7 @@
 
   python -m streamlit run <저장소>/src/dashboard.py
 
---result 를 생략하면 ./output 에서 가장 최근 conv_parsed_*.json 을 고른다.
+--result 를 생략하면 ./output 에서 가장 최근 결과(<시각>_<로그>_<필터>.json)를 고른다.
 조직 분류를 붙이려면:
 
   python -m streamlit run <저장소>/src/dashboard.py -- \
@@ -91,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", help="설정 YAML. 생략하면 configs/env.yaml")
     parser.add_argument("--result", help="분류 결과 JSON. 생략하면 --output-dir 의 최신 것")
     parser.add_argument("--output-dir",
-                        help="여기서 가장 최근 conv_parsed_*.json 을 고른다")
+                        help="여기서 가장 최근 결과(<시각>_<로그>_<필터>.json)를 고른다")
     parser.add_argument("--dept-class", help="부서 분류 체계 JSON")
     parser.add_argument("--job-class",
                         help="직무·직급 분류 체계 JSON (어느 축인지는 값으로 판별)")
@@ -134,13 +134,25 @@ def _load_config(path: str | None):
         return Config()
 
 
+# 결과 파일 이름 - <시각>_<로그>_<필터>.json. 옛 이름(conv_parsed_<시각>.json)도
+# 같이 찾는다. 결과는 실행 환경에 쌓이고, 이름 규칙이 바뀌었다고 옛 것이 안 보이면 안 된다.
+_STAMP = re.compile(r"(\d{8}-\d{6})")
+
+
+def result_files(out_dir: str) -> list[Path]:
+    """결과 파일들을 오래된 것부터. 요약(_summary.txt)은 json 이 아니라 안 걸린다."""
+    found = [p for p in Path(out_dir).glob("*.json")
+             if p.name.startswith("conv_parsed_") or _STAMP.match(p.name)]
+    return sorted(found, key=lambda p: (_STAMP.search(p.name) or [""])[0])
+
+
 def newest_result(out_dir: str) -> str:
     """--output-dir 에서 가장 최근 결과를 고른다.
 
-    파일 이름에 끝난 시각이 박혀 있어(conv_parsed_20260831-150422.json) 고정된
-    경로를 기본값으로 둘 수 없다. 이름이 시각순으로 정렬되므로 마지막이 최신이다.
+    파일 이름에 끝난 시각이 박혀 있어 고정된 경로를 기본값으로 둘 수 없다.
+    시각이 앞이라 이름순이 곧 시간순이고, 마지막이 최신이다.
     """
-    found = sorted(Path(out_dir).glob("conv_parsed_*.json"))
+    found = result_files(out_dir)
     if found:
         return str(found[-1])
     # 시각 스탬프가 없던 시절의 파일이나 --out 으로 직접 지정한 것
@@ -374,7 +386,7 @@ def main() -> None:
 
     # 결과는 실행마다 쌓인다 (파일 이름에 끝난 시각). 최신만 볼 수 있으면 설정을
     # 바꿔가며 돌린 것들을 나란히 못 본다 - 대시보드를 다시 띄우지 않고 고른다.
-    runs = sorted(Path(args.output_dir).glob("conv_parsed_*.json"), reverse=True)
+    runs = result_files(args.output_dir)[::-1]
     path = Path(args.result)
     with st.sidebar:
         names = [str(r) for r in runs]
@@ -386,7 +398,7 @@ def main() -> None:
             picked = st.selectbox(
                 "실행 결과", names, index=0,
                 format_func=lambda n: Path(n).stem.replace("conv_parsed_", ""),
-                help="파일 이름의 시각이 분류가 끝난 시각이다. 최신이 위에 온다")
+                help="<시각>_<로그>_<필터>. 시각은 분류가 끝난 시각이고 최신이 위에 온다")
             path = Path(picked)
         st.divider()
 

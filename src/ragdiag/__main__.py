@@ -63,6 +63,18 @@ from ragdiag.summary import (
 # 작업 폴더 아래에 생긴다.
 DEFAULT_OUTPUT_DIR = "output"
 
+
+def result_name(stamp: str, conv_data, filter_path=None, turns_path=None) -> str:
+    """결과 파일의 이름 — <시각>_<로그 이름>_<턴을 고른 것의 이름>.
+
+    로그 이름과 필터 이름은 경로에서 확장자만 뗀 것이다. 로그가 없으면(합성 데이터
+    스모크) synthetic, 필터도 턴 목록도 없으면 all 이다. 요약 파일은 같은 이름에
+    _summary.txt 가 붙어 나란히 정렬된다.
+    """
+    log = Path(conv_data).stem if conv_data else "synthetic"
+    scope = Path(filter_path or turns_path).stem if (filter_path or turns_path) else "all"
+    return f"{stamp}_{log}_{scope}"
+
 # --config 를 안 줬을 때 찾아보는 자리. 실행 위치 기준이라 작업 폴더에서 돌리면
 # 작업 폴더의 configs/env.yaml 이 된다 - 설정은 언제나 거기 둔다.
 DEFAULT_CONFIG = Path("configs/env.yaml")
@@ -664,12 +676,13 @@ def main(argv=None, backend=None) -> int:
     # --out(파일)이 --output-dir(디렉터리)보다 우선한다. 둘 다 없으면 현재 위치.
     out_dir = args.output_dir or config.get("paths.output_dir") or DEFAULT_OUTPUT_DIR
     out_path = args.out or config.get("paths.out")
-    # 끝난 시각을 파일 이름에 박는다. 같은 데이터를 여러 번 돌리거나 설정을 바꿔
-    # 다시 돌렸을 때 어느 것이 언제 것인지 파일 이름만 보고 알 수 있어야 한다 —
-    # 실행 환경에서는 결과를 가져올 수 없어 이 파일들이 그 자리에 계속 쌓인다.
+    # 파일 이름은 <시각>_<로그>_<필터>. 실행 환경에서는 결과를 가져올 수 없어 이
+    # 파일들이 그 자리에 계속 쌓이는데, 이름만 보고 언제 · 어느 로그를 · 어떤 조건으로
+    # 돌린 것인지 알 수 있어야 한다. 시각이 앞이라 이름순이 곧 시간순이다.
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = result_name(stamp, None if synthetic else conv_data, filter_path, turns_path)
     if not out_path:
-        out_path = str(Path(out_dir) / f"conv_parsed_{stamp}.json")
+        out_path = str(Path(out_dir) / f"{run_name}.json")
     if out_dir:
         # 없으면 만든다. 30분 돌린 뒤 디렉터리가 없어서 못 쓰면 그 사이클을 버린다.
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -765,7 +778,7 @@ def main(argv=None, backend=None) -> int:
         # 것보다 파일을 여는 편이 낫다. 실행 환경 밖으로 나가는 것은 아니다.
         if out_dir:
             try:
-                (Path(out_dir) / f"run_summary_{stamp}.txt").write_text(
+                (Path(out_dir) / f"{run_name}_summary.txt").write_text(
                     text + "\n", encoding="utf-8")
             except OSError:
                 pass

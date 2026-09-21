@@ -175,8 +175,8 @@ score = Σ(확률 × 라벨점수) / Σ확률
 `--turns` 로 넘겼든 `--filter-data` 로 넘겼든 이후는 같다.
 
 ```
-output/conv_parsed_20260901-120138.json    분류 결과
-output/run_summary_20260901-120138.txt     RUN SUMMARY 사본
+output/20260901-120138_conv_eval_negative.json    분류 결과 (<시각>_<로그>_<필터>)
+output/20260901-120138_conv_eval_negative_summary.txt   RUN SUMMARY 사본
 ```
 
 결과 JSON 은 입력 로그와 같은 `users → conversations → turns` 모양을 유지하고, 판정한

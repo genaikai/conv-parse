@@ -124,8 +124,8 @@ filter-data┘                                        │
                                                     ├─▶ ⑨ Step 3 근거활용 LLM ← 질문 안 봄
                                                     └─▶ ⑩ 라우팅         코드 ─▶ case
                                                                                   │
-                                          outputs/conv_parsed.json ◀──────────────┤
-                                          outputs/run_summary.txt ◀───────────────┘
+                              output/<시각>_<로그>_<필터>.json ◀──────────────┤
+                              output/<시각>_<로그>_<필터>_summary.txt ◀───────┘
 ```
 
 | | LLM | 언제 도나 |
@@ -851,8 +851,8 @@ case 를 코드가 정하면 얻는 것이 하나 더 있다. taxonomy 가 바�
 ## 파일
 
 ```
-outputs/conv_parsed.json    원본 필드는 그대로, classification 아래에 판정 결과
-outputs/run_summary.txt     RUN SUMMARY 사본
+output/<시각>_<로그>_<필터>.json           원본 필드는 그대로, classification 아래에 판정 결과
+output/<시각>_<로그>_<필터>_summary.txt    RUN SUMMARY 사본
 ```
 
 ---

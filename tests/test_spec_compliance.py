@@ -330,7 +330,7 @@ def test_scripting_example_uses_only_documented_things():
     example = doc.split("#!/usr/bin/env bash")[1].split("```")[0]
 
     assert "log_analysis/src/run.py" in example, "진입점을 그대로 보여줘야 한다"
-    assert "ls -1 output/conv_parsed_*.json" in example, "결과는 이름 규칙으로 찾는다"
+    assert "ls -1 output/[0-9]*_*.json" in example, "결과는 이름 규칙으로 찾는다"
     assert "결과:" not in example.replace('echo "결과: $LATEST"', ""), (
         "stderr 를 긁어서 경로를 얻으면 안 된다")
     for banned in ("--upgrade", "pip install", "activate"):
