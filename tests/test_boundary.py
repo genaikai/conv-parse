@@ -31,6 +31,7 @@ CORE = [
     "ragdiag.judge",        # 3스텝 호출
     "ragdiag.textfmt",      # 터미널 표 정렬 (표시 폭)
     "ragdiag.verify",       # 인용 대조
+    "ragdiag.requests",     # 요구(형식 · 언어 · 길이)가 앞 질문에 있는지 코드로 확인
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
     "ragdiag.progress",     # 진행 표시 (표준 라이브러리만)

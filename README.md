@@ -235,6 +235,7 @@ src/
     conv.py · filters.py · labels.py          로그 파싱 · 짝짓기 · 필터 (여기 전용)
     judge.py · backends.py · prompts.py       LLM 호출 · 캐시 · 프롬프트
     results.py · verify.py · taxonomy.py      턴 판정 결과 · 인용 대조 · case 메타데이터
+    requests.py                               요구(형식·언어·길이)가 앞 질문에 있는지 확인
     output.py · pipeline.py · progress.py     출력 JSON · 단계별 함수 · 진행 표시
     textfmt.py                                터미널 표 정렬 (표시 폭)
     __main__.py · config.py · contracts.py · summary.py   실행 · 설정 · 입력 대조 · 요약
@@ -264,7 +265,7 @@ python log_analysis/src/run.py --dry-run
 ```
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/prompts.py
 ragdiag/backends.py   ragdiag/judge.py    ragdiag/verify.py     ragdiag/output.py
-ragdiag/textfmt.py
+ragdiag/textfmt.py    ragdiag/requests.py
 ragdiag/pipeline.py   ragdiag/results.py  ragdiag/progress.py
 ragdiag/features/   (폴더 통째)
 ```

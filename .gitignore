@@ -63,3 +63,9 @@ tools/backend_cli.py
 # 루트 것을 고치면 "고쳤는데 안 먹는" 상태가 된다.
 /query_taxonomy.md
 /emotion_taxonomy.md
+
+# 요구 확인기를 재는 외부 데이터셋은 저장소와 함께 다닌다. 실행 환경은 에어갭이라
+# 거기서는 내려받을 수 없고, 테스트가 조용히 건너뛰면 무엇을 안 쟀는지 안 보인다.
+# 갱신은 scripts/fetch-eval-data.sh 로 한다. 둘 다 Apache-2.0.
+!tests/data/
+!tests/data/*.json
