@@ -1233,7 +1233,7 @@ def chunk_table(chunks: list, row: pd.Series) -> None:
             "길이": st.column_config.NumberColumn("글자", width="small"),
             "첫 줄": st.column_config.TextColumn("첫 줄", width="large")})
 
-    # 전문은 하나씩. 열 개를 다 펼치면 아래 Step 1 · 2 · 3 이 화면 밖으로 밀린다.
+    # 전문은 하나씩. 열 개를 다 펼치면 아래 코드 검증이 화면 밖으로 밀린다.
     picked = st.selectbox(
         "청크 전문", range(len(chunks)), label_visibility="collapsed",
         format_func=lambda i: (f"청크 {i}" + (" · Step 2 가 인용" if i in cited else "")
@@ -1323,8 +1323,6 @@ def detail(row: pd.Series) -> None:
     for note in row["주의"]:
         st.warning(note, icon="⚠️")
 
-    chunk_table(original.get("chunk_data", []), row)
-
     left, right, third = st.columns(3)
     with left:
         st.markdown("**Step 1 · 관측** — 문서를 주지 않고 사용자 쪽 신호만 본다")
@@ -1357,6 +1355,11 @@ def detail(row: pd.Series) -> None:
         else:
             st.caption("충족도가 sufficient 이고 인용이 살아남았을 때만 돈다. "
                        "여기까지 오지 않았다.")
+
+    # 청크는 Step 1·2·3 아래다. 판정 경로를 먼저 읽고 "그래서 문서에 뭐가 있었나"
+    # 로 내려가는 순서다 - 청크를 위에 두면 표 · 선택 상자 · 전문 상자가 화면을
+    # 채워서, 정작 판정이 어떻게 갈렸는지가 스크롤 밖으로 밀린다.
+    chunk_table(original.get("chunk_data", []), row)
 
     if row["검증"]:
         st.markdown("**코드 검증** — LLM 없이, 코드가 본 것")
