@@ -150,7 +150,7 @@ def make_backend(args, config=None, trace=None):
     json_mode = pick(args.json_mode, "llm.json_mode", "auto")
     thinking = pick(args.thinking, "llm.thinking", "auto")
     # 추론을 끄는 파라미터 이름이 서버마다 다르다. 기본값은 실행 환경인 vLLM 쪽이고,
-    # OpenRouter 같은 게이트웨이로 잴 때만 바꾼다 (backends.THINKING_PARAMS).
+    # OpenRouter 같은 중계 서비스로 잴 때만 바꾼다 (backends.THINKING_PARAMS).
     thinking_param = pick(args.thinking_param, "llm.thinking_param", "chat_template_kwargs")
     max_tokens = pick(args.max_tokens, "llm.max_tokens", 16000)
 

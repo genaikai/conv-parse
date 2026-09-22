@@ -220,7 +220,7 @@ JSON_MODES = ("json_schema", "guided_json", "json_object", "none")
 # 추론을 켜고 끄는 파라미터는 서버마다 이름이 다르다. **표준이 없다.**
 #
 #   chat_template_kwargs  vLLM · SGLang · llama.cpp. Qwen3 채팅 템플릿 스위치를 직접 넣는다
-#   reasoning             OpenRouter. 게이트웨이가 제 규격으로 받아 공급자 말로 옮긴다
+#   reasoning             OpenRouter. 중계 서비스가 자기 형식으로 받아 공급자 말로 옮긴다
 #
 # 모르는 필드를 보내면 조용히 무시하는 서버(OpenRouter)와 400 을 내는 서버(vLLM 설정에
 # 따라)가 섞여 있다. 그래서 둘을 한꺼번에 보내지 않는다 - 무시당하면 추론이 켜진 채로

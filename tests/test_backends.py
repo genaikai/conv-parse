@@ -144,7 +144,7 @@ def test_vllm_gets_the_chat_template_switch():
 
 
 def test_openrouter_gets_its_own_reasoning_field():
-    """게이트웨이는 제 규격으로 받는다.
+    """중계 서비스는 자기 형식으로 받는다.
 
     OpenRouter 에 vLLM 방식을 보내면 **조용히 무시한다.** 400 이 아니라 무시라서
     추론이 켜진 채로 돌고, 토큰 한도를 다 태우고 잘려 JSON 이 깨진다 - 실측에서

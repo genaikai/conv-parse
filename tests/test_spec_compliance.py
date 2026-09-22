@@ -44,14 +44,51 @@ def test_no_data_files_are_tracked():
         + "\n".join(f"  {f}" for f in bad))
 
 
+# 규격 1.2 의 예외. **이름을 하나씩 적는다** - 패턴으로 열면 다음 사람이 거기에
+# 아무 데이터나 놓는다.
+#
+# 요구 확인기(ragdiag/requests.py)를 재는 외부 한국어 벤치마크 두 벌이다. 우리가 만든
+# 가짜 데이터가 아니라 공개 데이터셋이고(둘 다 Apache-2.0), 파이프라인은 읽지 않는다 -
+# 테스트만 읽는다. 규격이 막으려는 것은 사내 로그가 섞인 픽스처가 운영으로 흘러가는
+# 것인데 이건 그 부류가 아니다.
+#
+# 반대로 **함께 다녀야 한다.** 실행 환경은 에어갭이라 내려받을 수 없고, 없으면
+# tests/test_requests.py 의 외부 데이터 시험이 조용히 건너뛴다 - 무엇을 안 쟀는지가
+# 화면에서 사라진다. 갱신은 scripts/fetch-eval-data.sh.
+EVAL_DATA = {
+    "tests/data/ifeval_ko.json",           # 검증셋 342건 (allganize/IFEval-Ko)
+    "tests/data/ifeval_ko_heldout.json",   # 테스트셋 524건 (multi-ifeval ko)
+}
+
+
 def test_no_json_fixtures_are_tracked():
     """가짜 데이터는 파일이 아니라 코드다 (규격 1.2).
 
     .gitignore 는 `git add -f` 한 번에 뚫린다. 없는 파일은 올라갈 수 없다.
+    예외는 EVAL_DATA 에 이름으로 적힌 것뿐이다.
     """
-    bad = [f for f in tracked() if f.endswith(".json") and "package.json" not in f]
+    bad = [f for f in tracked()
+           if f.endswith(".json") and "package.json" not in f and f not in EVAL_DATA]
     assert not bad, (
         "JSON 데이터가 추적되고 있다:\n" + "\n".join(f"  {f}" for f in bad))
+
+
+def test_the_eval_data_exemption_is_not_a_hiding_place():
+    """예외로 적힌 파일이 실제로 그 벤치마크인지 확인한다.
+
+    이름만 맞으면 통과하는 예외는 예외가 아니라 구멍이다. 두 파일이 IFEval 라벨
+    구조를 그대로 갖고 있고 크기가 예상 범위인지 본다.
+    """
+    import json
+
+    for name in sorted(EVAL_DATA):
+        path = ROOT / name
+        if not path.exists():
+            continue
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        assert 300 <= len(rows) <= 600, f"{name} 크기가 예상 밖이다: {len(rows)}"
+        assert all(set(r) == {"key", "prompt", "instruction_id_list"} for r in rows), (
+            f"{name} 에 IFEval 라벨 구조가 아닌 행이 있다")
 
 
 def test_local_config_is_not_tracked():
