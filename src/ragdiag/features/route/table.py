@@ -33,16 +33,32 @@ REQUEST_CASES = [
 ]
 
 
-def _requested_but_broken(checks: dict[str, Check], name: str) -> Optional[bool]:
-    """코드 검증 결과를 삼값으로. None 이면 그런 요구가 없었다는 뜻이다."""
+def _request_verdict(checks: dict[str, Check], name: str) -> str:
+    """요구 검증기가 무엇을 말했나. 네 값을 그대로 돌려준다.
+
+    **not_applicable 과 undetermined 를 뭉치면 안 된다.** 전에는 둘 다 None 이었고,
+    라우팅이 그 None 에서 case 를 유지했다. 뜻이 전혀 다르다:
+
+      not_applicable  요구가 아예 없었다. 답변이 어길 것이 없었다
+      undetermined    요구는 있었는데 코드가 잴 수 없다 (길이는 언제나 여기다)
+
+    길이 검증기가 요구가 있을 때 늘 undetermined 를 내기 때문에 "None 이면 case 유지"
+    규칙이 길이에는 옳았고, 그 규칙이 포맷 · 언어에까지 같이 걸리면서 **요구가 없었던
+    턴까지 case10 · case12 로 내보냈다.** 약한 모델에서 상시로 터진다 - Qwen3.5-9B 는
+    인용 대조 통과율이 0% 라 요구가 거의 언제나 지워지고, 그때마다 이 갈래로 온다.
+    """
     check = _check(checks, name)
-    if check is None or check.verdict == "not_applicable":
-        return None
-    if check.verdict == "violated":
+    return check.verdict if check is not None else "not_applicable"
+
+
+def _requested_but_broken(checks: dict[str, Check], name: str) -> Optional[bool]:
+    """어겼나. 어겼을 때만 True - 부가 케이스는 그것만 보면 된다."""
+    verdict = _request_verdict(checks, name)
+    if verdict == "violated":
         return True
-    if check.verdict == "ok":
+    if verdict == "ok":
         return False
-    return None      # undetermined
+    return None      # not_applicable · undetermined
 
 
 def secondary_from(obs: Observation, checks: dict[str, Check]) -> list[str]:
@@ -194,19 +210,27 @@ def route(
     for target, check_name, case_id in REQUEST_CASES:
         if obs.complaint_target != target:
             continue
-        broken = _requested_but_broken(checks, check_name)
-        if broken is True:
+        verdict = _request_verdict(checks, check_name)
+        if verdict == "violated":
             detail = _check(checks, check_name).detail
             return done(case_id, f"{target} 요구 위반 확인 — {detail}")
-        if broken is False:
+        if verdict == "ok":
             # 요구를 지켰는데도 불만이다. 형식 자체가 아니라 기대와 다른 것이다.
             return done("case13", f"{target} 요구는 지켰으나 사용자가 불만",
                         ["코드 검증은 통과 — 기대와 다른 답변 쪽으로 본다"])
-        # 요구를 못 찾았거나 판정 불가. 불만은 형식을 가리키므로 case 는 유지하되
-        # 코드 근거가 없으므로 신뢰도를 낮춘다.
-        result = done(case_id, f"{target} 불만이나 코드 검증 근거 없음")
+        if verdict == "not_applicable":
+            # **이전 질문들에 그런 요구가 없었다.** 후속 발화에서 처음 나온 요구는
+            # 비판받은 답변이 따를 수 없었던 것이라, 어겼다고 할 수 없다. 불만 자체는
+            # 진짜이므로 버리지 않고 "말하지 않은 기대와 달랐다" 로 둔다.
+            return done("case13", f"{target} 불만이나 이전 질문들에 그런 요구가 없었음",
+                        ["답변이 나올 때는 없던 요구다 — 어긴 것이 아니라 기대와 다른 것이다",
+                         "판정자가 요구를 적었다면 인용 대조에서 지워진 것이다 "
+                         "(observation.request_quote_verified 로 확인)"])
+        # undetermined. 요구는 있었는데 코드가 잴 수 없다 - 길이가 언제나 여기다.
+        # 불만이 그것을 가리키므로 case 는 유지하되 코드 근거가 없어 신뢰도를 낮춘다.
+        result = done(case_id, f"{target} 요구는 있으나 코드가 판정할 수 없음")
         result.confidence = "medium"
-        result.notes.append("명시적 요구를 찾지 못함 — LLM 판정에만 의존")
+        result.notes.append("코드 검증이 판정 불가 — LLM 판정에만 의존")
         return result
 
     # --- 3b. 말투·어조 ---------------------------------------------------------

@@ -146,17 +146,6 @@ def test_requirement_met_but_still_complaining_is_intent_miss(target, check_name
     assert result.primary_case == "case13"
 
 
-def test_complaint_without_a_found_requirement_lowers_confidence():
-    """불만은 포맷을 가리키는데 명시적 요구를 못 찾았다.
-
-    case 는 유지하되 코드 근거가 없으므로 신뢰도를 낮추고 이유를 남긴다.
-    """
-    result = route(obs(complaint_target="format"), checks())
-    assert result.primary_case == "case12"
-    assert result.confidence == "medium"
-    assert any("요구를 찾지 못함" in n for n in result.notes)
-
-
 def test_inconsistency_is_parked_not_guessed():
     result = route(obs(complaint_target="inconsistency"), checks())
     assert result.primary_case == taxonomy.UNCLASSIFIED
@@ -543,3 +532,34 @@ def test_a_kept_request_is_not_reported_as_broken():
     kept = Check("length", "ok", "요구 max_chars ≤ 200 · 실제 150")
     got = route(obs(complaint_target="content_missing"), checks(length=kept))
     assert "case11" not in got.secondary_cases, got.secondary_cases
+
+
+@pytest.mark.parametrize("target,case_id", [
+    ("format", "case12"), ("language", "case10"), ("length", "case11"),
+])
+def test_a_request_that_never_existed_is_not_a_violation(target, case_id):
+    """이전 질문들에 요구가 없었으면 어긴 것이 아니다 — case13 이다.
+
+    후속 발화에서 처음 나온 요구("표로 정리해 주세요")는 비판받은 답변이 따를 수
+    없었던 것이다. request_quote 대조가 그런 요구를 이미 지우는데, 라우팅이 그
+    결과를 무시하고 case 를 유지했다. not_applicable(요구 없음)과
+    undetermined(코드가 못 잼)를 한 값으로 뭉갠 탓이다.
+
+    약한 모델에서 상시로 터진다. Qwen3.5-9B 실측에서 인용 대조 통과율이 0% 라
+    요구가 거의 언제나 지워지고, 그때마다 이 갈래로 왔다.
+    """
+    got = route(obs(complaint_target=target), checks())
+    assert got.primary_case == "case13", got
+    assert case_id not in got.secondary_cases, got.secondary_cases
+    assert any("요구가 없" in n or "없던 요구" in n for n in got.notes), got.notes
+
+
+def test_an_unmeasurable_request_keeps_its_case():
+    """요구는 있는데 코드가 못 재는 것은 다르다. 그때는 case 를 유지한다.
+
+    길이는 언제나 여기다 - 기준이 사용자 머릿속에 있어 코드가 가릴 수 없다.
+    위 테스트와 짝이다: 둘을 같은 값으로 뭉치면 한쪽이 반드시 틀린다.
+    """
+    got = route(obs(complaint_target="length"),
+                checks(length=Check("length", "undetermined", "요구 vague_short · 149자")))
+    assert got.primary_case == "case11" and got.confidence == "medium", got
