@@ -117,3 +117,53 @@ def test_a_closing_think_tag_inside_a_json_string_does_not_cut_the_json():
     # 추론 블록 안의 중괄호는 여전히 집지 않는다
     raw = '<think>{"x": 1} 를 고려하면</think>\n{"legible": true}'
     assert extract_json(raw) == '{"legible": true}'
+
+
+# ---------------------------------------------------------------------------
+# 추론을 끄는 파라미터 — 서버마다 이름이 다르다
+# ---------------------------------------------------------------------------
+
+def _payload_for(thinking_param, thinking="off"):
+    from ragdiag.backends import OpenAICompatBackend
+    from ragdiag.schema import GroundingCheck
+
+    backend = OpenAICompatBackend.__new__(OpenAICompatBackend)
+    backend.model = "m"
+    backend.temperature = 0.0
+    backend.max_tokens = 100
+    backend.thinking = thinking
+    backend.thinking_param = thinking_param
+    return backend._payload("s", "u", GroundingCheck, "none")
+
+
+def test_vllm_gets_the_chat_template_switch():
+    """실행 환경의 기본값. Qwen3 채팅 템플릿 스위치를 직접 넣는다."""
+    payload = _payload_for("chat_template_kwargs")
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "reasoning" not in payload
+
+
+def test_openrouter_gets_its_own_reasoning_field():
+    """게이트웨이는 제 규격으로 받는다.
+
+    OpenRouter 에 vLLM 방식을 보내면 **조용히 무시한다.** 400 이 아니라 무시라서
+    추론이 켜진 채로 돌고, 토큰 한도를 다 태우고 잘려 JSON 이 깨진다 - 실측에서
+    추론 14,157자에 파싱 실패였다. 그래서 둘을 한꺼번에 보내지 않고 하나만 보낸다.
+    """
+    payload = _payload_for("reasoning")
+    assert payload["reasoning"] == {"enabled": False}
+    assert "chat_template_kwargs" not in payload
+
+
+def test_auto_sends_neither():
+    """auto 는 서버 기본값을 그대로 둔다 - 모르는 필드로 400 을 맞지 않는다."""
+    for param in ("chat_template_kwargs", "reasoning"):
+        payload = _payload_for(param, thinking="auto")
+        assert "chat_template_kwargs" not in payload and "reasoning" not in payload
+
+
+def test_an_unknown_thinking_param_is_refused():
+    from ragdiag.backends import JudgeError, OpenAICompatBackend
+
+    with pytest.raises(JudgeError, match="thinking_param"):
+        OpenAICompatBackend(base_url="http://x", model="m", thinking_param="개똥")

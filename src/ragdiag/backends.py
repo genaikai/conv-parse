@@ -217,6 +217,17 @@ def strict_json_schema(model: type[BaseModel]) -> dict:
 # 첫 호출에서 위에서부터 시도해 통하는 것을 찾고, 이후로는 그것만 쓴다.
 JSON_MODES = ("json_schema", "guided_json", "json_object", "none")
 
+# 추론을 켜고 끄는 파라미터는 서버마다 이름이 다르다. **표준이 없다.**
+#
+#   chat_template_kwargs  vLLM · SGLang · llama.cpp. Qwen3 채팅 템플릿 스위치를 직접 넣는다
+#   reasoning             OpenRouter. 게이트웨이가 제 규격으로 받아 공급자 말로 옮긴다
+#
+# 모르는 필드를 보내면 조용히 무시하는 서버(OpenRouter)와 400 을 내는 서버(vLLM 설정에
+# 따라)가 섞여 있다. 그래서 둘을 한꺼번에 보내지 않는다 - 무시당하면 추론이 켜진 채로
+# 돌아 토큰을 다 태우고 잘리는데, 그게 실측에서 실제로 났다 (OpenRouter 에 vLLM 방식을
+# 보내 추론 14,157자 · 파싱 실패). 기본값은 실행 환경인 vLLM 쪽이다.
+THINKING_PARAMS = ("chat_template_kwargs", "reasoning")
+
 # 협상 탐침. 스키마와 무관한 요청이라, 강제가 실제로 걸렸을 때만 스키마에 맞는 응답이 나온다.
 _PROBE_SYSTEM = "You are a connectivity test endpoint."
 _PROBE_USER = "Reply with a JSON object."
@@ -262,9 +273,13 @@ class OpenAICompatBackend:
         temperature: float = 0.0,     # 판정자는 결정적이어야 한다
         max_attempts: int = 3,
         thinking: str = "auto",       # auto: 서버 기본값 그대로 / on / off
+        thinking_param: str = "chat_template_kwargs",
     ):
         if thinking not in ("auto", "on", "off"):
             raise JudgeError(f"알 수 없는 thinking: {thinking}")
+        if thinking_param not in THINKING_PARAMS:
+            raise JudgeError(f"알 수 없는 thinking_param: {thinking_param} "
+                             f"(가능: {', '.join(THINKING_PARAMS)})")
         if json_mode not in ("auto",) + JSON_MODES:
             raise JudgeError(f"알 수 없는 json_mode: {json_mode}")
         self.base_url = normalize_base_url(base_url)
@@ -288,6 +303,7 @@ class OpenAICompatBackend:
         self.temperature = temperature
         self.max_attempts = max_attempts
         self.thinking = thinking
+        self.thinking_param = thinking_param
         self.negotiation_log: list[str] = []   # 어떤 모드가 왜 탈락했는지
         self._mode: Optional[str] = None if json_mode == "auto" else json_mode
         self._lock = threading.Lock()
@@ -369,8 +385,12 @@ class OpenAICompatBackend:
             "max_tokens": max_tokens or self.max_tokens,
         }
         if thinking != "auto":
-            # Qwen3 계열 채팅 템플릿 스위치. 서버가 모르면 400이 나므로 명시할 때만 보낸다.
-            payload["chat_template_kwargs"] = {"enable_thinking": thinking == "on"}
+            # 서버가 모르면 400 이 나거나 조용히 무시하므로 명시할 때만, 그리고 한쪽만 보낸다.
+            if self.thinking_param == "reasoning":
+                payload["reasoning"] = {"enabled": thinking == "on"}
+            else:
+                # Qwen3 계열 채팅 템플릿 스위치 (vLLM · SGLang · llama.cpp).
+                payload["chat_template_kwargs"] = {"enable_thinking": thinking == "on"}
         if mode == "json_schema":       # OpenAI 규격, vLLM 최신 / TGI
             payload["response_format"] = {
                 "type": "json_schema",

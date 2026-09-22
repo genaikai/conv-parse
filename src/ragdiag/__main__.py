@@ -33,6 +33,7 @@ from pathlib import Path
 
 from ragdiag.backends import (
     KEY_VARS,
+    THINKING_PARAMS,
     URL_VARS,
     JudgeError,
     backend_from_env,
@@ -148,6 +149,9 @@ def make_backend(args, config=None, trace=None):
     timeout = pick(args.timeout, "llm.timeout_sec", 600)
     json_mode = pick(args.json_mode, "llm.json_mode", "auto")
     thinking = pick(args.thinking, "llm.thinking", "auto")
+    # 추론을 끄는 파라미터 이름이 서버마다 다르다. 기본값은 실행 환경인 vLLM 쪽이고,
+    # OpenRouter 같은 게이트웨이로 잴 때만 바꾼다 (backends.THINKING_PARAMS).
+    thinking_param = pick(args.thinking_param, "llm.thinking_param", "chat_template_kwargs")
     max_tokens = pick(args.max_tokens, "llm.max_tokens", 16000)
 
     def note(built):
@@ -170,6 +174,7 @@ def make_backend(args, config=None, trace=None):
             trace.add("판정", "  ".join([
                 tag("llm.json_mode", f"json_mode={json_mode}"),
                 tag("llm.thinking", f"thinking={thinking}"),
+                tag("llm.thinking_param", f"thinking_param={thinking_param}"),
                 tag("llm.max_tokens", f"max_tokens={max_tokens:,}")]))
         return built
 
@@ -200,7 +205,7 @@ def make_backend(args, config=None, trace=None):
     return note(backend_from_env(
         base_url=url, api_key=key, model=model,
         json_mode=json_mode, thinking=thinking, max_tokens=max_tokens,
-        timeout=timeout,
+        timeout=timeout, thinking_param=thinking_param,
     ))
 
 
@@ -413,6 +418,12 @@ def run_golden(args, backend=None) -> int:
 
     print(render(scores, per_case, errors))
 
+    if args.observe_only:
+        # Step 1 만 본다. 관측이 무너진 모델에서는 뒤 단계를 재도 원인이 섞여서,
+        # 라우팅 오답이 관측 탓인지 라우팅 탓인지 가릴 수 없다. 층을 가르면
+        # 호출도 아낀다 - 관측 65건이 라우팅 · 충족도까지 끌고 가면 호출이 네 배다.
+        return 0
+
     routed = [(case, meta) for case, meta in cases if meta.get("expect_case")]
     if routed:
         run_routing_golden(routed, judge, args.workers)
@@ -534,6 +545,8 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--conv-data", help="conv_eval JSON 경로 (설정을 덮어쓴다)")
     p.add_argument("--golden", action="store_true",
                    help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
+    p.add_argument("--observe-only", action="store_true",
+                   help="골든셋에서 Step 1 관측만 채점한다 (라우팅 · 충족도 호출을 안 한다)")
     p.add_argument("--golden-set", choices=["observations", "messy", "sufficiency"],
                    default="observations",
                    help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다 / "
@@ -561,6 +574,9 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--json-mode",
                    choices=["auto", "json_schema", "guided_json", "json_object", "none"])
     p.add_argument("--thinking", choices=["auto", "on", "off"])
+    p.add_argument("--thinking-param", choices=list(THINKING_PARAMS),
+                   help="추론을 끄는 파라미터 이름. 기본은 vLLM 의 chat_template_kwargs, "
+                        "OpenRouter 는 reasoning")
     p.add_argument("--max-tokens", type=int)
     p.add_argument("--timeout", type=int)
 

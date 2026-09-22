@@ -631,7 +631,8 @@ def _bare_args(**kw):
     import argparse
 
     base = dict(backend=None, model=None, timeout=None, base_url=None,
-                api_key=None, json_mode=None, thinking=None, max_tokens=None)
+                api_key=None, json_mode=None, thinking=None, thinking_param=None,
+                max_tokens=None)
     base.update(kw)
     return argparse.Namespace(**base)
 
