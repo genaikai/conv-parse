@@ -56,8 +56,10 @@ def test_no_data_files_are_tracked():
 # tests/test_requests.py 의 외부 데이터 시험이 조용히 건너뛴다 - 무엇을 안 쟀는지가
 # 화면에서 사라진다. 갱신은 scripts/fetch-eval-data.sh.
 EVAL_DATA = {
-    "tests/data/ifeval_ko.json",           # 검증셋 342건 (allganize/IFEval-Ko)
-    "tests/data/ifeval_ko_heldout.json",   # 테스트셋 524건 (multi-ifeval ko)
+    "tests/data/ifeval_ko.json",           # 검증 342건 (allganize/IFEval-Ko)
+    "tests/data/ifeval_ko_heldout.json",   # 검증 524건 (multi-ifeval ko)
+    "tests/data/ifeval_ko_dk.json",        # 검증 464건 (davidkim205/ko-ifeval)
+    "tests/data/ifeval_ko_snu.json",       # 테스트 841건 (SNU_Ko-IFEval, 홀수 절반만 씀)
 }
 
 
@@ -86,7 +88,7 @@ def test_the_eval_data_exemption_is_not_a_hiding_place():
         if not path.exists():
             continue
         rows = json.loads(path.read_text(encoding="utf-8"))
-        assert 300 <= len(rows) <= 600, f"{name} 크기가 예상 밖이다: {len(rows)}"
+        assert 300 <= len(rows) <= 900, f"{name} 크기가 예상 밖이다: {len(rows)}"
         assert all(set(r) == {"key", "prompt", "instruction_id_list"} for r in rows), (
             f"{name} 에 IFEval 라벨 구조가 아닌 행이 있다")
 

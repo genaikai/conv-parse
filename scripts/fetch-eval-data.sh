@@ -19,27 +19,40 @@ mkdir -p tests/data
 # test 는 한 번도 안 보고 일반화만 재는 셋이다. 같은 IFEval 원문을 다른 팀이
 # 따로 번역해서 한국어 표현이 독립이다 - 특정 번역체에 맞춘 것인지가 드러난다.
 python3 - <<'PY'
-import json, ssl, urllib.request
+import json, os, ssl, urllib.request
 try:
     import certifi
     ctx = ssl.create_default_context(cafile=certifi.where())
 except ImportError:
     ctx = None      # 시스템 인증서가 있으면 그대로 쓴다
 
+# key 필드 이름이 셋마다 다르다. 담는 모양은 셋 다 같게 맞춘다.
 SETS = [
-    ("tests/data/ifeval_ko.json", "allganize%2FIFEval-Ko", "default", "train", "검증셋"),
+    ("tests/data/ifeval_ko.json",
+     "allganize%2FIFEval-Ko", "default", "train", "key", "검증"),
     ("tests/data/ifeval_ko_heldout.json",
-     "danish-foundation-models%2Fmulti-ifeval", "ko", "test", "테스트셋"),
+     "danish-foundation-models%2Fmulti-ifeval", "ko", "test", "key", "검증"),
+    ("tests/data/ifeval_ko_dk.json",
+     "davidkim205%2Fko-ifeval", "default", "train", "id", "검증"),
+    # 이 셋만 테스트용이다. 홀수 key 절반은 패턴을 고칠 때 보지 않는다.
+    ("tests/data/ifeval_ko_snu.json",
+     "thunder-research-group%2FSNU_Ko-IFEval", "default", "test", "key", "테스트"),
 ]
 
-for path, dataset, config, split, role in SETS:
+# 뒤 둘은 승인이 필요하다. huggingface.co 에서 데이터셋 페이지의 동의 버튼을 누르고
+# settings/tokens 에서 read 토큰을 만들어 HF_TOKEN 으로 준다.
+TOKEN = os.environ.get("HF_TOKEN", "")
+HEADERS = {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
+
+for path, dataset, config, split, keyfield, role in SETS:
     rows, off = [], 0
     while True:
         url = ("https://datasets-server.huggingface.co/rows"
                f"?dataset={dataset}&config={config}&split={split}"
                f"&offset={off}&length=100")
-        page = json.load(urllib.request.urlopen(url, timeout=90, context=ctx))
-        got = [{"key": r["row"]["key"], "prompt": r["row"]["prompt"],
+        page = json.load(urllib.request.urlopen(
+            urllib.request.Request(url, headers=HEADERS), timeout=90, context=ctx))
+        got = [{"key": r["row"][keyfield], "prompt": r["row"]["prompt"],
                 "instruction_id_list": r["row"]["instruction_id_list"]}
                for r in page.get("rows", [])]
         rows += got
@@ -48,5 +61,5 @@ for path, dataset, config, split, role in SETS:
             break
     with open(path, "w", encoding="utf-8") as f:
         json.dump(rows, f, ensure_ascii=False)
-    print(f"{role} {len(rows)}건 -> {path}")
+    print(f"{role}셋 {len(rows)}건 -> {path}")
 PY

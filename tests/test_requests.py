@@ -32,6 +32,7 @@ from ragdiag.requests import (
 
 IFEVAL = Path(__file__).parent / "data" / "ifeval_ko.json"
 HELDOUT = Path(__file__).parent / "data" / "ifeval_ko_heldout.json"
+SNU = Path(__file__).parent / "data" / "ifeval_ko_snu.json"
 FORMAT_KINDS = ("table", "numbered_list", "bullet_list", "json", "code_block", "prose")
 
 
@@ -75,10 +76,16 @@ def test_a_word_that_merely_ends_in_table_is_not_a_format_request(question):
     ("전적으로 스와힐리어로 작성하세요", True),
     ("Please answer in English", True),
     ("日本語で答えてください", True),
+    ("영문으로 작성해 주세요", True),           # 문(文) 꼴 - 번역본마다 어/문이 갈린다
+    ("영문으로 400자 이상의 블로그 글을 쓰세요", True),   # 쓰임 동사가 멀리 떨어진 꼴
     ("연차 규정을 단어로 설명해 주세요", False),   # 어(語)로 끝나는 보통명사
     ("전문 용어로 알려주세요", False),
     ("국어 교육 과정 알려줘", False),
     ("출장비 상한 알려주세요", False),
+    ("논문으로 정리해줘", False),               # 문(文)으로 끝나는 보통명사
+    ("주문으로 처리해주세요", False),
+    ("질문으로 바꿔줘", False),
+    ("설문으로 만들어줘", False),
 ])
 def test_language_requests_are_told_apart_from_nouns_ending_in_eo(question, want):
     assert language_was_requested([question]) is want, question
@@ -118,7 +125,10 @@ LANGUAGE_LABEL = "language:response_language"
 LENGTH_LABELS = {"length_constraints:number_sentences",
                  "length_constraints:number_words",
                  "length_constraints:number_paragraphs",
-                 "length_constraints:nth_paragraph_first_word"}
+                 "length_constraints:nth_paragraph_first_word",
+                 # SNU 판이 쓰는 한국어용 라벨. 글자 수를 센다.
+                 "length_constraints:number_letters",
+                 "length_constraints:number_letter_excluded"}
 
 
 @pytest.fixture(scope="module")
@@ -183,10 +193,19 @@ def test_length_requests_are_found_on_outside_data(ifeval):
 # 수치는 낙관적이다. 일반화가 됐는지 말하려면 한 번도 안 본 셋이 있어야 한다 -
 # 기계학습에서 검증셋과 테스트셋을 가르는 것과 같은 이유다.
 #
-#   dev   allganize/IFEval-Ko              342건
-#   test  danish-foundation-models/multi-ifeval `ko` 524건
-#         같은 IFEval 원문을 **다른 팀이 따로 번역했다.** 한국어 표현이 독립이라
-#         우리 정규식이 특정 번역체에 맞춰진 것인지가 드러난다.
+#   dev   allganize/IFEval-Ko                        342건 (언어 라벨 25)
+#   dev   danish-foundation-models/multi-ifeval `ko`  524건 (언어 라벨 0)
+#   test  thunder-research-group/SNU_Ko-IFEval 의 **홀수 key 절반** 449건 (언어 라벨 67)
+#
+# 셋 다 같은 IFEval 원문을 다른 팀이 따로 번역한 것이다. 한국어 표현이 독립이라
+# 우리 정규식이 특정 번역체에 맞춰진 것인지가 드러난다 - 실제로 드러났다:
+# "영어로" 만 알던 규칙이 "영문으로" 를 쓰는 번역본에서 재현율 37% 였다.
+#
+# SNU 를 key 홀짝으로 갈랐다. 짝수(A)는 그 결함을 진단하는 데 썼으므로 검증셋이고,
+# 홀수(B)만 테스트셋으로 남는다. **B 를 보고 패턴을 고치지 말 것.**
+#
+# multi-ifeval `ko` 는 언어 라벨이 0건이라 언어를 아예 못 잰다. 거기서 보이던
+# "오탐 10%" 는 전부 라벨 누락이었다 - 라벨이 없는 셋으로 정밀도를 재면 안 된다.
 #
 # **이 셋을 보고 패턴을 고치지 말 것.** 고치는 순간 검증셋이 되고 남는 테스트셋이
 # 없어진다. 아래 기준값은 2026-09-22 에 **한 번 재서** 적은 것이고, 회귀를 잡으려고
@@ -195,17 +214,27 @@ def test_length_requests_are_found_on_outside_data(ifeval):
 
 @pytest.fixture(scope="module")
 def heldout():
+    """SNU_Ko-IFEval 의 홀수 key 절반. 패턴을 고칠 때 보지 않은 쪽이다."""
+    if not SNU.exists():
+        pytest.skip(f"{SNU} 가 없다 (scripts/fetch-eval-data.sh 로 내려받는다)")
+    rows = json.loads(SNU.read_text(encoding="utf-8"))
+    return [r for r in rows if int(r["key"]) % 2 == 1]
+
+
+@pytest.fixture(scope="module")
+def multi_ifeval():
+    """번역본이 또 다르다. 형식 · 길이만 본다 - 언어 라벨이 0건이라 언어는 못 잰다."""
     if not HELDOUT.exists():
-        pytest.skip(f"{HELDOUT} 가 없다 (scripts/fetch-eval-data.sh 로 내려받는다)")
+        pytest.skip(f"{HELDOUT} 가 없다")
     return json.loads(HELDOUT.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("label,kind,floor", [
     ("detectable_format:json_format", "json", 1.0),
-    ("detectable_format:number_bullet_lists", "bullet_list", 0.90),
+    ("detectable_format:number_bullet_lists", "bullet_list", 0.95),
 ])
 def test_formats_generalize_to_an_unseen_translation(heldout, label, kind, floor):
-    """2026-09-22 실측: json 17/17 (100%) · bullet 29/31 (94%)."""
+    """2026-09-22 실측 (SNU B 449건): json 16/16 · 불릿 26/26."""
     rows = [r for r in heldout if label in r["instruction_id_list"]]
     ok = sum(format_is_supported(kind, [r["prompt"]]) for r in rows)
     assert ok / len(rows) >= floor, f"{kind} {ok}/{len(rows)}"
@@ -213,41 +242,47 @@ def test_formats_generalize_to_an_unseen_translation(heldout, label, kind, floor
 
 @pytest.mark.parametrize("kind,ceiling", [
     ("table", 0.02), ("numbered_list", 0.02), ("bullet_list", 0.03),
-    ("json", 0.02), ("code_block", 0.03), ("prose", 0.02),
+    ("json", 0.02), ("code_block", 0.04), ("prose", 0.04),
 ])
 def test_formats_stay_quiet_on_an_unseen_translation(heldout, kind, ceiling):
-    """2026-09-22 실측: 표 1.3% · 번호 0% · 불릿 1.6% · json 0.4% · 코드 1.3% · 줄글 0.4%."""
+    """2026-09-22 실측 (SNU B): json 0% · 불릿 1.4% · 나머지 2~3%."""
     label = next((k for k, v in FORMAT_LABELS.items() if v == kind), None)
     rows = [r for r in heldout if label not in r["instruction_id_list"]]
     hit = sum(format_is_supported(kind, [r["prompt"]]) for r in rows)
     assert hit / len(rows) <= ceiling, f"{kind} {hit}/{len(rows)}"
 
 
-def test_length_generalizes_to_an_unseen_translation(heldout):
-    """2026-09-22 실측: 재현율 116/133 (87%) · 오탐 28/391 (7.2%).
+def test_language_generalizes_to_an_unseen_translation(heldout):
+    """2026-09-22 실측 (SNU B): 54/67 (81%).
 
-    오탐이 검증셋(1.9%)보다 네 배 높다. 번역체가 달라지면 분량 어휘의 경계가
-    흔들린다는 뜻이다 - 알려진 약점으로 적어 둔다.
+    고치기 전에는 37% 였다. 이 번역본은 "영어" 가 아니라 "영문" 을 쓰는데 규칙이
+    어(語) 꼴만 알고 있었다. 검증셋(allganize)에서는 100% 라 드러나지 않던 결함이다.
+
+    오탐 하한을 8% 로 둔 것은 이 셋의 라벨 누락 때문이다 - 통과한 것들을 읽어 보면
+    "영문으로 작성해야" 처럼 진짜 언어 요구인데 instruction_id_list 에 없다.
+    """
+    pos = [r for r in heldout if LANGUAGE_LABEL in r["instruction_id_list"]]
+    neg = [r for r in heldout if LANGUAGE_LABEL not in r["instruction_id_list"]]
+    assert sum(language_was_requested([r["prompt"]]) for r in pos) / len(pos) >= 0.75
+    assert sum(language_was_requested([r["prompt"]]) for r in neg) / len(neg) <= 0.08
+
+
+def test_length_generalizes_to_an_unseen_translation(heldout):
+    """2026-09-22 실측 (SNU B): 재현율 81/97 (84%) · 오탐 33/352 (9.4%).
+
+    번역체가 달라지면 분량 어휘의 경계가 흔들린다 - 알려진 약점이다. 오탐 쪽은
+    라벨 누락도 섞여 있다(길이 라벨을 안 단 "200단어 에세이" 류).
     """
     pos = [r for r in heldout if set(r["instruction_id_list"]) & LENGTH_LABELS]
     neg = [r for r in heldout if not (set(r["instruction_id_list"]) & LENGTH_LABELS)]
-    assert sum(length_was_requested([r["prompt"]]) for r in pos) / len(pos) >= 0.82
-    assert sum(length_was_requested([r["prompt"]]) for r in neg) / len(neg) <= 0.09
+    assert sum(length_was_requested([r["prompt"]]) for r in pos) / len(pos) >= 0.78
+    assert sum(length_was_requested([r["prompt"]]) for r in neg) / len(neg) <= 0.12
 
 
-@pytest.mark.xfail(reason="알려진 약점 — 홀드아웃에서 10.1%. 진단하려면 이 셋을 써야 하고, "
-                          "그러면 테스트셋이 아니게 된다. 셋을 하나 더 구하고 고친다.",
-                   strict=True)
-def test_language_stays_quiet_on_an_unseen_translation(heldout):
-    """2026-09-22 실측: 라벨 없는 524건 중 53건(10.1%)이 통과했다.
-
-    이 번역본에는 language:response_language 라벨이 아예 없어서 재현율은 못 쟀고,
-    음성 쪽만 보인다. 검증셋에서 0.3% 였던 것이 10.1% 다.
-
-    파이프라인에서의 영향은 제한적이다 - 이 함수는 판정자가 언어 요구를 **주장했을
-    때만** 불린다. 그래도 지어낸 주장의 10% 를 통과시키는 것이라 고쳐야 한다.
-    실패로 두어 잊지 않게 한다.
-    """
-    neg = [r for r in heldout if LANGUAGE_LABEL not in r["instruction_id_list"]]
-    hit = sum(language_was_requested([r["prompt"]]) for r in neg)
-    assert hit / len(neg) <= 0.02, f"{hit}/{len(neg)}"
+def test_formats_hold_on_a_third_translation(multi_ifeval):
+    """셋째 번역본에서도 형식이 버티는지. 2026-09-22 실측: json 17/17 · 불릿 29/31."""
+    for label, kind, floor in (("detectable_format:json_format", "json", 1.0),
+                               ("detectable_format:number_bullet_lists", "bullet_list", 0.90)):
+        rows = [r for r in multi_ifeval if label in r["instruction_id_list"]]
+        ok = sum(format_is_supported(kind, [r["prompt"]]) for r in rows)
+        assert ok / len(rows) >= floor, f"{kind} {ok}/{len(rows)}"
