@@ -204,7 +204,7 @@ def test_prior_questions_travel_with_the_answered_one():
     assert example["질문"] == "국내 출장 식비 상한은?"
     # 대화가 먼저, 그다음 사유, 식별자는 맨 뒤. 읽는 순서가 곧 중요도다.
     assert list(example) == ["앞_질문들", "질문", "답변", "사용자_반응",
-                             "사유", "문서", "meta_data"]
+                             "판정자가_읽은_것", "사유", "문서", "meta_data"]
 
 
 def test_a_single_turn_carries_no_empty_prior_list():
@@ -280,3 +280,49 @@ def test_missing_values_do_not_become_placeholder_lines():
     reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
     assert not any(step.endswith(": 사용자가 원한 것") for step in reason["근거"])
     assert all(step.strip() for step in reason["근거"])
+
+
+def test_what_the_judge_read_is_kept_apart_from_what_the_user_said():
+    """정리된 질문과 요구는 판정 모델이 쓴 문장이다. 대화에 섞으면 원문과 구분이 안 된다."""
+    evidence = {"observation": {
+        "resolved_question": "협력사 직원 출입증을 신규로 발급받는 데 며칠이 걸리나요?",
+        "unmet_need": "협력사 출입증 신규 발급 소요일수"}}
+    out = handover.build(result(turn("case20", evidence=evidence)))
+    example = out["분류"][0]["세부"][0]["사례"][0]
+    assert example["판정자가_읽은_것"] == {
+        "질문": "협력사 직원 출입증을 신규로 발급받는 데 며칠이 걸리나요?",
+        "원한_것": "협력사 출입증 신규 발급 소요일수"}
+    # 대화 다음, 사유 앞. 읽은 것을 확인하고 진단으로 넘어가는 순서다.
+    keys = list(example)
+    assert keys.index("사용자_반응") < keys.index("판정자가_읽은_것") < keys.index("사유")
+
+
+def test_the_requirement_is_not_repeated_in_the_reason():
+    """칸으로 올렸으면 근거에서는 빼야 한다. 같은 말이 두 번 나가면 읽기만 나쁘다."""
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    assert not any(step.startswith("사용자가 원한 것: ") for step in reason["근거"])
+
+
+def test_what_was_missing_is_not_said_twice():
+    """`문서.없던_내용` 에 있는 것을 근거에 또 적으면 같은 문장이 두 번 나간다."""
+    evidence = {"sufficiency": {"missing": "협력사 출입증 신규 발급 소요일", "evidence": []},
+                "observation": {"unmet_need": "발급 소요일"}}
+    example = handover.build(result(turn("case20", evidence=evidence)))[
+        "분류"][0]["세부"][0]["사례"][0]
+    assert example["문서"]["없던_내용"] == "협력사 출입증 신규 발급 소요일"
+    assert not any("협력사 출입증 신규 발급 소요일" in s for s in example["사유"]["근거"])
+
+
+def test_the_quote_list_stays_even_when_empty():
+    """검색 실패면 구절이 없지만 칸은 남긴다. 받아 쓰는 쪽이 늘 배열을 기대할 수 있어야 한다."""
+    evidence = {"sufficiency": {"missing": "없던 것", "evidence": []}, "observation": {}}
+    document = handover.build(result(turn("case21", evidence=evidence)))[
+        "분류"][0]["세부"][0]["사례"][0]["문서"]
+    assert document["구절"] == []
+
+
+def test_code_only_cases_carry_no_judge_block():
+    """case9 · case30 은 코드가 LLM 없이 확정한다. 관측이 없으니 칸도 없다."""
+    out = handover.build(result(turn("case9", type_id="TYPE2", evidence={})))
+    assert "판정자가_읽은_것" not in out["분류"][0]["세부"][0]["사례"][0]

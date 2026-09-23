@@ -51,7 +51,7 @@ def _sufficiency(turn: dict) -> dict:
     return ((turn.get("classification") or {}).get("evidence") or {}).get("sufficiency") or {}
 
 
-def _observation(turn: dict) -> dict:
+def obs_of(turn: dict) -> dict:
     return ((turn.get("classification") or {}).get("evidence") or {}).get("observation") or {}
 
 
@@ -87,13 +87,11 @@ def reason_for(case_id: str, turn: dict) -> dict:
     판정 경로를 따라갈 수 있게 하기 위해서다 - 한 문장으로 뭉치면 어디서 갈렸는지
     되짚을 수 없다.
     """
-    obs = _observation(turn)
+    obs = obs_of(turn)
     suf = _sufficiency(turn)
-    # 값이 없으면 줄 자체를 만들지 않는다. 자리표시자를 기본값으로 두었다가
-    # "사용자가 원한 것: 사용자가 원한 것" 이 그대로 나갔다.
+    # 원한 것은 `판정자가_읽은_것` 칸으로 올라갔다. 여기 또 적으면 같은 말이
+    # 두 번 나간다.
     steps: list[str] = []
-    if obs.get("unmet_need"):
-        steps.append(f"사용자가 원한 것: {obs['unmet_need']}")
 
     if case_id == "case22":
         summary = "문서에 답이 있었는데 답변이 그것을 쓰지 않았다"
@@ -104,10 +102,10 @@ def reason_for(case_id: str, turn: dict) -> dict:
         steps += ["검색된 문서에 그 내용이 있었다 (아래 구절)",
                   "답변이 문서와 다른 내용을 말했다"]
     elif case_id == "case20":
+        # 없던 내용은 `문서.없던_내용` 에 있다. 여기 또 적으면 같은 문장이 두 번
+        # 나가는데, 그 값이 길어서(실측 중앙값 60자 넘음) 근거를 읽기 나쁘게 만든다.
         summary = "검색된 문서에 사용자가 원한 내용이 없었다"
-        if suf.get("missing"):
-            steps.append(f"문서에 없어서 답할 수 없던 것: {suf['missing']}")
-        steps.append("검색은 됐으나 그 문서들로는 답할 수 없었다")
+        steps.append("검색은 됐으나 그 문서들로는 답할 수 없었다 (아래 '문서' 참고)")
     elif case_id == "case21":
         summary = "검색이 아예 수행되지 않았다 (문서 0건)"
         steps.append("서비스가 검색 없이 답할 수 있다고 판단했을 수 있다")
@@ -175,6 +173,24 @@ def build_example(user: dict, conv: dict, turn: dict, case_id: str) -> dict:
     example["질문"] = pre[-1]
     example["답변"] = turn.get("llm_ans_on_last_q", "")
     example["사용자_반응"] = turn.get("current_query", "")
+
+    # 판정 모델이 쓴 문장이지 사용자가 한 말이 아니다. 대화 칸에 섞어 두면 원문과
+    # 구분이 안 되므로 묶어서 경계를 만든다.
+    #
+    # 정리된 질문은 Step 2 가 **실제로 검색에 쓴 질문**이다. 검색 실패(case20)에서
+    # 실무가 물을 것이 "그래서 뭘 찾으려다 실패했나" 라, 그 답이 여기 있다 -
+    # 검색팀이 그대로 넣어 재현할 수 있는 값이기도 하다.
+    #
+    # 코드가 LLM 없이 확정하는 case(case9 · case30 …)에는 관측이 없다. 그때는
+    # 칸 자체를 만들지 않는다.
+    obs = obs_of(turn)
+    read: dict = {}
+    if obs.get("resolved_question"):
+        read["질문"] = obs["resolved_question"]
+    if obs.get("unmet_need"):
+        read["원한_것"] = obs["unmet_need"]
+    if read:
+        example["판정자가_읽은_것"] = read
 
     # 대화 다음이 사유다. 읽는 사람이 대화를 읽고 바로 묻는 것이 "그래서 뭐가
     # 문제냐" 라서, meta_data 안에 넣으면 매번 펼쳐야 한다.
