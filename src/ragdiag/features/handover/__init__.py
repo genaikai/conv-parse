@@ -183,23 +183,21 @@ def build_example(user: dict, conv: dict, turn: dict, case_id: str) -> dict:
     #
     # 코드가 LLM 없이 확정하는 case(case9 · case30 …)에는 관측이 없다. 그때는
     # 칸 자체를 만들지 않는다.
+    # 여기부터는 **우리가 본 것**이다. 위 네 칸은 사용자와 챗봇이 실제로 한 말이고,
+    # 이 아래는 전부 이 도구가 만든 것이다 - 사유도, 고른 문서도, 식별자도.
+    # 대화와 섞여 있으면 읽는 사람이 매번 건너뛰어야 해서 한 칸으로 묶는다. 접으면
+    # 대화만 남아 훑기 좋고, 펴면 "무엇이 문제고 무엇을 고칠까" 가 순서대로 나온다.
+    #
+    # 칸 이름을 `판정` 으로 두지 않은 이유: 대화 번호 · 턴 · 부서는 판정이 아니다.
+    # `대상.분석한 턴` 과 같은 말인 `분석` 이 이 칸 전체를 덮는다.
     obs = obs_of(turn)
     read: dict = {}
     if obs.get("resolved_question"):
         read["질문"] = obs["resolved_question"]
     if obs.get("unmet_need"):
         read["원한_것"] = obs["unmet_need"]
-    if read:
-        example["판정자가_읽은_것"] = read
 
-    # 대화 다음이 사유다. 읽는 사람이 대화를 읽고 바로 묻는 것이 "그래서 뭐가
-    # 문제냐" 라서, meta_data 안에 넣으면 매번 펼쳐야 한다.
-    example["사유"] = reason_for(case_id, turn)
-    document = document_for(case_id, turn)
-    if document:
-        example["문서"] = document
-
-    # 여기부터는 되짚을 때만 보는 것이다. 원본 로그로 찾아가는 식별자와 곁다리 관찰.
+    # 되짚을 때만 보는 것. 원본 로그로 찾아가는 식별자와 곁다리 관찰.
     meta: dict = {
         "대화": conv.get("conversation_id"),
         "턴": turn.get("turn"),
@@ -213,7 +211,16 @@ def build_example(user: dict, conv: dict, turn: dict, case_id: str) -> dict:
         # 결과 파일은 이미 풀어 쓴 객체로 담는다(case_id · case_name · type_id …).
         meta["함께_관찰됨"] = [
             {"case": s["case_id"], "이름": s["case_name"]} for s in secondary]
-    example["meta_data"] = meta
+
+    # 펼쳤을 때 읽는 순서다. 결론(사유) → 근거(문서) → 모델이 읽은 것 → 식별자.
+    분석: dict = {"사유": reason_for(case_id, turn)}
+    document = document_for(case_id, turn)
+    if document:
+        분석["문서"] = document
+    if read:
+        분석["판정자가_읽은_것"] = read
+    분석["meta_data"] = meta
+    example["분석"] = 분석
 
     return example
 
@@ -266,7 +273,8 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
                     # 어느 쪽 미분류인지는 meta_data 안에 둔다. 밖에 붙이면 이 사례만
                     # meta_data 뒤에 칸이 하나 더 생겨서 모양이 다른 사례가 된다.
                     # label() 은 "id · 이름" 꼴이라 case 칸과 겹친다. 이름만 담는다.
-                    example["meta_data"]["구분"] = taxonomy.describe(case_id)["case_name"]
+                    example["분석"]["meta_data"]["구분"] = (
+                        taxonomy.describe(case_id)["case_name"])
                     unclassified.append(example)
                     continue
                 meta = taxonomy.describe(case_id)

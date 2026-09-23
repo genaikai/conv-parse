@@ -67,7 +67,7 @@ def test_only_verified_quotes_travel_not_whole_chunks():
     """청크 전문을 통째로 주면 어느 것이 문제인지 도로 찾아야 한다."""
     out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
     example = out["분류"][0]["세부"][0]["사례"][0]
-    assert example["문서"]["구절"] == [
+    assert example["분석"]["문서"]["구절"] == [
         {"문서번호": 0, "구절": "국내 출장 식비는 1일 3만원을 상한으로 한다."}]
     assert "청크 전문" not in json.dumps(out, ensure_ascii=False)
 
@@ -90,7 +90,7 @@ def test_the_document_says_why_it_is_there(case_id, kind):
     있는지 봐야 한다. 키는 언제나 `문서` 고, 어떻게 읽을지는 `성격` 이 말한다.
     """
     out = handover.build(result(turn(case_id, evidence=SUFFICIENCY)))
-    document = out["분류"][0]["세부"][0]["사례"][0]["문서"]
+    document = out["분류"][0]["세부"][0]["사례"][0]["분석"]["문서"]
     assert document["성격"] == kind
     assert document["설명"]
 
@@ -102,7 +102,7 @@ def test_retrieval_failures_carry_what_was_missing_not_documents(case_id):
                                 "missing": "협력사 출입증 신규 발급 소요일", "evidence": []},
                 "observation": {"unmet_need": "발급 소요일"}}
     out = handover.build(result(turn(case_id, evidence=evidence)))
-    document = out["분류"][0]["세부"][0]["사례"][0]["문서"]
+    document = out["분류"][0]["세부"][0]["사례"][0]["분석"]["문서"]
     assert document["성격"] == "문서에_없던_것"
     assert document["없던_내용"] == "협력사 출입증 신규 발급 소요일"
     assert document["구절"] == []
@@ -133,12 +133,12 @@ def test_unclassified_is_shown_at_the_end_not_hidden():
     assert out["분류"] == []
     assert out["미분류"]["건수"] == 1
     example = out["미분류"]["사례"][0]
-    assert example["사유"]["요약"]
+    assert example["분석"]["사유"]["요약"]
     # 모양이 다른 사례를 만들지 않는다. 어느 쪽 미분류인지도 meta_data 안이다.
-    assert list(example)[-1] == "meta_data"
+    assert list(example)[-1] == "분석"
     # case 칸에 이미 id 가 있다. 같은 말을 두 번 담지 않는다.
-    assert example["meta_data"]["구분"] == "분류 실패 (수동 검토 대상)"
-    assert example["meta_data"]["case"] == "unclassified"
+    assert example["분석"]["meta_data"]["구분"] == "분류 실패 (수동 검토 대상)"
+    assert example["분석"]["meta_data"]["case"] == "unclassified"
     assert list(out)[-1] == "미분류"
 
 
@@ -173,7 +173,7 @@ def test_secondary_cases_ride_along_without_taking_over():
     out = handover.build(result(turn(
         "case22", evidence=SUFFICIENCY,
         secondary=[{"case_id": "case3", "case_name": "복합 질문을 함"}])))
-    meta = out["분류"][0]["세부"][0]["사례"][0]["meta_data"]
+    meta = out["분류"][0]["세부"][0]["사례"][0]["분석"]["meta_data"]
     assert meta["함께_관찰됨"] == [{"case": "case3", "이름": "복합 질문을 함"}]
 
 
@@ -182,7 +182,7 @@ def test_every_case_gets_a_reason_even_without_a_template():
     for case_id in ("case5", "case7", "case19", "case23"):
         out = handover.build(result(turn(case_id, type_id="TYPE2")))
         example = out["분류"][0]["세부"][0]["사례"][0]
-        assert example["사유"]["요약"], case_id
+        assert example["분석"]["사유"]["요약"], case_id
 
 
 def test_broken_turns_are_skipped_not_counted():
@@ -203,8 +203,7 @@ def test_prior_questions_travel_with_the_answered_one():
     assert example["앞_질문들"] == ["앞 질문"]
     assert example["질문"] == "국내 출장 식비 상한은?"
     # 대화가 먼저, 그다음 사유, 식별자는 맨 뒤. 읽는 순서가 곧 중요도다.
-    assert list(example) == ["앞_질문들", "질문", "답변", "사용자_반응",
-                             "판정자가_읽은_것", "사유", "문서", "meta_data"]
+    assert list(example) == ["앞_질문들", "질문", "답변", "사용자_반응", "분석"]
 
 
 def test_a_single_turn_carries_no_empty_prior_list():
@@ -221,7 +220,7 @@ def test_context_loss_points_at_the_condition_it_broke():
     evidence = {"observation": {"unmet_need": "국내 식비 상한",
                                 "history_quote": "국내 기준으로만 알려주세요"}}
     out = handover.build(result(turn("case14", type_id="TYPE3", evidence=evidence)))
-    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    reason = out["분류"][0]["세부"][0]["사례"][0]["분석"]["사유"]
     assert any("국내 기준으로만" in step for step in reason["근거"])
 
 
@@ -254,20 +253,19 @@ def test_identifiers_sit_in_meta_not_above_the_conversation():
     """읽는 사람이 먼저 보는 것은 대화지 대화 번호가 아니다."""
     out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
     example = out["분류"][0]["세부"][0]["사례"][0]
-    assert list(example)[-1] == "meta_data"
-    assert example["meta_data"]["대화"] == "C-1"
-    assert example["meta_data"]["case"] == "case22"
+    assert list(example)[-1] == "분석"
+    assert example["분석"]["meta_data"]["대화"] == "C-1"
+    assert example["분석"]["meta_data"]["case"] == "case22"
     # 되짚을 때만 보는 것들이 위로 올라오면 안 된다.
-    for key in ("대화", "턴", "부서", "case"):
+    for key in ("대화", "턴", "부서", "case", "meta_data", "사유", "문서"):
         assert key not in example
 
 
 def test_the_reason_is_not_buried_in_meta():
     """대화를 읽고 바로 묻는 것이 '그래서 뭐가 문제냐' 다. 펼쳐야 보이면 안 된다."""
     out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
-    example = out["분류"][0]["세부"][0]["사례"][0]
-    assert "사유" in example and "사유" not in example["meta_data"]
-    assert list(example).index("사유") < list(example).index("meta_data")
+    판정 = out["분류"][0]["세부"][0]["사례"][0]["분석"]
+    assert list(판정).index("사유") < list(판정).index("meta_data")
 
 
 def test_missing_values_do_not_become_placeholder_lines():
@@ -277,7 +275,7 @@ def test_missing_values_do_not_become_placeholder_lines():
     관측이 없는 턴(판정이 앞에서 끝난 경우)에서 흔하다.
     """
     out = handover.build(result(turn("case22", evidence={"observation": {}})))
-    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    reason = out["분류"][0]["세부"][0]["사례"][0]["분석"]["사유"]
     assert not any(step.endswith(": 사용자가 원한 것") for step in reason["근거"])
     assert all(step.strip() for step in reason["근거"])
 
@@ -289,18 +287,18 @@ def test_what_the_judge_read_is_kept_apart_from_what_the_user_said():
         "unmet_need": "협력사 출입증 신규 발급 소요일수"}}
     out = handover.build(result(turn("case20", evidence=evidence)))
     example = out["분류"][0]["세부"][0]["사례"][0]
-    assert example["판정자가_읽은_것"] == {
+    assert example["분석"]["판정자가_읽은_것"] == {
         "질문": "협력사 직원 출입증을 신규로 발급받는 데 며칠이 걸리나요?",
         "원한_것": "협력사 출입증 신규 발급 소요일수"}
     # 대화 다음, 사유 앞. 읽은 것을 확인하고 진단으로 넘어가는 순서다.
-    keys = list(example)
-    assert keys.index("사용자_반응") < keys.index("판정자가_읽은_것") < keys.index("사유")
+    keys = list(example["분석"])
+    assert keys.index("사유") < keys.index("판정자가_읽은_것") < keys.index("meta_data")
 
 
 def test_the_requirement_is_not_repeated_in_the_reason():
     """칸으로 올렸으면 근거에서는 빼야 한다. 같은 말이 두 번 나가면 읽기만 나쁘다."""
     out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
-    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    reason = out["분류"][0]["세부"][0]["사례"][0]["분석"]["사유"]
     assert not any(step.startswith("사용자가 원한 것: ") for step in reason["근거"])
 
 
@@ -310,19 +308,32 @@ def test_what_was_missing_is_not_said_twice():
                 "observation": {"unmet_need": "발급 소요일"}}
     example = handover.build(result(turn("case20", evidence=evidence)))[
         "분류"][0]["세부"][0]["사례"][0]
-    assert example["문서"]["없던_내용"] == "협력사 출입증 신규 발급 소요일"
-    assert not any("협력사 출입증 신규 발급 소요일" in s for s in example["사유"]["근거"])
+    assert example["분석"]["문서"]["없던_내용"] == "협력사 출입증 신규 발급 소요일"
+    assert not any("협력사 출입증 신규 발급 소요일" in s for s in example["분석"]["사유"]["근거"])
 
 
 def test_the_quote_list_stays_even_when_empty():
     """검색 실패면 구절이 없지만 칸은 남긴다. 받아 쓰는 쪽이 늘 배열을 기대할 수 있어야 한다."""
     evidence = {"sufficiency": {"missing": "없던 것", "evidence": []}, "observation": {}}
     document = handover.build(result(turn("case21", evidence=evidence)))[
-        "분류"][0]["세부"][0]["사례"][0]["문서"]
+        "분류"][0]["세부"][0]["사례"][0]["분석"]["문서"]
     assert document["구절"] == []
 
 
 def test_code_only_cases_carry_no_judge_block():
     """case9 · case30 은 코드가 LLM 없이 확정한다. 관측이 없으니 칸도 없다."""
     out = handover.build(result(turn("case9", type_id="TYPE2", evidence={})))
-    assert "판정자가_읽은_것" not in out["분류"][0]["세부"][0]["사례"][0]
+    assert "판정자가_읽은_것" not in out["분류"][0]["세부"][0]["사례"][0]["분석"]
+
+
+def test_the_conversation_reads_without_opening_anything():
+    """판정 쪽 이야기는 한 칸으로 묶어 접을 수 있게 한다.
+
+    대화와 섞여 있으면 읽는 사람이 매번 건너뛰어야 한다. 접은 채로 훑으면 무슨 일이
+    있었고(대화 네 칸) 무엇을 고쳐야 하는지(문서)가 남는다.
+    """
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    example = out["분류"][0]["세부"][0]["사례"][0]
+    접었을_때 = [k for k in example if k != "분석"]
+    assert 접었을_때 == ["앞_질문들", "질문", "답변", "사용자_반응"]
+    assert list(example["분석"]) == ["사유", "문서", "판정자가_읽은_것", "meta_data"]
