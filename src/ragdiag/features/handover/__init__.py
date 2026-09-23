@@ -37,6 +37,11 @@ DOC_FIELD = {
     "case24": ("활용한_문서", "인용 표기가 원문과 어긋난다"),
 }
 
+# 전에는 case 마다 **키 이름이 달랐다**(활용했어야_할_문서 · 답변과_어긋나는_문서 …).
+# 사람은 읽기 좋지만 받아 쓰는 쪽은 네 이름을 다 알고 하나씩 있는지 봐야 한다.
+# 이름은 하나로 두고 `성격` 에 그 말을 담는다 - 분기는 그 값으로 한다.
+NO_DOC = ("문서에_없던_것", "검색은 됐으나 이 내용이 문서에 없었다")
+
 # 문서를 싣지 않고 "없던 것" 을 싣는 case. 쓸 문서가 없다는 것이 결론이므로
 # 문서 칸을 두면 빈 배열만 남아 혼란스럽다.
 MISSING_CASES = {"case20", "case21"}
@@ -84,10 +89,11 @@ def reason_for(case_id: str, turn: dict) -> dict:
     """
     obs = _observation(turn)
     suf = _sufficiency(turn)
-    want = obs.get("unmet_need") or "사용자가 원한 것"
+    # 값이 없으면 줄 자체를 만들지 않는다. 자리표시자를 기본값으로 두었다가
+    # "사용자가 원한 것: 사용자가 원한 것" 이 그대로 나갔다.
     steps: list[str] = []
-    if want:
-        steps.append(f"사용자가 원한 것: {want}")
+    if obs.get("unmet_need"):
+        steps.append(f"사용자가 원한 것: {obs['unmet_need']}")
 
     if case_id == "case22":
         summary = "문서에 답이 있었는데 답변이 그것을 쓰지 않았다"
@@ -110,6 +116,16 @@ def reason_for(case_id: str, turn: dict) -> dict:
         steps.append("답변만 보고 사용자가 무엇을 해야 할지 알 수 없다")
     elif case_id == "case13":
         summary = "사용자가 물은 것과 다른 것을 답했다"
+    elif case_id == "case14":
+        summary = "앞 대화에서 정한 조건을 답변이 어겼다"
+        if obs.get("history_quote"):
+            steps.append(f"앞 질문에서 정한 조건: {obs['history_quote']}")
+        steps.append("답변이 그 조건과 다른 범위를 답했다")
+    elif case_id == "case4":
+        summary = "질문의 지시어가 앞 대화를 봐도 무엇을 가리키는지 정해지지 않는다"
+        steps.append("가리킬 대상이 앞 질문들에 없거나, 후보가 둘 이상이다")
+    elif case_id == "case15":
+        summary = "여러 가지를 물었는데 일부만 답했다"
     elif case_id in ("case10", "case11", "case12"):
         what = {"case10": "언어", "case11": "분량", "case12": "형식"}[case_id]
         summary = f"사용자가 요구한 {what}대로 답하지 않았다"
@@ -146,33 +162,65 @@ def reason_for(case_id: str, turn: dict) -> dict:
 
 def build_example(user: dict, conv: dict, turn: dict, case_id: str) -> dict:
     """사례 하나. 원본 로그로 되짚을 수 있게 식별자를 먼저 둔다."""
-    example: dict = {
+    # 챗봇은 **앞 질문들을 함께 받아** 답했다. 마지막 질문만 보여주면 답변이 왜
+    # 그랬는지 알 수 없다 - "국내 기준으로만" 이 두 턴 앞에 있고 답변이 해외로 답한
+    # 경우, 마지막 질문("식비는 얼마인가요")만 보면 답변이 멀쩡해 보인다.
+    #
+    # 마지막 질문을 따로 두는 이유: 그것이 **이 답변이 응답한 질문**이다. 전부를 한
+    # 배열로 펴면 읽는 사람이 "마지막 것이 답을 받은 질문" 임을 알아야 한다.
+    pre = turn.get("pre_queries") or [""]
+    example: dict = {}
+    if len(pre) > 1:
+        example["앞_질문들"] = pre[:-1]
+    example["질문"] = pre[-1]
+    example["답변"] = turn.get("llm_ans_on_last_q", "")
+    example["사용자_반응"] = turn.get("current_query", "")
+
+    # 대화 다음이 사유다. 읽는 사람이 대화를 읽고 바로 묻는 것이 "그래서 뭐가
+    # 문제냐" 라서, meta_data 안에 넣으면 매번 펼쳐야 한다.
+    example["사유"] = reason_for(case_id, turn)
+    document = document_for(case_id, turn)
+    if document:
+        example["문서"] = document
+
+    # 여기부터는 되짚을 때만 보는 것이다. 원본 로그로 찾아가는 식별자와 곁다리 관찰.
+    meta: dict = {
         "대화": conv.get("conversation_id"),
         "턴": turn.get("turn"),
         "부서": user.get("db_dept_name"),
-        "질문": (turn.get("pre_queries") or [""])[-1],
-        "답변": turn.get("llm_ans_on_last_q", ""),
-        "사용자_반응": turn.get("current_query", ""),
-        "사유": reason_for(case_id, turn),
+        # 사례를 하나만 떼어 티켓에 붙이면 어느 분류였는지가 사라진다.
+        "case": case_id,
     }
     secondary = (turn.get("classification") or {}).get("secondary_cases") or []
     if secondary:
         # 주 라벨과 별개로 성립한 것. 한 턴이 검색 실패이면서 복합 질문일 수 있다.
         # 결과 파일은 이미 풀어 쓴 객체로 담는다(case_id · case_name · type_id …).
-        example["함께_관찰됨"] = [
+        meta["함께_관찰됨"] = [
             {"case": s["case_id"], "이름": s["case_name"]} for s in secondary]
+    example["meta_data"] = meta
 
+    return example
+
+
+def document_for(case_id: str, turn: dict) -> Optional[dict]:
+    """이 사례에 붙일 문서. 없으면 None 이라 칸 자체가 안 생긴다.
+
+    키 이름은 언제나 `문서` 하나고, 그 문서를 어떻게 읽어야 하는지는 `성격` 이 말한다.
+    같은 인용이 case22 에서는 "썼어야 하는데 안 쓴 것", case18 에서는 "답변과 어긋나는
+    것" 이다 - 뜻이 다르므로 반드시 붙여야 하지만, 키 이름으로 가르면 받아 쓰는 쪽이
+    네 이름을 다 알아야 한다.
+    """
     if case_id in MISSING_CASES:
         missing = _sufficiency(turn).get("missing")
-        if missing:
-            example["문서에_없던_것"] = missing
-    else:
-        quotes = _verified_quotes(turn)
-        if quotes:
-            field, note = DOC_FIELD.get(case_id, ("관련_문서", "판정에 쓰인 구절"))
-            example[field] = quotes
-            example[f"{field}_설명"] = note
-    return example
+        if not missing:
+            return None
+        kind, note = NO_DOC
+        return {"성격": kind, "설명": note, "없던_내용": missing, "구절": []}
+    quotes = _verified_quotes(turn)
+    if not quotes:
+        return None
+    kind, note = DOC_FIELD.get(case_id, ("판정에_쓰인_문서", "판정 근거로 쓰인 구절"))
+    return {"성격": kind, "설명": note, "구절": quotes}
 
 
 def build(result: dict, source: str = "", generated_at: Optional[str] = None) -> dict:
@@ -199,7 +247,11 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
                     continue
                 example = build_example(user, conv, turn, case_id)
                 if case_id in (taxonomy.UNCLASSIFIED, taxonomy.OUT_OF_TAXONOMY):
-                    unclassified.append({**example, "사유_구분": taxonomy.label(case_id)})
+                    # 어느 쪽 미분류인지는 meta_data 안에 둔다. 밖에 붙이면 이 사례만
+                    # meta_data 뒤에 칸이 하나 더 생겨서 모양이 다른 사례가 된다.
+                    # label() 은 "id · 이름" 꼴이라 case 칸과 겹친다. 이름만 담는다.
+                    example["meta_data"]["구분"] = taxonomy.describe(case_id)["case_name"]
+                    unclassified.append(example)
                     continue
                 meta = taxonomy.describe(case_id)
                 bucket = buckets.setdefault(meta["type_id"], {

@@ -67,8 +67,8 @@ def test_only_verified_quotes_travel_not_whole_chunks():
     """청크 전문을 통째로 주면 어느 것이 문제인지 도로 찾아야 한다."""
     out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
     example = out["분류"][0]["세부"][0]["사례"][0]
-    quotes = example["활용했어야_할_문서"]
-    assert quotes == [{"문서번호": 0, "구절": "국내 출장 식비는 1일 3만원을 상한으로 한다."}]
+    assert example["문서"]["구절"] == [
+        {"문서번호": 0, "구절": "국내 출장 식비는 1일 3만원을 상한으로 한다."}]
     assert "청크 전문" not in json.dumps(out, ensure_ascii=False)
 
 
@@ -78,17 +78,21 @@ def test_dropped_citations_do_not_travel():
     assert "지어낸 구절" not in json.dumps(out, ensure_ascii=False)
 
 
-@pytest.mark.parametrize("case_id,field", [
+@pytest.mark.parametrize("case_id,kind", [
     ("case22", "활용했어야_할_문서"),
     ("case18", "답변과_어긋나는_문서"),
     ("case17", "활용한_문서"),
 ])
-def test_the_document_field_says_why_it_is_there(case_id, field):
-    """같은 인용이라도 case 마다 읽는 법이 다르다. 이름이 같으면 잘못 읽는다."""
+def test_the_document_says_why_it_is_there(case_id, kind):
+    """같은 인용이라도 case 마다 읽는 법이 다르다.
+
+    다만 **키 이름으로 가르지 않는다** - 받아 쓰는 쪽이 네 이름을 다 알고 하나씩
+    있는지 봐야 한다. 키는 언제나 `문서` 고, 어떻게 읽을지는 `성격` 이 말한다.
+    """
     out = handover.build(result(turn(case_id, evidence=SUFFICIENCY)))
-    example = out["분류"][0]["세부"][0]["사례"][0]
-    assert field in example
-    assert example[f"{field}_설명"]
+    document = out["분류"][0]["세부"][0]["사례"][0]["문서"]
+    assert document["성격"] == kind
+    assert document["설명"]
 
 
 @pytest.mark.parametrize("case_id", ["case20", "case21"])
@@ -98,9 +102,10 @@ def test_retrieval_failures_carry_what_was_missing_not_documents(case_id):
                                 "missing": "협력사 출입증 신규 발급 소요일", "evidence": []},
                 "observation": {"unmet_need": "발급 소요일"}}
     out = handover.build(result(turn(case_id, evidence=evidence)))
-    example = out["분류"][0]["세부"][0]["사례"][0]
-    assert example["문서에_없던_것"] == "협력사 출입증 신규 발급 소요일"
-    assert not any("문서" == k or k.endswith("_할_문서") for k in example if k != "문서에_없던_것")
+    document = out["분류"][0]["세부"][0]["사례"][0]["문서"]
+    assert document["성격"] == "문서에_없던_것"
+    assert document["없던_내용"] == "협력사 출입증 신규 발급 소요일"
+    assert document["구절"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +132,13 @@ def test_unclassified_is_shown_at_the_end_not_hidden():
     out = handover.build(result(turn("unclassified", type_id="", type_name="")))
     assert out["분류"] == []
     assert out["미분류"]["건수"] == 1
-    assert out["미분류"]["사례"][0]["사유"]["요약"]
+    example = out["미분류"]["사례"][0]
+    assert example["사유"]["요약"]
+    # 모양이 다른 사례를 만들지 않는다. 어느 쪽 미분류인지도 meta_data 안이다.
+    assert list(example)[-1] == "meta_data"
+    # case 칸에 이미 id 가 있다. 같은 말을 두 번 담지 않는다.
+    assert example["meta_data"]["구분"] == "분류 실패 (수동 검토 대상)"
+    assert example["meta_data"]["case"] == "unclassified"
     assert list(out)[-1] == "미분류"
 
 
@@ -162,8 +173,8 @@ def test_secondary_cases_ride_along_without_taking_over():
     out = handover.build(result(turn(
         "case22", evidence=SUFFICIENCY,
         secondary=[{"case_id": "case3", "case_name": "복합 질문을 함"}])))
-    example = out["분류"][0]["세부"][0]["사례"][0]
-    assert example["함께_관찰됨"] == [{"case": "case3", "이름": "복합 질문을 함"}]
+    meta = out["분류"][0]["세부"][0]["사례"][0]["meta_data"]
+    assert meta["함께_관찰됨"] == [{"case": "case3", "이름": "복합 질문을 함"}]
 
 
 def test_every_case_gets_a_reason_even_without_a_template():
@@ -179,6 +190,39 @@ def test_broken_turns_are_skipped_not_counted():
     broken = {"turn": 1, "classification": {"error": "JudgeError: 형식 검증 실패"}}
     out = handover.build(result(broken, turn("case22", evidence=SUFFICIENCY)))
     assert out["대상"]["분석한 턴"] == 1
+
+
+def test_prior_questions_travel_with_the_answered_one():
+    """챗봇은 앞 질문들을 함께 받아 답했다. 마지막 질문만 보면 답변이 멀쩡해 보인다.
+
+    "국내 기준으로만" 이 두 턴 앞에 있고 답변이 해외로 답한 경우, 마지막 질문
+    ("식비는 얼마인가요")만 실으면 읽는 사람이 무엇이 잘못됐는지 알 수 없다.
+    """
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    example = out["분류"][0]["세부"][0]["사례"][0]
+    assert example["앞_질문들"] == ["앞 질문"]
+    assert example["질문"] == "국내 출장 식비 상한은?"
+    # 대화가 먼저, 그다음 사유, 식별자는 맨 뒤. 읽는 순서가 곧 중요도다.
+    assert list(example) == ["앞_질문들", "질문", "답변", "사용자_반응",
+                             "사유", "문서", "meta_data"]
+
+
+def test_a_single_turn_carries_no_empty_prior_list():
+    """앞 질문이 없으면 빈 배열도 두지 않는다. 절반 넘는 턴이 한 질문뿐이다."""
+    single = turn("case22", evidence=SUFFICIENCY)
+    single["pre_queries"] = ["하나뿐인 질문"]
+    example = handover.build(result(single))["분류"][0]["세부"][0]["사례"][0]
+    assert "앞_질문들" not in example
+    assert example["질문"] == "하나뿐인 질문"
+
+
+def test_context_loss_points_at_the_condition_it_broke():
+    """case14 는 앞 질문이 핵심이다. 어느 구절인지 짚지 않으면 찾아 읽어야 한다."""
+    evidence = {"observation": {"unmet_need": "국내 식비 상한",
+                                "history_quote": "국내 기준으로만 알려주세요"}}
+    out = handover.build(result(turn("case14", type_id="TYPE3", evidence=evidence)))
+    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    assert any("국내 기준으로만" in step for step in reason["근거"])
 
 
 def test_the_entry_point_lives_next_to_the_others():
@@ -204,3 +248,35 @@ def test_it_reuses_the_venv_switch():
         encoding="utf-8")
     assert "from run import switch_venv" in source
     assert "switch_venv(sys.argv[1:])" in source
+
+
+def test_identifiers_sit_in_meta_not_above_the_conversation():
+    """읽는 사람이 먼저 보는 것은 대화지 대화 번호가 아니다."""
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    example = out["분류"][0]["세부"][0]["사례"][0]
+    assert list(example)[-1] == "meta_data"
+    assert example["meta_data"]["대화"] == "C-1"
+    assert example["meta_data"]["case"] == "case22"
+    # 되짚을 때만 보는 것들이 위로 올라오면 안 된다.
+    for key in ("대화", "턴", "부서", "case"):
+        assert key not in example
+
+
+def test_the_reason_is_not_buried_in_meta():
+    """대화를 읽고 바로 묻는 것이 '그래서 뭐가 문제냐' 다. 펼쳐야 보이면 안 된다."""
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    example = out["분류"][0]["세부"][0]["사례"][0]
+    assert "사유" in example and "사유" not in example["meta_data"]
+    assert list(example).index("사유") < list(example).index("meta_data")
+
+
+def test_missing_values_do_not_become_placeholder_lines():
+    """빈 값에 자리표시자를 기본값으로 두면 그게 그대로 나간다.
+
+    실제로 "사용자가 원한 것: 사용자가 원한 것" 이 미분류 사례에 찍혔다.
+    관측이 없는 턴(판정이 앞에서 끝난 경우)에서 흔하다.
+    """
+    out = handover.build(result(turn("case22", evidence={"observation": {}})))
+    reason = out["분류"][0]["세부"][0]["사례"][0]["사유"]
+    assert not any(step.endswith(": 사용자가 원한 것") for step in reason["근거"])
+    assert all(step.strip() for step in reason["근거"])
