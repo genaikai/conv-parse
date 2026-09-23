@@ -326,3 +326,51 @@ def test_code_only_cases_carry_no_judge_block():
     """case9 · case30 은 코드가 LLM 없이 확정한다. 관측이 없으니 칸도 없다."""
     out = handover.build(result(turn("case9", type_id="TYPE2", evidence={})))
     assert "판정자가_읽은_것" not in out["분류"][0]["세부"][0]["사례"][0]
+
+
+# ---------------------------------------------------------------------------
+# 부서별 집계 — 문서 보강을 어디부터 할지 정하는 값
+# ---------------------------------------------------------------------------
+
+def _user(dept, *turns):
+    return {"db_dept_name": dept,
+            "conversations": [{"conversation_id": f"C-{dept}", "turns": list(turns)}]}
+
+
+def test_departments_are_counted_with_a_denominator():
+    """'88건 실패' 만으로는 많이 물어서인지 많이 틀려서인지 알 수 없다."""
+    out = handover.build({"analysis_results": [
+        _user("인사팀", turn("case22", evidence=SUFFICIENCY), turn("case0", type_id="TYPE0")),
+        _user("법무팀", turn("case22", evidence=SUFFICIENCY)),
+    ]})
+    인사 = next(e for e in out["부서별"] if e["부서"] == "인사팀")
+    assert (인사["분석한_턴"], 인사["실패"], 인사["실패율"]) == (2, 1, 0.5)
+    법무 = next(e for e in out["부서별"] if e["부서"] == "법무팀")
+    assert (법무["분석한_턴"], 법무["실패"], 법무["실패율"]) == (1, 1, 1.0)
+
+
+def test_departments_are_sorted_by_failures_and_show_which_type():
+    """한 부서에 TYPE5 가 몰려 있으면 그 부서 문서가 비어 있다는 뜻이다."""
+    out = handover.build({"analysis_results": [
+        _user("법무팀", turn("case22", evidence=SUFFICIENCY)),
+        _user("인사팀", *[turn("case22", evidence=SUFFICIENCY) for _ in range(3)]),
+    ]})
+    assert [e["부서"] for e in out["부서별"]] == ["인사팀", "법무팀"]
+    top = out["부서별"][0]["많은_순"][0]
+    assert top == {"type": "TYPE5", "이름": "도메인 관련 Retrieve Context 문제", "건수": 3}
+
+
+def test_departments_come_before_the_cases():
+    """어디부터 볼지가 첫 화면에서 정해져야 한다."""
+    out = handover.build(result(turn("case22", evidence=SUFFICIENCY)))
+    keys = list(out)
+    assert keys.index("부서별") < keys.index("분류")
+
+
+def test_a_missing_department_still_gets_a_row():
+    """부서가 비어 있다고 사라지면 합계가 안 맞는다."""
+    out = handover.build({"analysis_results": [
+        {"conversations": [{"conversation_id": "C-1",
+                            "turns": [turn("case22", evidence=SUFFICIENCY)]}]}]})
+    assert out["부서별"][0]["부서"] == "(부서 없음)"
+    assert sum(e["실패"] for e in out["부서별"]) == out["대상"]["실패로 판정"]

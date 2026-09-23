@@ -239,6 +239,42 @@ def document_for(case_id: str, turn: dict) -> Optional[dict]:
     return {"성격": kind, "설명": note, "구절": quotes}
 
 
+def by_department(rows: list[tuple[str, str, str, str]]) -> list[dict]:
+    """부서별 실패 분포. **문서 보강을 어디부터 할지 정하는 값이다.**
+
+    사례마다 부서를 붙여 두는 것만으로는 안 보인다. 한 부서에 TYPE5(검색 문제)가
+    몰려 있으면 그 부서 문서가 비어 있다는 뜻인데, 503건을 훑어야 그게 보인다.
+
+    분모를 함께 싣는다. "88건 실패" 만으로는 그 부서가 많이 물어서인지 많이 틀려서인지
+    알 수 없다 - 실패율이 있어야 부서끼리 견줄 수 있다.
+    """
+    counts: dict[str, dict] = {}
+    names: dict[str, str] = {}
+    for dept, case_id, type_id, type_name in rows:
+        if type_id:
+            names[type_id] = type_name
+        entry = counts.setdefault(dept or "(부서 없음)", {
+            "부서": dept or "(부서 없음)", "분석한_턴": 0, "실패": 0, "_type": {}})
+        entry["분석한_턴"] += 1
+        if case_id == "case0":
+            continue
+        entry["실패"] += 1
+        entry["_type"][type_id] = entry["_type"].get(type_id, 0) + 1
+
+    out = []
+    for entry in counts.values():
+        types = entry.pop("_type")
+        entry["실패율"] = (round(entry["실패"] / entry["분석한_턴"], 3)
+                           if entry["분석한_턴"] else 0.0)
+        entry["많은_순"] = [
+            {"type": t or "미분류", "이름": names.get(t) or "판정 보류", "건수": n}
+            for t, n in sorted(types.items(), key=lambda kv: -kv[1])]
+        out.append(entry)
+    # 실패 건수 많은 부서가 위로. 어디부터 볼지가 첫 줄에서 정해진다.
+    out.sort(key=lambda e: -e["실패"])
+    return out
+
+
 def build(result: dict, source: str = "", generated_at: Optional[str] = None) -> dict:
     """결과 파일(analysis_results) → 실무 전달본.
 
@@ -248,6 +284,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
     """
     buckets: dict[str, dict] = {}
     unclassified: list[dict] = []
+    dept_rows: list[tuple[str, str, str, str]] = []
     total = skipped = 0
 
     for user in result.get("analysis_results", []):
@@ -258,6 +295,9 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
                 if not case_id or classification.get("error"):
                     continue
                 total += 1
+                described = taxonomy.describe(case_id)
+                dept_rows.append((user.get("db_dept_name"), case_id,
+                                  described["type_id"], described["type_name"]))
                 if case_id == "case0":
                     skipped += 1
                     continue
@@ -293,6 +333,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         "대상": {"로그": source, "분석한 턴": total,
                  "실패로 판정": total - skipped - len(unclassified),
                  "정상으로 판정": skipped},
+        "부서별": by_department(dept_rows),
         "분류": groups,
     }
     if unclassified:
