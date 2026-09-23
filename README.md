@@ -174,6 +174,7 @@ export LLM_API_KEY=<키>
 ./venv/bin/python src/run.py --check-llm        # 서버 · 모델 · 1회 소요시간 점검
 ./venv/bin/python src/run.py --dry-run          # LLM 없이 턴 고르기까지 (로그가 없으면 합성 데이터)
 ./venv/bin/python src/run.py --conv-data <로그.json> --filter-data <필터.json>
+./venv/bin/python src/handover.py output/<결과.json>   # 실무 전달본 (LLM 호출 없음)
 ./venv/bin/python -m pytest tests/ -q           # LLM 없이 도는 전부
 ```
 

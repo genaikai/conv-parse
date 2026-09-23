@@ -179,3 +179,28 @@ def test_broken_turns_are_skipped_not_counted():
     broken = {"turn": 1, "classification": {"error": "JudgeError: 형식 검증 실패"}}
     out = handover.build(result(broken, turn("case22", evidence=SUFFICIENCY)))
     assert out["대상"]["분석한 턴"] == 1
+
+
+def test_the_entry_point_lives_next_to_the_others():
+    """실행 파일은 src/ 에 모은다.
+
+    run.py · dashboard.py · handover.py 셋이 실행 파일이다. tools/ 는 실행 환경에서
+    호출이 실패하는 것(claude CLI · Anthropic API)을 두는 자리라, LLM 을 부르지 않는
+    이 도구는 거기 있을 이유가 없다. 흩어져 있으면 "무엇을 어디서 돌리나" 를 매번
+    찾아야 한다.
+    """
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    assert sorted(p.name for p in src.glob("*.py")) == [
+        "dashboard.py", "handover.py", "run.py"]
+
+
+def test_it_reuses_the_venv_switch():
+    """진입점마다 다르게 굴면 "저건 되는데 이건 안 된다" 가 된다."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "src" / "handover.py").read_text(
+        encoding="utf-8")
+    assert "from run import switch_venv" in source
+    assert "switch_venv(sys.argv[1:])" in source
