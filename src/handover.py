@@ -55,14 +55,6 @@ def main(argv=None) -> int:
     info = out["대상"]
     print(f"  분석한 턴 {info['분석한 턴']} · "
           f"실패 {info['실패로 판정']} · 정상 {info['정상으로 판정']}")
-    print("  [부서별] 실패 많은 순")
-    for entry in out["부서별"][:5]:
-        top = entry["많은_순"][0] if entry["많은_순"] else {"type": "-", "건수": 0}
-        print(f"      {entry['부서']:14} {entry['실패']:4}/{entry['분석한_턴']:<4} "
-              f"({entry['실패율']:.0%})  가장 많은 것 {top['type']} {top['건수']}건")
-    if len(out["부서별"]) > 5:
-        print(f"      … 그 밖에 {len(out['부서별']) - 5}개 부서")
-    print("  [분류]")
     for group in out["분류"]:
         print(f"  {group['type']} {group['이름']}  {group['건수']}건")
         for case in group["세부"]:
