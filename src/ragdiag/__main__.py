@@ -4,11 +4,11 @@
   python <저장소>/src/run.py --conv-data <로그> --output-dir outputs --dry-run
   python <저장소>/src/run.py --conv-data <로그> --filter-data <필터> --output-dir outputs
 
-필터가 고른 턴만 3단계로 분류한다:
+필터가 고른 턴만 세 층으로 분류한다:
 
-  Step 1  관측 추출     LLM 1회 · rag_data 를 주지 않는다
-  Step 2  조건부 검증   코드 검증은 항상 · LLM 검증은 도메인 질문일 때만
-  Step 3  라우팅        코드. case 는 LLM 이 고르지 않는다
+  묻는다    LLM 에는 좁은 관측만 (읽기 · Step 1 관측 · Step 2 충족도 · Step 3 근거 활용)
+  되돌린다  코드가 원문과 대조해 받쳐 주지 않는 주장을 지운다 (인용 · 요구 · 검증기 10종)
+  정한다    진리표가 조합해 case 를 고른다. case 는 LLM 이 고르지 않는다
 
 결과는 pre_data_format 형태로 나온다. 원본 필드는 그대로 두고 분류 결과는
 `classification` 아래에 모은다.
@@ -324,7 +324,7 @@ def check_llm(args, config=None) -> int:
         print("  전체 실행은 --thinking off 로 시작하는 편이 낫습니다.")
 
     workers = args.workers or settings.DEFAULT_WORKERS
-    print(f"\n턴 1건당 LLM 호출은 최대 3회다. 1,000턴이면 대략 "
+    print(f"\n턴 1건당 LLM 호출은 최대 4회다. 1,000턴이면 대략 "
           f"{elapsed * 1000 * 2 / max(workers, 1) / 60:.0f}분 "
           f"(호출 2,000회 가정, 동시 {workers}).")
     return 0

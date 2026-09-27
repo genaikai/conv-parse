@@ -315,7 +315,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
 def process_data(ctx) -> tuple[list, list]:
     """등록부 규약. 이 기능은 집계에 싣는 지표가 없다 - 파일을 따로 만든다.
 
-    파이프라인에 끼우지 않고 `tools/handover.py` 가 결과 파일을 읽어 부른다.
+    파이프라인에 끼우지 않고 `src/handover.py` 가 결과 파일을 읽어 부른다.
     판정과 전달본을 갈라 두면 문구를 고칠 때 LLM 을 다시 부르지 않아도 된다.
     """
     return [], []
