@@ -1,5 +1,11 @@
 # 판정을 기능 등록부로 — 설계
 
+> **이 문서는 그 변경 시점의 기록이다 (완료).** 아래 `FEATURES` 표는 그때의 목록이고,
+> 뒤로 읽기(`legibility`) · 요구 확인(`request_quote` · `history_quote`) · 전달본
+> (`handover`)이 더해졌다. **지금의 목록과 순서는 `src/ragdiag/features/__init__.py` 의
+> `FEATURES` 가 유일한 출처다** — 여기를 고쳐 맞추지 않는다. 이 문서의 값어치는
+> 목록이 아니라 아래 **결정** 여덟 줄이다.
+
 지금은 판정 순서가 `classify.classify_turn()` 안에 코드로 박혀 있고, 코드 검증기
 12종은 `checks.py` 한 파일(771줄)에 있다. `features/` 는 판정이 끝난 뒤 지표만 내는
 자리였다.

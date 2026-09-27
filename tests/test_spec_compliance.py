@@ -912,12 +912,15 @@ def _flow_tables():
 
     서두의 개요표(29개 전부)와 ⑩의 출력표(라우팅이 실제로 내는 25개)는 모양이
     같아서 한꺼번에 읽으면 서로를 오염시킨다. 재는 것이 다르므로 갈라 본다.
+
+    개요표는 `## 무엇으로 분류되나` 절 하나에 들어 있다. 그 앞뒤에 절이 더 붙어도
+    (전체 그림이 서두로 올라온 것처럼) 이 경계는 안 흔들린다.
     """
     import re
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
     row = re.compile(r"\|\s*(✗?)\s*\| `(case\d+)` \| ([^|]+?) \| (?:\*\*)?(high|medium|low)(?:\*\*)? \|")
-    overview = doc.split("## 전체 그림")[0]
+    overview = doc.split("## 무엇으로 분류되나")[1].split("## 실행 방식")[0]
     routing = doc.split("**출력** — case 26개")[1]
     return ([m.groups() for m in row.finditer(overview)],
             [m.groups() for m in

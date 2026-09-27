@@ -194,6 +194,9 @@ python log_analysis/src/run.py --dry-run
 
 python log_analysis/src/run.py --conv-data <실데이터> --turns <목록> --limit 50
 #   RUN SUMMARY 의 contract 줄이 첫 사이클의 실제 수확이다
+
+python log_analysis/src/handover.py output/<결과.json>
+#   실무 전달본. meta_data 의 부서·대화 칸이 비면 필드 이름부터 맞춘다
 ```
 
 **`--limit 50` 다음에 바로 전체로 가지 마라.** 계약이 깨끗해진 뒤에 간다 — 틀린 계약

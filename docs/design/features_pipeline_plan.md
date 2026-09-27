@@ -1,5 +1,9 @@
 # 판정을 기능 등록부로 — 구현 계획
 
+> **완료된 계획이다.** 남겨 둔 이유는 기능 하나를 어떻게 쪼개 넣었는지의 본보기라서다.
+> 설계는 [features_pipeline.md](features_pipeline.md), 지금의 기능 목록은
+> `src/ragdiag/features/__init__.py`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 판정 단계 · 코드 검증기 · 진리표 · 집계를 모두 `features/` 의 기능으로 만들고 `FEATURES` 순서대로 실행한다.
