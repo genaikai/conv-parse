@@ -39,12 +39,6 @@ SERVICE_ERROR_TEMPLATES = (
 # 입력 토큰도 턴 수에 비례해 늘어난다.
 MAX_HISTORY_TURNS = 3
 
-# 충족도·근거 활용에 넘길 청크 수 상한. 끌려온 턴들의 tool_output 까지 합치면
-# 긴 대화에서 풀이 얼마든지 커지는데, Step 2 골든셋은 문서 10~15개 기준으로
-# 재서 정한 것이라 그보다 한참 많아지면 약한 모델이 거기서 무너진다.
-# 넘치면 끌려온 턴 쪽부터 잘린다 (conv.chunk_pool).
-MAX_RAG_CHUNKS = 20
-
 # 필터에서 "제한 없음"을 뜻하는 값들.
 FILTER_ANY_VALUES = frozenset({"전체", "all", "ALL", "", "*"})
 

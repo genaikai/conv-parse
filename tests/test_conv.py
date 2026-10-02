@@ -409,18 +409,19 @@ def test_carried_turns_contribute_tool_output_but_not_their_documents():
     assert "문서1" not in case.rag_chunks
 
 
-def test_the_answered_turn_documents_survive_the_cap():
-    """상한에 걸려 잘려도 비판받은 답변의 문서는 남아야 한다.
+def test_the_answered_turn_documents_come_first():
+    """비판받은 답변의 문서가 풀의 앞이다.
 
-    충족도 판정의 본령이 그 문서이고 끌려온 턴 쪽은 보조다. 순서를 뒤집으면
-    긴 대화에서 정작 판정 대상 문서가 잘려 나간다.
+    충족도 판정의 본령이 그 문서이고 끌려온 턴 쪽은 보조다. 상한을 두지 않기로
+    했으므로(실데이터에서 풀이 실제로 커지는지를 아직 모른다) 지금 순서가 하는
+    일은 하나다 - 나중에 상한을 넣을 때 자를 자리가 뒤라는 것.
     """
     from ragdiag.conv import chunk_pool
 
     conv = _conv_with_carried([1, 2, 3], tool={1: ["끌1"], 2: ["끌2"], 3: ["끌3"]})
     answered = conv.turn_at(4)
-    pool = chunk_pool(answered, conv.turns[:4], cap=2)
-    assert pool == ["문서4", "끌1"]
+    pool = chunk_pool(answered, conv.turns[:4])
+    assert pool == ["문서4", "끌1", "끌2", "끌3"]
 
 
 def test_carried_turn_nos_as_a_string_is_absorbed():

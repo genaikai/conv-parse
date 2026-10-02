@@ -15,6 +15,10 @@
 `tool_output` 은 비율만 센다. 그 값이 크면 청크 풀이 통째로 달라졌다는 뜻이고,
 문서가 늘면 case20(문서에 없었다)이 case22(있었는데 안 썼다)로 옮겨 간다 —
 **고칠 곳이 정반대로 바뀐다.**
+
+풀 크기는 여기서 안 센다. 세려면 `conv.chunk_pool` 을 불러야 하는데 그쪽은 입력
+계층이고 `features/` 는 코어다 (tests/test_boundary.py). 규칙을 베껴 오면 둘이
+갈라진다 - 풀이 커지는지는 결과 파일의 `chunk_data` 길이로 본다.
 """
 
 from ragdiag import settings

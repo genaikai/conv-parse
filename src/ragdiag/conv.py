@@ -379,7 +379,7 @@ def to_case(
     )
 
 
-def chunk_pool(answered: Turn, scope: list[Turn], cap: Optional[int] = None) -> list[str]:
+def chunk_pool(answered: Turn, scope: list[Turn]) -> list[str]:
     """비판받은 답변이 **실제로 볼 수 있었던 문서 전부.**
 
     세 갈래다. 끌려온 턴에서 오는 것은 `tool_output` 뿐이다 - 그 턴들의
@@ -388,14 +388,17 @@ def chunk_pool(answered: Turn, scope: list[Turn], cap: Optional[int] = None) -> 
         비판받은 턴   retrieved_data + tool_output
         끌려온 턴들   tool_output
 
-    **턴 N 것을 먼저 넣는다.** 상한에 걸려 잘려도 비판받은 답변의 문서는 남아야
-    한다 - 그게 충족도 판정의 본령이고, 끌려온 턴 쪽은 보조다.
+    **턴 N 것을 먼저 넣는다.** 충족도 판정의 본령이 그 문서이고 끌려온 턴 쪽은
+    보조라, 순서가 곧 중요도다.
+
+    상한은 두지 않는다. Step 2 골든셋이 문서 10~15개 기준이라 풀이 그보다 한참
+    커지면 약한 모델이 무너질 수 있는데, **실데이터에서 실제로 커지는지를 아직
+    모른다.** 첫 실행의 `carried` 지표가 평균·최대를 찍으므로 그 숫자를 보고
+    필요하면 그때 넣는다.
     """
-    if cap is None:
-        cap = settings.MAX_RAG_CHUNKS
     pool = list(answered.retrieved) + list(answered.tool_output)
     for turn in scope:
         if turn is answered:
             continue
         pool += turn.tool_output
-    return pool[:cap] if cap > 0 else pool
+    return pool
