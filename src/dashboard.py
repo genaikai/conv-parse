@@ -174,10 +174,10 @@ def load(path: str) -> pd.DataFrame:
                 suf = evidence.get("sufficiency") or {}
                 rows.append({
                     "부서": user.get("db_dept_name", "-"),
-                    # 직급은 db_position_name 이다. job_grade 가 아니다 -
-                    # 이름이 비슷해서 그쪽을 읽고 있었고, 그러면 직급 상자가
-                    # 엉뚱한 값으로 채워진다.
-                    "직급": user.get("db_position_name", "-"),
+                    # db_position_name(직위)이 로그에서 빠져(2026-10) job_grade 가
+                    # 유일한 직급 축이 됐다. 그대로 뒀으면 이 상자가 전부 "-" 가
+                    # 되는데 에러는 안 난다.
+                    "직급": user.get("job_grade", "-"),
                     "직무": user.get("db_job_name", "-"),
                     "대화": conv.get("conversation_id", "-"),
                     "턴": turn.get("turn"),
@@ -265,10 +265,10 @@ def download(df: pd.DataFrame, name: str) -> None:
                        file_name=f"{name}.csv", mime="text/csv", key=f"dl-{name}")
 
 
-# 판별된 로그 필드 -> 화면의 축. job_grade 는 여기 없다 - 직급은
-# db_position_name 이고, job_grade 는 이 화면이 쓰지 않는 필드다. 없는 필드에
-# 체계가 붙으면 라벨을 지어내지 말고 "어느 축에도 못 붙였다"고 말해야 한다.
-LOG_FIELD_TO_COLUMN = {"db_dept_name": "부서", "db_position_name": "직급",
+# 판별된 로그 필드 -> 화면의 축. db_position_name 이 로그에서 빠진 뒤로 직급은
+# job_grade 다. 없는 필드에 체계가 붙으면 라벨을 지어내지 말고 "어느 축에도
+# 못 붙였다"고 말해야 한다.
+LOG_FIELD_TO_COLUMN = {"db_dept_name": "부서", "job_grade": "직급",
                        "db_job_name": "직무"}
 
 # 사이드바에서 좁힐 수 있는 조직 축. 조직 탭의 기준 라디오와 같은 순서다 -

@@ -134,19 +134,23 @@ def survey(conversations: list[Conversation], metadata: Optional[dict] = None) -
         "=" * 78,
         "",
         "[1] 규모",
-        f"  사용자 {len({c.user.user_id for c in conversations})}명 · "
-        f"대화 {len(conversations)}건 · 턴 {len(turns)}개",
+        # 사용자 식별자가 로그에서 없어졌다. 셀 수 없는 것을 0명으로 찍으면
+        # "사용자가 없다" 로 읽히므로 축 자체를 뺀다.
+        f"  대화 {len(conversations)}건 · 턴 {len(turns)}개 · "
+        f"부서 {len({c.user.dept for c in conversations})}개",
     ]
     if metadata:
         declared_users = metadata.get("total_users")
         declared_turns = metadata.get("total_turns")
-        actual_users = len({c.user.user_id for c in conversations})
+        actual_users = None
         # metadata 와 실제가 어긋나면 파일이 잘렸거나 중복이 있다는 뜻이다.
         for name, declared, actual in [
             ("total_users", declared_users, actual_users),
             ("total_turns", declared_turns, len(turns)),
         ]:
-            if declared is not None:
+            # 셀 수 없는 축은 대조하지 않는다. 비교 대상이 없는데 "불일치" 를
+            # 찍으면 멀쩡한 로그가 깨진 것으로 보인다.
+            if declared is not None and actual is not None:
                 mark = "" if declared == actual else "   <-- 불일치"
                 out.append(f"  metadata.{name}: 선언 {declared} / 실제 {actual}{mark}")
 

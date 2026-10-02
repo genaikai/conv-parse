@@ -873,8 +873,8 @@ def test_steps_withhold_what_the_document_claims():
     from ragdiag.schema import Case, Observation
 
     case = Case(
-        case_id="x", user_id="u", dept="인사팀", job_grade="사원", job_name="인사",
-        position_name="", conversation_id="C", turn=4,
+        case_id="x", dept="인사팀", job_grade="사원", job_name="인사",
+        conversation_id="C", turn=4,
         pre_queries=["연차 이월 예외 조건"],
         llm_ans_on_last_q="사규에 따라 운영됩니다.",
         current_query="예외 조건을 물었는데요.",
@@ -1105,7 +1105,7 @@ def test_process_flow_input_tables_name_real_fields():
 
     known = (set(Case.__dataclass_fields__) | set(Observation.model_fields)
              | set(SufficiencyJudgment.model_fields) | set(GroundingCheck.model_fields)
-             | {"llm_eval_*", "llm_emotion_*", "timestamp", "verdict",
+             | {"llm_eval_*", "llm_emotion_*", "request_time", "verdict",
                 "pre_queries[-1]", "requested_*", "requested_length_*"})
 
     doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")

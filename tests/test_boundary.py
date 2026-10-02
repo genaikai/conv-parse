@@ -150,8 +150,8 @@ def test_core_accepts_a_foreign_conversation_object():
 
     # 서비스 오류 문구는 코드로 판정되므로 LLM 없이 끝까지 간다.
     cases = [Case(
-        case_id="C-9001:3", user_id="u1", dept="인사팀", job_grade="사원",
-        job_name="인사", position_name="", conversation_id="C-9001", turn=3,
+        case_id="C-9001:3", dept="인사팀", job_grade="사원",
+        job_name="인사", conversation_id="C-9001", turn=3,
         pre_queries=["연차 이월 예외 조건 알려줘"],
         llm_ans_on_last_q="서비스에 문제가 있거나, 사용자 분들이 많아서 "
                           "서버에 부하가 걸리고 있어요.",

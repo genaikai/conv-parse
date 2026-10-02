@@ -171,8 +171,8 @@ BROKEN_TAIL = " ㅁㄴㅇㄹ the the the 승인을을을"
 def make_case(scenario: str) -> Case:
     text = TEXTS[scenario.split("|")[0]]
     answer = text["answer"] + (BROKEN_TAIL if scenario.endswith("|illegible") else "")
-    return Case(case_id=scenario, user_id="u", dept="d", job_grade="g", job_name="j",
-                position_name="p", conversation_id="c", turn=2,
+    return Case(case_id=scenario, dept="d", job_grade="g", job_name="j",
+                conversation_id="c", turn=2,
                 pre_queries=text["pre_queries"], llm_ans_on_last_q=answer,
                 current_query=COMPLAINT, rag_chunks=text["chunks"])
 

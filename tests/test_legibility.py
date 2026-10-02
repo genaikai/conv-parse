@@ -17,8 +17,8 @@ BROKEN = "연차는 입사일 기준 15일이며 ㅁㄴㅇㄹ 申請 the the the
 
 
 def _case(answer=BROKEN):
-    return Case(case_id="c", user_id="-", dept="인사팀", job_grade="-", job_name="-",
-                position_name="-", conversation_id="C", turn=2,
+    return Case(case_id="c", dept="인사팀", job_grade="-", job_name="-",
+                conversation_id="C", turn=2,
                 pre_queries=["연차 며칠이에요"], llm_ans_on_last_q=answer,
                 current_query="이게 뭔 말이에요", rag_chunks=["연차는 15일이다"])
 

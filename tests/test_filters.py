@@ -228,7 +228,7 @@ def _turn(n, eval_letter=None, emotion_letter=None, ts="2026-03-06 10:00:00.000"
 
 def _convs(turns, dept="인사팀"):
     return parse_conversations({"users": [{
-        "user_id": "u1", "db_dept_name": dept, "db_job_name": "인사운영",
+        "conversation_id": "u1", "db_dept_name": dept, "db_job_name": "인사운영",
         "db_position_name": "팀원", "job_grade": "대리",
         "conversations": [{"conversation_id": "c1", "turns": turns}],
     }]})
@@ -385,7 +385,7 @@ def test_turn_bucket_filters_selected_turns():
 
 def test_role_filters_on_job_grade():
     convs = parse_conversations({"users": [{
-        "user_id": "u", "job_grade": "Staff Engineer", "db_dept_name": "인사팀",
+        "conversation_id": "u", "job_grade": "Staff Engineer", "db_dept_name": "인사팀",
         "conversations": [{"conversation_id": "c", "turns": [_turn(1), _turn(2, "K", "I")]}],
     }]})
     assert len(apply_filter(convs, FilterSpec(job_grades={"Staff Engineer"}))[0]) == 1
@@ -423,7 +423,7 @@ def test_single_turn_conversations_are_excluded():
 
 def _two_turn_log():
     return {"users": [{
-        "user_id": "u1", "db_login_id": "l1", "job_grade": "사원",
+        "conversation_id": "u1", "db_login_id": "l1", "job_grade": "사원",
         "db_dept_name": "인사팀", "db_job_name": "인사", "db_position_name": "팀원",
         "conversations": [{"conversation_id": "C-1", "turns": [
             {"turn": 1, "user_question": "연차 며칠인가요?", "llm_response": "규정에 따릅니다.",
@@ -494,23 +494,21 @@ def test_first_turn_cannot_be_judged_and_says_so(tmp_path):
         [(st.name, st.dropped) for st in selection.steps]
 
 
-def test_ambiguous_conversation_id_is_refused(tmp_path):
-    """대화 id 가 사용자마다 겹칠 수 있다. 아무거나 고르면 남의 대화를 판정한다."""
+def test_duplicate_conversation_id_is_refused(tmp_path):
+    """대화 id 는 전역 유일이라는 전제 위에 Case 식별이 서 있다 (2026-10).
+
+    사용자 식별자가 로그에서 없어져 가를 다른 값이 없다. 같은 id 가 둘 나오면
+    아무거나 고르는 대신 멈춰야 한다 - 고르면 남의 대화를 판정하고, 그게
+    조용하다.
+    """
     from ragdiag.pipeline import select_turns
 
     log = _two_turn_log()
-    second = json.loads(json.dumps(log["users"][0]))
-    second["user_id"] = "u2"
-    log["users"].append(second)
+    log["users"].append(json.loads(json.dumps(log["users"][0])))
 
     path, turns = _write(tmp_path, log, [{"conversation_id": "C-1", "turn": 2}])
-    with pytest.raises(ValueError, match="user_id"):
+    with pytest.raises(ValueError, match="conversation_id"):
         select_turns(path, turns)
-
-    _, with_user = _write(tmp_path, log,
-                          [{"user_id": "u2", "conversation_id": "C-1", "turn": 2}],
-                          name="ok.json")
-    assert len(select_turns(path, with_user).cases) == 1
 
 
 def test_turn_list_needs_no_label_conditions(tmp_path):

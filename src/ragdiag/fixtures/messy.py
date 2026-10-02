@@ -12,7 +12,7 @@ observations.py 의 케이스는 깔끔하다. 문장이 완결되고 맞춤법�
 - 라우팅 (expect_case): 판정이 끝났을 때 나와야 하는 case. 정답이 하나로 확정되지 않으면
   허용 집합으로 둔다.
 
-턴 필드는 실행 로그(pseudo_input/conv-data.json 에서 본 것)를 따른다 — db_login_id ·
+턴 필드는 실행 로그(pseudo_input/conv-data.json 에서 본 것)를 따른다 — 
 영문 직급 · "<user>_conv_N" 대화 id · 밀리초 시각 · A~R 라벨 이름과 alternatives.
 retrieved_data 만 이쪽 파서의 계약대로 JSON 문자열로 싣는다 (그 로그에는 없던 필드다).
 
@@ -895,21 +895,19 @@ CASES = [
 def build() -> tuple[dict, dict]:
     """실행 로그 모양(pseudo_input)으로 조립한 conv_eval 페이로드와 케이스별 기대값."""
     from ragdiag.labels import EMOTION_LABELS, QUERY_LABELS
-    from ragdiag.conv import mask
-
+    
     grades = ["Assistant Engineer", "Engineer", "Senior Engineer", "Staff Engineer",
               "Principal Engineer"]
     users, expected = [], {}
     for index, case in enumerate(CASES):
         history = case["pre_queries"]
-        user_id = f"messy-{case['id']}"
-        conv_id = f"{user_id}_conv_1"
+        conv_id = f"messy-{case['id']}_conv_1"
         turns = []
         for i, question in enumerate(history):
             last = i == len(history) - 1
             turns.append({
                 "turn": i + 1,
-                "timestamp": f"2026-04-{(index % 28) + 1:02d} 1{i % 10}:{(index * 7) % 60:02d}:14.000",
+                "request_time": f"2026-04-{(index % 28) + 1:02d} 1{i % 10}:{(index * 7) % 60:02d}:14.000",
                 "user_question": question,
                 "llm_response": case["answer"] if last else f"(이전 답변 {i + 1})",
                 "conversation_id": conv_id,
@@ -931,7 +929,7 @@ def build() -> tuple[dict, dict]:
         complaint_turn = len(history) + 1
         turns.append({
             "turn": complaint_turn,
-            "timestamp": f"2026-04-{(index % 28) + 1:02d} 1{complaint_turn % 10}:00:14.000",
+            "request_time": f"2026-04-{(index % 28) + 1:02d} 1{complaint_turn % 10}:00:14.000",
             "user_question": case["complaint"],
             "llm_response": "(아직 답변 없음)",
             "conversation_id": conv_id,
@@ -950,13 +948,12 @@ def build() -> tuple[dict, dict]:
             "llm_emotion_context_summarized": len(history) >= 4,
         })
         users.append({
-            "user_id": user_id, "db_login_id": f"user{index:02d}.kim",
             "job_grade": grades[index % len(grades)],
             "db_dept_name": "DX추진팀" if index % 2 else "경영지원팀",
-            "db_job_name": "-", "db_position_name": "-",
+            "db_job_name": "-",
             "conversations": [{"conversation_id": conv_id, "turns": turns}],
         })
-        expected[f"{mask(user_id)}:{conv_id}:{complaint_turn}"] = {
+        expected[f"{conv_id}:{complaint_turn}"] = {
             "id": case["id"], "note": case["note"], "expect": case["expect"],
             "expect_case": case.get("expect_case"),
             "expect_secondary": case.get("expect_secondary", set()),

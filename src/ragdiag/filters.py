@@ -148,7 +148,10 @@ def parse_filter(raw: dict) -> FilterSpec:
     return FilterSpec(
         name=raw.get("name") or "filter",
         job_grades=_as_set(state.get("role")),
-        positions=_as_set(org.get("db_position_name")),
+        # db_position_name(직위)이 로그에서 빠졌다. 필터 파일은 그대로 와도
+        # 걸 대상이 없으므로 조용히 무시한다 - 조건을 지우라고 요구하면
+        # 운영 쪽 필터를 우리가 고치게 된다.
+        positions=frozenset(),
         depts=_as_set(tree.get("db_dept_name")),
         job_names=_as_set(tree.get("db_job_name")),
         turn_buckets=parse_turn_buckets(state.get("turn")),
@@ -242,15 +245,13 @@ def apply_filter(
     narrow("부서", bool(spec.depts), lambda s: s.conversation.user.dept in spec.depts)
     narrow("직무", bool(spec.job_names),
            lambda s: s.conversation.user.job_name in spec.job_names)
-    narrow("직위", bool(spec.positions),
-           lambda s: s.conversation.user.position_name in spec.positions)
     narrow("턴 구간", bool(spec.turn_buckets),
            lambda s: in_buckets(s.turn.turn, spec.turn_buckets))
     narrow(
         f"기간 {spec.start_date}~{spec.end_date}",
         spec.use_date and bool(spec.start_date or spec.end_date),
-        lambda s: (not spec.start_date or s.turn.timestamp[:10] >= spec.start_date)
-        and (not spec.end_date or s.turn.timestamp[:10] <= spec.end_date),
+        lambda s: (not spec.start_date or s.turn.request_time[:10] >= spec.start_date)
+        and (not spec.end_date or s.turn.request_time[:10] <= spec.end_date),
     )
     narrow(
         f"eval_score {spec.eval_range}", spec.eval_range is not None,

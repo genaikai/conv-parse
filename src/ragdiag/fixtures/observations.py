@@ -679,7 +679,7 @@ def build() -> tuple[dict, dict]:
             last = i == len(history) - 1
             turns.append({
                 "turn": i + 1,
-                "timestamp": f"2026-03-0{(index % 9) + 1} 10:0{i}:00.000",
+                "request_time": f"2026-03-0{(index % 9) + 1} 10:0{i}:00.000",
                 "prev_question": history[i - 1] if i else None,
                 "retrieved_data": _json.dumps(case["chunks"] if last else [],
                                               ensure_ascii=False),
@@ -701,7 +701,7 @@ def build() -> tuple[dict, dict]:
         complaint_turn = len(history) + 1
         turns.append({
             "turn": complaint_turn,
-            "timestamp": f"2026-03-0{(index % 9) + 1} 10:{len(history)}0:00.000",
+            "request_time": f"2026-03-0{(index % 9) + 1} 10:{len(history)}0:00.000",
             "prev_question": history[-1],
             "retrieved_data": "[]",
             "llm_response": "(아직 답변 없음)",
@@ -717,15 +717,13 @@ def build() -> tuple[dict, dict]:
             "llm_emotion_context_summarized": False,
         })
 
-        user_id = f"obs-{case['id']}"
         users.append({
-            "user_id": user_id, "db_login_id": "", "job_grade": "대리",
-            "db_dept_name": "관측검증", "db_job_name": "-", "db_position_name": "-",
+            "job_grade": "대리", "db_dept_name": "관측검증", "db_job_name": "-",
             "conversations": [{"conversation_id": case["id"], "turns": turns}],
         })
-        from ragdiag.conv import mask
 
-        expected[f"{mask(user_id)}:{case['id']}:{complaint_turn}"] = {
+        # Case.case_id 는 대화 id 와 턴뿐이다 - 사용자 식별자가 로그에서 없어졌다.
+        expected[f"{case['id']}:{complaint_turn}"] = {
             "id": case["id"], "note": case["note"], "expect": case["expect"],
         }
 

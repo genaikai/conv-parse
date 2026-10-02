@@ -55,14 +55,14 @@ class Field:
 #   users[] → conversations[] → turns[]
 # ---------------------------------------------------------------------------
 
+# 2026-10 에 user_id · db_login_id · db_position_name 이 로그에서 빠졌다.
+# **사용자 식별자가 하나도 없다.** 그래서 집계는 조직 축으로만 돌고, 같은 사람이
+# 반복해서 겪는 실패는 셀 수 없다. Case 식별은 conversation_id 로 넘겼다 -
+# 그 값이 사용자 간에도 유일하다는 것을 확인받았다.
 USER_SCHEMA = (
-    Field("user_id", "str", False,
-          note="사번 등 원본 식별자. 출력에 실어 원본 로그와 조인한다"),
-    Field("db_login_id", "str", True),
     Field("db_dept_name", "str", True, note="조직 분류의 소분류와 매칭되는 값"),
     Field("db_job_name", "str", True, note="직무. job_grade(직급)와 다른 축이다"),
-    Field("job_grade", "str", True, note="직급"),
-    Field("db_position_name", "str", True, note="직위"),
+    Field("job_grade", "str", True, note="직급. db_position_name 이 빠진 뒤로 유일한 직급 축이다"),
 )
 
 CONVERSATION_SCHEMA = (
@@ -72,22 +72,38 @@ CONVERSATION_SCHEMA = (
 
 TURN_SCHEMA = (
     Field("turn", "int", False, rng=(1, None), note="1부터. 순서가 어긋난 로그를 본 적 있다"),
-    Field("timestamp", "str", True,
-          note="지연 판정에는 쓸 수 없다 — 턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
+    Field("request_time", "str", True,
+          note="2026-10 에 timestamp 에서 개명. 지연 판정에는 쓸 수 없다 — "
+               "턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
     Field("user_question", "str", False),
     Field("llm_response", "str", True,
           note="자원 부족 시 서비스가 정해진 안내 문구를 여기 넣는다 (case9)"),
     Field("retrieved_data", "str|list", True,
           note="청크가 \\n\\n 또는 \\n 으로 연결된 문자열로 오는 배포가 있다. "
                "파서가 쪼갠다. 비어 있으면 검색 결과 0건이고, 서비스가 "
-               "'검색 없이 답할 수 있다'고 판단한 경우도 여기 해당한다 (case21)"),
+               "'검색 없이 답할 수 있다'고 판단한 경우도 여기 해당한다 (case21). "
+               "**이 턴의 것만 쓰인다** — 끌려온 턴의 retrieved_data 는 서비스가 넘기지 않는다"),
+    Field("tool_output", "str|list", True,
+          note="도구 결과. **문서 검색 결과와 같은 성격이고 답변 생성에 들어간다.** "
+               "retrieved_data 와 함께 청크 풀로 간다 — 빼고 보면 도구 결과를 제대로 "
+               "쓴 답변이 case22 로, 그 인용이 case24 로 집계된다"),
+    Field("carried_turn_nos", "str|list", True,
+          note="서비스가 이 턴을 답할 때 실제로 끌고 들어간 앞 턴 번호들 ([1,2]). "
+               "자기 턴은 포함하지 않는다. 끌려오는 것은 그 턴들의 질문 · 답변 · "
+               "tool_output 이다. 비어 있으면 파서가 턴 순서 최근 N개로 떨어진다"),
+    Field("carried_turn_count", "int", True, rng=(0, None),
+          note="carried_turn_nos 의 개수. 둘이 어긋나면 로그 쪽 결함이다"),
+    Field("memory", "str", True,
+          note="서비스가 들고 있던 요약 맥락. **판정 LLM 에는 넘기지 않는다** - 다른 "
+               "LLM 이 쓴 해석이라 넘기면 우리 관측이 그쪽으로 끌려간다. "
+               "history_quote 코드 대조 대상에만 더한다"),
     Field("prev_question", "str|list", True, unused=True,
           note="실행 환경로그에서 list 로 관측됨 (2026-09-01, 16,141건). 파이프라인은 "
                "읽지 않는다 - pre_queries 를 turn 순서로 직접 만든다. "
                "다만 이게 서비스가 모델에 실제로 넘긴 히스토리라면 우리가 재구성한 "
                "것과 다를 수 있다. case14 판정의 전제가 걸려 있으니 내용 확인 필요"),
-    Field("trace_matched", "bool|str", True,
-          note="문자열 'true'/'yes'/'y'/'1'/'n' 로도 온다. 파서가 흡수한다. "
+    Field("trace_matched", "str", True,
+          note="2026-10 에 bool 에서 str 로. 'true'/'yes'/'y'/'1'/'n' 을 파서가 흡수한다. "
                "2턴 이상 대화라는 뜻이지만 선언값과 실제 턴 수가 어긋난 로그를 본 적 있다"),
     Field("llm_eval_result", "str", True,
           note="직전 턴과의 관계 분류. turn 1 에서는 비어 있다. "

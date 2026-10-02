@@ -51,7 +51,7 @@ llm:
 필터 로직은 그쪽 것을 쓴다. 내놓을 것은 **어느 턴을 볼지**의 목록 하나다.
 
 ```json
-[{"user_id": "EMP-0001", "conversation_id": "C-0001", "turn": 3}]
+[{"conversation_id": "C-0001", "turn": 3}]
 ```
 
 JSONL 도 그대로 받는다.
@@ -170,9 +170,10 @@ paths:
 
 ## 7. 청크에 출처 표기
 
-`retrieved_data` 의 청크 앞에 `"[문서명 제7조] 본문…"` 처럼 출처를 붙이면 인용
-검증의 절반이 켜진다. 없으면 `case24` 는 답변이 **문장**을 지어낸 경우만 잡는데,
-실제로 흔한 것은 **문서명을 잘못 대는 쪽**이다. 코드는 안 고쳐도 된다.
+`retrieved_data` 와 `tool_output` 의 청크 앞에 `"[문서명 제7조] 본문…"` 처럼 출처를 붙이면
+인용 검증의 절반이 켜진다. 없으면 `case24` 는 답변이 **문장**을 지어낸 경우만 잡는데 실제로
+흔한 것은 **문서명을 잘못 대는 쪽**이다. 둘이 한 풀로 섞이므로 전달본의 `문서번호` 만으로
+어느 쪽에서 온 구절인지도 알 수 없다. 코드는 안 고쳐도 된다.
 
 ---
 
@@ -193,10 +194,9 @@ python log_analysis/src/run.py --dry-run
 #   합성 데이터로 끝까지. 깨지면 환경 문제이지 데이터 문제가 아니다
 
 python log_analysis/src/run.py --conv-data <실데이터> --turns <목록> --limit 50
-#   RUN SUMMARY 의 contract 줄이 첫 사이클의 실제 수확이다
+#   contract 줄과 carried 줄이 첫 사이클의 실제 수확이다 (어긋남이 크면 case14·20·22 재검토)
 
-python log_analysis/src/handover.py output/<결과.json>
-#   실무 전달본. meta_data 의 부서·대화 칸이 비면 필드 이름부터 맞춘다
+python log_analysis/src/handover.py output/<결과.json>   # meta_data 의 대화 칸이 비면 필드명부터
 ```
 
 **`--limit 50` 다음에 바로 전체로 가지 마라.** 계약이 깨끗해진 뒤에 간다 — 틀린 계약

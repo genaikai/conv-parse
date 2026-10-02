@@ -727,8 +727,8 @@ def test_degenerate_answer_ends_the_turn_before_any_llm_call():
     from ragdiag.results import TurnResult
     from ragdiag.schema import Case
 
-    case = Case(case_id="c", user_id="-", dept="-", job_grade="-", job_name="-",
-                position_name="-", conversation_id="-", turn=2,
+    case = Case(case_id="c", dept="-", job_grade="-", job_name="-",
+                conversation_id="-", turn=2,
                 pre_queries=["출장비 정산 기한?"], llm_ans_on_last_q="5" * 30,
                 current_query="이게 뭐예요", rag_chunks=["출장비는 5영업일 이내 정산"])
     turn = TurnResult(case=case)

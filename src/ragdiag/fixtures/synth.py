@@ -655,14 +655,11 @@ DEPT_PROFILE = {
               "multi_q_user": 1, "context_lost": 1, "normal": 1},
 }
 
-# 직급은 **db_position_name** 에 들어간다. job_grade 가 아니다 - 이름이 비슷해서
-# 그쪽에 넣고 있었고, 그러면 대시보드의 직급 축이 빈다.
+# db_position_name(직위)이 로그에서 빠져(2026-10) job_grade 가 유일한 직급 축이다.
+# 코드값 모양으로 두는 것은 실로그가 그렇기 때문이다 - 읽기 좋은 이름으로 바꿔 두면
+# 조직 분류 JSON 의 items 가 실제 값과 안 맞는 것을 여기서 못 잡는다.
 # 부서와 무관하게 섞는다. 조직 축을 둘 다 켰을 때 서로 독립인 편이 필터가
 # 제대로 좁히는지 보기 좋다.
-POSITIONS = ["사원", "주임", "대리", "과장", "차장", "부장", "수석연구원", "Staff Engineer"]
-
-# job_grade 는 화면에 쓰지 않는 인사 코드값이다. 직급 이름과 다른 모양으로 두어야
-# 둘을 헷갈려 다시 붙이는 일이 없다.
 JOB_GRADES = ["G1", "G2", "G3", "G4", "M1", "M2"]
 
 JOBS = {
@@ -763,13 +760,11 @@ def generate(n: Optional[int] = None, seed: int = 0,
                 conversations.append(
                     {"conversation_id": f"C-{conv_no:04d}", "turns": turns})
 
+            # 사용자 식별자가 로그에 없다 (2026-10). 남은 것은 조직 속성뿐이다.
             users.append({
-                "user_id": f"EMP-{dept[:2]}{index:02d}",
-                "db_login_id": "",
                 "job_grade": rng.choice(JOB_GRADES),
                 "db_dept_name": dept,
                 "db_job_name": JOBS[dept],
-                "db_position_name": rng.choice(POSITIONS),
                 "conversations": conversations,
             })
 
@@ -795,11 +790,21 @@ def _turn(no, question, answer, docs, rng, followup):
         emotion = rng.choice(_pick(EMOTION_LETTERS, EMOTION_LABELS))
 
     day = rng.randint(1, 28)
+    # 서비스가 이 턴에 끌고 들어간 앞 턴들. 자기 턴은 없다. 직전 둘로 두어
+    # 우리 기본 추정(최근 3턴)과 **일부러 어긋나게** 한다 - 둘이 늘 같으면
+    # carried 경로를 타는지 아닌지가 합성 데이터에서 드러나지 않는다.
+    carried = [n for n in range(max(1, no - 2), no)]
     return {
         "turn": no,
-        "timestamp": f"2026-0{rng.randint(3, 8)}-{day:02d} 1{no % 9}:{rng.randint(10, 59)}:00.000",
+        "request_time": f"2026-0{rng.randint(3, 8)}-{day:02d} 1{no % 9}:{rng.randint(10, 59)}:00.000",
         "prev_question": None if no == 1 else "(이전 질문)",
         "retrieved_data": json.dumps(docs, ensure_ascii=False),
+        # 도구 결과. 문서 검색 결과와 같은 성격이라 청크 풀로 들어간다.
+        # 대부분의 턴은 비어 있다 - 실제로도 도구를 안 타는 턴이 더 많다.
+        "tool_output": "[]",
+        "carried_turn_nos": carried,
+        "carried_turn_count": len(carried),
+        "memory": "" if no < 4 else "(앞 대화 요약)",
         "llm_response": answer,
         "user_question": question,
         "trace_matched": "True",

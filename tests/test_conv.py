@@ -13,22 +13,18 @@ from ragdiag.conv import (
     parse_retrieved,
     to_case,
 )
-from ragdiag.conv import mask
 
 RAW = {
     "metadata": {"generated_at": "2026-07-14T18:08:10", "total_users": 1, "total_turns": 3},
     "users": [{
-        "user_id": "66b452",
-        "db_login_id": "",
         "job_grade": "Staff Engineer",
         "db_dept_name": "해외영업팀",
         "db_job_name": "해외영업",
-        "db_position_name": "파트장",
         "conversations": [
             {
                 "conversation_id": "asbdsa",
                 "turns": [{
-                    "turn": 1, "timestamp": "2026-03-06 10:49:08.298",
+                    "turn": 1, "request_time": "2026-03-06 10:49:08.298",
                     "prev_question": None, "retrieved_data": "[]",
                     "llm_response": "answer on aaaa", "user_question": "aaaa",
                     "trace_matched": "False",
@@ -42,7 +38,7 @@ RAW = {
                 # conversation_id 가 없는 대화가 실제로 있다
                 "turns": [
                     {
-                        "turn": 1, "timestamp": "2026-03-07 11:29:04.218",
+                        "turn": 1, "request_time": "2026-03-07 11:29:04.218",
                         "prev_question": None,
                         "retrieved_data": json.dumps(["미주 숙박비 250달러", "정산 절차"]),
                         "llm_response": "숙박비는 실비 정산입니다.", "user_question": "숙박비 정산은?",
@@ -53,7 +49,7 @@ RAW = {
                         "llm_emotion_score_top1": None, "llm_emotion_alternatives": [],
                     },
                     {
-                        "turn": 2, "timestamp": "2026-03-07 11:31:04.218",
+                        "turn": 2, "request_time": "2026-03-07 11:31:04.218",
                         "prev_question": "숙박비 정산은?",
                         "retrieved_data": json.dumps(["다른 문서 A", "다른 문서 B"]),
                         "llm_response": "지역별로 다릅니다.", "user_question": "상한 금액을 물었는데요",
@@ -131,10 +127,16 @@ def test_missing_conversation_id_is_synthesized_and_unique():
     assert len(set(ids)) == len(ids)
 
 
-def test_user_id_is_masked():
+def test_user_identifiers_are_not_carried():
+    """로그에서 없어진 식별자를 UserMeta 가 되살려 두면 안 된다 (2026-10).
+
+    남겨 두면 늘 빈 값인 칸이 출력에 실리고, 받는 쪽은 "이 사용자는 식별자가
+    없다" 로 읽는다. 없는 것은 칸도 없어야 한다.
+    """
     conv = _convs()[0]
-    assert conv.user.user_id == mask("66b452")
-    assert "66b452" not in conv.user.user_id
+    assert not hasattr(conv.user, "user_id")
+    assert not hasattr(conv.user, "raw_user_id")
+    assert not hasattr(conv.user, "position_name")
 
 
 def test_trace_matched_string_becomes_bool():
@@ -226,10 +228,11 @@ def test_unknown_turn_number_returns_none():
     assert to_case(_convs()[1], followup_turn=99) is None
 
 
-def test_case_id_is_stable_and_masked():
-    case = to_case(_convs()[1], followup_turn=2)
-    assert case.case_id.endswith(":2")
-    assert "66b452" not in case.case_id
+def test_case_id_is_conversation_and_turn():
+    """대화 id 가 전역 유일하다는 전제 위에 서 있다 (2026-10 확인)."""
+    conv = _convs()[1]
+    case = to_case(conv, followup_turn=2)
+    assert case.case_id == f"{conv.conversation_id}:2"
 
 
 def test_case_carries_user_metadata_for_crosstabs():
@@ -239,7 +242,7 @@ def test_case_carries_user_metadata_for_crosstabs():
 
 
 def test_missing_optional_fields_do_not_crash():
-    raw = {"users": [{"user_id": "x", "conversations": [
+    raw = {"users": [{"conversations": [
         {"turns": [{"turn": 1}, {"turn": 2}]}]}]}
     conv = parse_conversations(raw)[0]
     assert conv.turns[0].user_question == ""
@@ -331,3 +334,109 @@ def test_concatenated_retrieved_data_is_split_by_the_parser():
     from ragdiag.conv import parse_retrieved
 
     assert parse_retrieved("청크 A 내용\n\n청크 B 내용") == ["청크 A 내용", "청크 B 내용"]
+
+
+# ---------------------------------------------------------------------------
+# 맥락의 경계 — carried_turn_nos
+#
+# 전에는 턴 순서로 최근 3개를 우리가 추정했다. 서비스가 실제로 넣은 턴 목록이
+# 로그에 생겨서(2026-10) 그걸 쓴다. 추정과 사실이 어긋나면 판정이 조용히 틀린다.
+# ---------------------------------------------------------------------------
+
+def _conv_with_carried(carried, *, tool=None, memory="", n=5):
+    """턴 n 개짜리 대화 하나. 마지막 턴이 불만, 그 앞이 비판받은 답변이다."""
+    turns = []
+    for i in range(1, n + 1):
+        turns.append({
+            "turn": i,
+            "user_question": f"질문{i}",
+            "llm_response": f"답변{i}",
+            "retrieved_data": json.dumps([f"문서{i}"]),
+            "tool_output": json.dumps((tool or {}).get(i, [])),
+            # carried 는 비판받은 턴(n-1)에만 의미가 있다. 나머지는 비워 둔다.
+            "carried_turn_nos": carried if i == n - 1 else [],
+            "memory": memory if i == n - 1 else "",
+            "llm_eval_result": "후속" if i > 1 else None,
+        })
+    return parse_conversations({"users": [{
+        "db_dept_name": "-", "job_grade": "-", "db_job_name": "-",
+        "conversations": [{"conversation_id": "C", "turns": turns}],
+    }]})[0]
+
+
+def test_carried_turns_decide_the_history_window():
+    """서비스가 1번만 끌고 갔으면 2·3번은 챗봇이 못 본 것이다.
+
+    턴 순서로 최근 3개를 자르면 질문2·3·4 가 가는데, 챗봇은 질문1 과 질문4 만
+    봤다. 못 본 질문에서 "앞에서 정한 조건" 을 찾으면 case14 오탐이 된다.
+    """
+    case = to_case(_conv_with_carried([1]), followup_turn=5)
+    assert case.pre_queries == ["질문1", "질문4"]
+
+
+def test_the_answered_question_is_always_in_even_if_not_carried():
+    """끌려온 목록에 없어도 비판받은 답변을 부른 질문은 들어간다.
+
+    그 질문이 없으면 무엇에 대한 답인지 자체를 알 수 없고, pre_queries[-1] 을
+    보는 pii 검증기와 '마지막이 답을 받은 질문' 이라는 전제가 함께 무너진다.
+    """
+    case = to_case(_conv_with_carried([2]), followup_turn=5)
+    assert case.pre_queries == ["질문2", "질문4"]
+    assert case.last_query == "질문4"
+
+
+def test_without_carried_the_old_turn_order_cut_still_works():
+    """옛 로그와 골든셋에는 이 필드가 없다. 없으면 전처럼 돌아야 회귀가 안 난다."""
+    case = to_case(_conv_with_carried([]), followup_turn=5)
+    assert case.pre_queries == ["질문2", "질문3", "질문4"]
+
+
+def test_tool_output_joins_the_chunk_pool():
+    """도구 결과는 문서 검색 결과와 같은 성격이고 답변 생성에 들어간다.
+
+    빼고 보면 도구 결과를 제대로 쓴 답변이 case22(생성 실패) 로, 그 인용이
+    case24(지어낸 인용) 로 집계된다. 둘 다 조용히 틀린다.
+    """
+    case = to_case(_conv_with_carried([1], tool={1: ["끌려온 도구"], 4: ["그 턴 도구"]}),
+                   followup_turn=5)
+    assert case.rag_chunks == ["문서4", "그 턴 도구", "끌려온 도구"]
+
+
+def test_carried_turns_contribute_tool_output_but_not_their_documents():
+    """끌려온 턴의 retrieved_data 는 서비스가 넘기지 않는다. 그러면 챗봇이
+    못 본 문서로 '있었는데 안 썼다'(case22) 를 판정하게 된다."""
+    case = to_case(_conv_with_carried([1], tool={1: ["끌려온 도구"]}), followup_turn=5)
+    assert "문서1" not in case.rag_chunks
+
+
+def test_the_answered_turn_documents_survive_the_cap():
+    """상한에 걸려 잘려도 비판받은 답변의 문서는 남아야 한다.
+
+    충족도 판정의 본령이 그 문서이고 끌려온 턴 쪽은 보조다. 순서를 뒤집으면
+    긴 대화에서 정작 판정 대상 문서가 잘려 나간다.
+    """
+    from ragdiag.conv import chunk_pool
+
+    conv = _conv_with_carried([1, 2, 3], tool={1: ["끌1"], 2: ["끌2"], 3: ["끌3"]})
+    answered = conv.turn_at(4)
+    pool = chunk_pool(answered, conv.turns[:4], cap=2)
+    assert pool == ["문서4", "끌1"]
+
+
+def test_carried_turn_nos_as_a_string_is_absorbed():
+    """이 로그의 retrieved_data 가 이미 문자열로 온 전례가 있다."""
+    from ragdiag.conv import _as_turn_nos
+
+    assert _as_turn_nos("[1, 2]") == [1, 2]
+    assert _as_turn_nos([1, "2", None]) == [1, 2]
+    assert _as_turn_nos("쓰레기") == []
+    assert _as_turn_nos(None) == []
+
+
+def test_memory_reaches_the_case_but_not_the_queries():
+    """요약 맥락은 코드 대조에만 쓴다. 판정 LLM 에 넘기면 다른 LLM 이 쓴
+    해석이 우리 관측에 섞인다."""
+    case = to_case(_conv_with_carried([1], memory="앞에서 국내 기준으로 정함"),
+                   followup_turn=5)
+    assert case.memory == "앞에서 국내 기준으로 정함"
+    assert all("국내 기준" not in q for q in case.pre_queries)

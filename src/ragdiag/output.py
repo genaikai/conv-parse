@@ -117,20 +117,17 @@ def build_turn(result: TurnResult, source_turn_no: int) -> dict:
 
 def build_output(pairs: list[tuple["Conversation", TurnResult]]) -> dict:
     """(대화, 결과) 쌍들을 사용자 → 대화 → 턴 으로 다시 묶는다."""
-    users: dict[str, dict] = {}
+    users: dict[tuple, dict] = {}
     for conv, result in pairs:
         meta = conv.user
-        # 원본 식별자가 있으면 그것으로 묶는다. 출력은 원본 로그 옆에 놓여
-        # 조인에 쓰이므로 마스킹본만 남기면 되돌릴 수 없다.
-        key = meta.raw_user_id or meta.user_id
+        # 사용자 식별자가 로그에서 없어졌다. 조직 속성 조합으로 묶는다 - 같은
+        # 부서 · 직급 · 직무의 다른 사람이 한 노드로 합쳐지지만, 어차피 집계가
+        # 보는 축이 그 셋이고 사례는 conversation_id 로 되짚는다.
+        key = (meta.dept, meta.job_grade, meta.job_name)
         user = users.setdefault(key, {
-            "user_id": meta.raw_user_id or meta.user_id,
-            "user_id_hashed": meta.user_id,
-            "db_login_id": meta.db_login_id,
             "job_grade": meta.job_grade,
             "db_dept_name": meta.dept,
             "db_job_name": meta.job_name,
-            "db_position_name": meta.position_name,
             "conversations": {},
         })
         conversation = user["conversations"].setdefault(

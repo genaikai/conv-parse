@@ -153,11 +153,10 @@ def load_and_select(conv_path: str | Path, filter_path: Optional[str | Path] = N
 
 @dataclass
 class TurnRef:
-    """운영 필터가 고른 턴 하나. user_id 는 있으면 쓰고 없으면 대화 id 로만 찾는다."""
+    """운영 필터가 고른 턴 하나. 대화 id 가 전역 유일해서 그것만으로 찾는다."""
 
     conversation_id: str
     turn: int
-    user_id: str = ""
 
 
 def read_turn_list(path: str | Path) -> list[TurnRef]:
@@ -199,7 +198,7 @@ def read_turn_list(path: str | Path) -> list[TurnRef]:
             raise ValueError(
                 f"{path}[{i}] 에 conversation_id 나 turn 이 없습니다. "
                 f"있는 키: {sorted(row)}")
-        refs.append(TurnRef(str(cid), int(turn), str(row.get("user_id") or "")))
+        refs.append(TurnRef(str(cid), int(turn)))
     return refs
 
 
@@ -221,28 +220,20 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
     conversations = load_conversations(conv_path)
     refs = read_turn_list(turns_path)
 
-    # (user_id, conversation_id) 와 conversation_id 두 갈래로 찾는다. 대화 id 가
-    # 사용자마다 겹칠 수 있어서다 - Case.case_id 가 user_id 를 앞에 두는 이유다.
-    #
-    # 원본 id 와 마스킹된 id 를 둘 다 등록한다. 파서가 user_id 를 해시로 바꾸므로
-    # 목록에 원본을 적어 오면 마스킹된 쪽과 절대 안 맞는다 - 그러면 전부 "로그에
-    # 없는 턴"으로 세어지고, 목록은 멀쩡한데 0건이 나온다.
-    by_pair, by_conv = {}, {}
+    # 대화 id 로만 찾는다. 사용자 식별자가 로그에서 없어졌고, 대화 id 가 사용자
+    # 간에도 유일하다는 것을 확인받았다. 그 전제가 깨지면 - 같은 id 가 둘 이상
+    # 나오면 - 조용히 엉뚱한 대화를 판정하므로 아래에서 세어 막는다.
+    by_conv = {}
     for conv in conversations:
-        for uid in {conv.user.user_id, conv.user.raw_user_id}:
-            if uid:
-                by_pair[(uid, conv.conversation_id)] = conv
         by_conv.setdefault(conv.conversation_id, []).append(conv)
 
     selected, missing, ambiguous, no_prior = [], [], [], []
     for ref in refs:
-        conv = by_pair.get((ref.user_id, ref.conversation_id))
-        if conv is None:
-            found = by_conv.get(ref.conversation_id) or []
-            if len(found) > 1:
-                ambiguous.append(ref)
-                continue
-            conv = found[0] if found else None
+        found = by_conv.get(ref.conversation_id) or []
+        if len(found) > 1:
+            ambiguous.append(ref)
+            continue
+        conv = found[0] if found else None
         if conv is None:
             missing.append(ref)
             continue
@@ -258,9 +249,9 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
 
     if ambiguous:
         raise ValueError(
-            f"대화 id 가 여러 사용자에게 있어 어느 것인지 정할 수 없습니다 "
+            f"대화 id 가 로그에 둘 이상 있어 어느 것인지 정할 수 없습니다 "
             f"({len(ambiguous)}건, 예: {ambiguous[0].conversation_id}).\n"
-            f"  목록에 user_id 를 함께 넣으세요.")
+            f"  conversation_id 는 전역 유일이어야 합니다 — 로그 생성 쪽을 확인하세요.")
 
     steps = [Step(f"운영 필터가 고른 턴 ({Path(turns_path).name})", len(refs), 0)]
     if missing:

@@ -37,19 +37,24 @@ def test_output_keeps_the_pre_data_format_shape():
     out = build_output(_pairs())
     assert list(out) == ["analysis_results"]
     user = out["analysis_results"][0]
-    for key in ("user_id", "db_login_id", "job_grade", "db_dept_name",
-                "db_job_name", "db_position_name", "conversations"):
+    for key in ("job_grade", "db_dept_name", "db_job_name", "conversations"):
         assert key in user
     turn = user["conversations"][0]["turns"][0]
     for key in ("turn", "pre_queries", "llm_ans_on_last_q", "current_query", "chunk_data"):
         assert key in turn
 
 
-def test_original_identifier_is_preserved_for_joining():
-    """출력은 원본 로그 옆에 놓여 조인에 쓰인다. 마스킹본만 남기면 되돌릴 수 없다."""
+def test_no_user_identifier_is_invented():
+    """로그에 사용자 식별자가 없다 (2026-10). 없는 것을 빈 칸으로라도 내보내면 안 된다.
+
+    출력은 원본 로그 옆에 놓여 조인에 쓰인다. 늘 비어 있는 user_id 칸이 있으면
+    받는 쪽은 "이 사용자는 식별자가 없는 사용자" 로 읽고 그걸로 조인을 시도한다.
+    되짚는 길은 conversation_id 하나뿐이고, 그 값이 전역 유일이라 그걸로 족하다.
+    """
     user = build_output(_pairs())["analysis_results"][0]
-    assert user["user_id"] == "EMP-원본"
-    assert user["user_id_hashed"].startswith("u_")
+    assert not {"user_id", "user_id_hashed", "db_login_id",
+                "db_position_name"} & set(user)
+    assert user["conversations"][0]["conversation_id"]
 
 
 def test_classification_is_kept_in_its_own_block():

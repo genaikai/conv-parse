@@ -42,12 +42,15 @@
 
 ```
 users[]
-  user_id · db_login_id · job_grade · db_dept_name · db_job_name · db_position_name
+  job_grade · db_dept_name · db_job_name          사용자 식별자는 로그에 없다
   conversations[]
     conversation_id
     turns[]
-      turn · timestamp · user_question · llm_response
+      turn · request_time · user_question · llm_response
       retrieved_data                        그 질문으로 검색된 청크
+      tool_output                           도구 결과. 문서와 같은 성격이고 답변에 들어간다
+      carried_turn_nos · carried_turn_count 이 턴을 답할 때 실제로 끌고 간 앞 턴들
+      memory                                서비스가 들고 있던 요약 (판정 LLM 엔 안 준다)
       llm_eval_result · llm_eval_score · llm_eval_alternatives              대화 맥락 라벨 A~R
       llm_emotion_result · llm_emotion_score · llm_emotion_alternatives     감정 라벨 A~I
       llm_eval_context_summarized · llm_emotion_context_summarized          맥락을 요약해 라벨을

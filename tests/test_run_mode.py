@@ -36,8 +36,9 @@ def test_turn_mode_judges_exactly_like_stage_mode(monkeypatch):
 def test_registry_is_split_into_judges_and_reports():
     names = [f.NAME for f in features.FEATURES]
     assert names == [f.NAME for f in features.JUDGES] + [f.NAME for f in features.REPORTS]
-    assert len(features.REPORTS) == 4, "집계 넷 - 판정이 끝난 뒤 한 번 돈다"
-    assert names[-5] == "route", "라우팅이 판정의 마지막이어야 집계가 case 를 읽는다"
+    assert len(features.REPORTS) == 5, "집계 다섯 - 판정이 끝난 뒤 한 번 돈다"
+    assert names[-len(features.REPORTS) - 1] == "route", \
+        "라우팅이 판정의 마지막이어야 집계가 case 를 읽는다"
 
 
 class _SlowJudge(ScriptedJudge):
@@ -87,8 +88,7 @@ def test_checkpoint_writes_only_finished_turns(tmp_path):
     from ragdiag.__main__ import _checkpointer
 
     owners = [SimpleNamespace(conversation_id=f"c{i}", user=SimpleNamespace(
-        user_id="u", raw_user_id="u", db_login_id="", job_grade="", dept="", job_name="",
-        position_name="")) for i in range(3)]
+        job_grade="", dept="", job_name="")) for i in range(3)]
     turns = [TurnResult(case=make_case(f"rich|missing|sufficient|used|ok{i}")) for i in range(3)]
     out = tmp_path / "out.json"
     save = _checkpointer(owners, turns, out, every_sec=0)
@@ -163,7 +163,6 @@ def test_turn_mode_writes_the_same_user_conversation_turn_tree(tmp_path, monkeyp
     assert turn_mode == stage_mode
 
     (user,) = turn_mode["analysis_results"]
-    assert user["user_id"] == "E1"
     by_conv = {c["conversation_id"]: [t["turn"] for t in c["turns"]] for c in user["conversations"]}
     assert by_conv == {"E1_conv_1": [2, 3, 4], "E1_conv_2": [2]}
     assert all(t["classification"]["case_id"] == "case20"

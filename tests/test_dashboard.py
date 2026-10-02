@@ -1020,7 +1020,7 @@ def test_org_can_cross_two_organisation_axes(result_file, tmp_path):
         ("A팀", "case20", 6), ("B팀", "case12", 6)])
     payload = json.loads(Path(log).read_text(encoding="utf-8"))
     for i, user in enumerate(payload["analysis_results"]):
-        user["db_position_name"] = ["과장", "사원"][i % 2]
+        user["job_grade"] = ["과장", "사원"][i % 2]
     log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     at = render(log)
@@ -1073,16 +1073,16 @@ def test_a_scheme_lands_on_the_axis_its_values_match(result_file, tmp_path):
     assert "직급:대분류" not in keys, f"직무 체계가 직급 상자로 갔다: {sorted(keys)}"
 
 
-def test_the_rank_axis_reads_db_position_name(result_file, tmp_path):
-    """직급은 db_position_name 이다. job_grade 가 아니다.
+def test_the_rank_axis_reads_job_grade(result_file, tmp_path):
+    """직급은 job_grade 다. db_position_name 이 로그에서 빠졌다 (2026-10).
 
-    이름이 비슷해서 job_grade 를 읽고 있었는데, 그쪽은 이 화면이 쓰지 않는
-    인사 코드값이라 직급 상자가 엉뚱한 값으로 채워진다.
+    그대로 db_position_name 을 읽고 있으면 직급 상자가 전부 "-" 가 되는데
+    에러는 안 난다. 옛 필드가 섞여 와도 그쪽을 보지 않는 것까지 본다.
     """
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     for user in payload["analysis_results"]:
-        user["job_grade"] = "G3"
-        user["db_position_name"] = "과장"
+        user["job_grade"] = "과장"
+        user["db_position_name"] = "G3"
     log = tmp_path / "rank.json"
     log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 

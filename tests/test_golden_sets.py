@@ -78,7 +78,7 @@ def test_sufficiency_feature_narrows_the_need_but_keeps_the_observation_intact()
         answer_actionable=True, answer_ignored_history=False, requests_unsupported_output=False,
         requested_language="none", requested_length_kind="none", requested_length_value=0,
         requested_format="none")
-    case = Case(case_id="c", user_id="-", dept="-", job_grade="-", job_name="-", position_name="-",
+    case = Case(case_id="c", dept="-", job_grade="-", job_name="-",
                 conversation_id="-", turn=2, pre_queries=["3년차면 연가 며칠이에요?"],
                 llm_ans_on_last_q="규정을 참고하세요", current_query="며칠이냐구요",
                 rag_chunks=["재직 3년 이상 4년 미만 연가 14일"])
@@ -173,9 +173,12 @@ def test_messy_set_looks_like_the_operational_log():
     """실행 로그(pseudo_input)에서 본 필드 모양을 따른다."""
     raw, _ = messy.build()
     user = raw["users"][0]
-    assert {"user_id", "db_login_id", "job_grade"} <= set(user)
+    # 사용자 식별자는 로그에 없다 (2026-10). 골든셋이 옛 모양을 들고 있으면
+    # 거기서만 통과하는 코드가 생긴다.
+    assert {"job_grade", "db_dept_name", "db_job_name"} <= set(user)
+    assert not {"user_id", "db_login_id", "db_position_name"} & set(user)
     turn = user["conversations"][0]["turns"][-1]
-    assert {"timestamp", "user_question", "llm_response", "conversation_id",
+    assert {"request_time", "user_question", "llm_response", "conversation_id",
             "llm_eval_result", "llm_eval_score", "llm_eval_score_top1", "llm_eval_alternatives",
             "llm_eval_context_summarized",
             "llm_emotion_result", "llm_emotion_alternatives",

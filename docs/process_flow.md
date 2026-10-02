@@ -213,7 +213,7 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 
 | 필드 | 왜 안 쓰나 |
 |---|---|
-| `timestamp` | 지연 판정(case7)에 쓸 수 없다. 턴 시각 차이에는 사용자가 생각한 시간이 섞여 있다 |
+| `request_time` | 지연 판정(case7)에 쓸 수 없다. 턴 시각 차이에는 사용자가 생각한 시간이 섞여 있다 |
 | `prev_question` | turn 순서로 직접 짝지으므로 불필요. 실행 환경로그에서는 `list` 로 온다 — 그게 서비스가 모델에 실제로 넘긴 히스토리라면 재확인이 필요하다 |
 | `trace_matched` | "2턴 이상"은 실제 턴 수로 판정한다. 선언값과 실제가 어긋난 로그를 본 적이 있다 |
 | `llm_eval_*` `llm_emotion_*` | ②에서만 쓰고 판정에는 넘기지 않는다 (아래) |
@@ -228,9 +228,9 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 
 | 필터가 보는 것 | 로그 필드 |
 |---|---|
-| 직급 · 부서 · 직무 · 직위 | `job_grade` `db_dept_name` `db_job_name` `db_position_name` |
+| 직급 · 부서 · 직무 | `job_grade` `db_dept_name` `db_job_name` |
 | 턴 구간 | `turn` |
-| 기간 | `timestamp` |
+| 기간 | `request_time` |
 | 대화 유형 점수 · 라벨 | `llm_eval_result` `llm_eval_score` `llm_eval_alternatives` |
 | 감정 점수 · 라벨 | `llm_emotion_result` `llm_emotion_score` `llm_emotion_alternatives` |
 
@@ -314,7 +314,7 @@ case 를 고르지 않는다.
 | `pre_queries` — 이전 질문들, 최근 3개 | **`rag_chunks`** ← 이게 핵심 |
 | `llm_ans_on_last_q` — 비판받은 답변 | `dept` · `job_grade` · `job_name` |
 | `current_query` — 그 답변에 대한 불만 | `llm_eval_*` · `llm_emotion_*` |
-| | `turn` · `timestamp` |
+| | `turn` · `request_time` · `memory` |
 
 **왜 문서를 감추나.** 문서를 먼저 보여주면 판정자가 "이 문서로 답할 수 있었나"를 기준으로
 사용자의 요구를 재구성한다. 문서에 있는 내용 쪽으로 `unmet_need` 가 끌려가고, 그러면

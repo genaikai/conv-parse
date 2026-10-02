@@ -40,14 +40,6 @@ from ragdiag import settings
 from ragdiag.schema import Case
 
 
-def mask(value: str) -> str:
-    """user_id · db_login_id 를 결정적 해시로. 로딩 단계에서 치환하면 원본 식별자가 어떤
-    산출물에도 안 들어간다. salt 가 없어 그룹핑은 그대로 되고 원본에서 역조회도 된다."""
-    if not value:
-        return "unknown"
-    return "u_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
-
-
 _PARA_BREAK = re.compile(r"\n\s*\n")
 
 
@@ -86,6 +78,19 @@ def _as_bool(value: Any) -> Optional[bool]:
             return True
         if lowered in ("false", "0", "n", "no"):
             return False
+    return None
+
+
+def _as_int(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return None
     return None
 
 
@@ -168,24 +173,39 @@ def _normalize_alternatives(raw: Any) -> list[dict]:
 
 @dataclass(frozen=True)
 class UserMeta:
-    user_id: str          # 해시 마스킹된 값. 집계 리포트는 이것만 쓴다.
+    """사용자 식별자는 **로그에 없다** (2026-10, user_id · db_login_id 삭제).
+
+    남은 것은 조직 속성뿐이다. 그래서 집계는 부서 · 직급 축으로만 돌고, "같은 사람이
+    반복해서 겪는 실패" 는 셀 수 없다. 대화 식별자가 전역 유일하다는 것이 확인되어
+    Case 식별은 그쪽으로 넘겼다 (`to_case`).
+    """
+
     dept: str
     job_grade: str
     job_name: str
-    position_name: str
-    # 출력 파일은 원본 로그 옆에 놓이므로 원본 식별자를 실어 조인할 수 있게 한다.
-    # 리포트·집계에는 쓰지 않는다.
-    raw_user_id: str = ""
-    db_login_id: str = ""
 
 
 @dataclass(frozen=True)
 class Turn:
     turn: int
-    timestamp: str
+    request_time: str
     user_question: str
     llm_response: str
     retrieved: list[str]
+    # 도구 결과. **문서 검색 결과와 같은 성격이고 답변 생성에 들어간다** - 그래서
+    # retrieved 와 같은 층에 두고 청크 풀에 함께 넣는다. 이것만 빼고 보면 도구
+    # 결과를 제대로 쓴 답변이 case22(생성 실패) 로, 그 인용이 case24(지어낸 인용)
+    # 로 집계된다. 둘 다 조용히 틀린다.
+    tool_output: list[str]
+    # 서비스가 이 턴을 답할 때 **실제로 끌고 들어간** 앞 턴 번호들. 자기 턴은 없다.
+    # 전에는 턴 순서로 최근 3개를 우리가 추정했다 - 이건 추정이 아니라 사실이다.
+    # 끌려온 것은 그 턴들의 질문 · 답변 · tool_output 이고 retrieved_data 는 아니다.
+    carried_turn_nos: list[int]
+    carried_turn_count: Optional[int]
+    # 서비스가 들고 있던 요약 맥락. **판정 LLM 에는 넘기지 않는다** - 다른 LLM 이 쓴
+    # 해석이라 넘기면 우리 관측이 그쪽으로 끌려간다. 앞에서 정한 조건이 원문 턴 대신
+    # 여기 남아 있을 수 있어서 history_quote 대조 대상에만 더한다.
+    memory: str
     prev_question: str
     trace_matched: Optional[bool]
     # 이 턴이 직전 턴과 어떤 관계인지에 대한 기존 분류. 필터가 거는 대상.
@@ -231,13 +251,36 @@ class Conversation:
 # 파싱
 # ---------------------------------------------------------------------------
 
+def _as_turn_nos(value: Any) -> list[int]:
+    """carried_turn_nos. 문자열 "[1, 2]" 로 오는 경우까지 받는다 — 이 로그의
+    retrieved_data 가 이미 그렇게 온 전례가 있어서다. 정수가 아닌 항목은 버린다."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value.strip() or "[]")
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        try:
+            out.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _parse_turn(raw: dict) -> Turn:
     return Turn(
         turn=int(raw.get("turn", -1)),
-        timestamp=raw.get("timestamp") or "",
+        request_time=raw.get("request_time") or "",
         user_question=raw.get("user_question") or "",
         llm_response=raw.get("llm_response") or "",
         retrieved=parse_retrieved(raw.get("retrieved_data")),
+        tool_output=parse_retrieved(raw.get("tool_output")),
+        carried_turn_nos=_as_turn_nos(raw.get("carried_turn_nos")),
+        carried_turn_count=_as_int(raw.get("carried_turn_count")),
+        memory=raw.get("memory") or "",
         prev_question=raw.get("prev_question") or "",
         trace_matched=_as_bool(raw.get("trace_matched")),
         eval_result=raw.get("llm_eval_result") or "",
@@ -253,20 +296,17 @@ def _parse_turn(raw: dict) -> Turn:
 
 def parse_conversations(raw: dict) -> list[Conversation]:
     conversations: list[Conversation] = []
-    for user_raw in raw.get("users", []):
+    for position, user_raw in enumerate(raw.get("users", [])):
         user = UserMeta(
-            user_id=mask(str(user_raw.get("user_id", ""))),
             dept=user_raw.get("db_dept_name") or "unknown",
             job_grade=user_raw.get("job_grade") or "unknown",
             job_name=user_raw.get("db_job_name") or "unknown",
-            position_name=user_raw.get("db_position_name") or "unknown",
-            raw_user_id=str(user_raw.get("user_id") or ""),
-            db_login_id=str(user_raw.get("db_login_id") or ""),
         )
         for index, conv_raw in enumerate(user_raw.get("conversations", [])):
             # conversation_id 가 빠져 있는 대화가 실제로 있다. 케이스 식별자가
-            # 겹치지 않도록 순번으로 채운다.
-            conv_id = conv_raw.get("conversation_id") or f"{user.user_id}#{index}"
+            # 겹치지 않도록 배열 위치로 채운다 - 사용자 식별자가 없어진 뒤로는
+            # 이것이 두 대화를 가를 유일한 값이다.
+            conv_id = conv_raw.get("conversation_id") or f"u{position}#{index}"
             turns = sorted(
                 (_parse_turn(t) for t in conv_raw.get("turns", [])),
                 key=lambda t: t.turn,
@@ -295,6 +335,11 @@ def to_case(
 
     history_turns 는 Step 1 에 넘길 이전 질문의 개수 상한이다. 잘라내더라도
     **비판받은 답변을 부른 질문은 항상 포함된다** — 그게 마지막 항목이다.
+
+    **맥락의 경계는 로그가 정한다.** 비판받은 답변의 `carried_turn_nos` 가 서비스가
+    그 답변에 실제로 넣은 앞 턴들이다. 그 값이 있으면 그걸 쓰고, 없으면(옛 로그 ·
+    골든셋) 전처럼 턴 순서로 자른다. 추정과 사실이 어긋나면 판정이 조용히 틀린다 -
+    챗봇이 못 본 턴에서 "앞에서 정한 조건" 을 찾아 case14 를 내는 식이다.
     """
     # 기본 인자는 def 시점에 굳는다. 설정을 나중에 적용해도 안 먹으므로
     # None 으로 받고 여기서 푼다.
@@ -307,21 +352,50 @@ def to_case(
     if not prior:
         return None
     answered = prior[-1]
-    questions = [t.user_question for t in prior if t.user_question]
+
+    carried = set(answered.carried_turn_nos)
+    if carried:
+        # 답변을 부른 질문은 끌려온 목록에 없어도 반드시 들어간다 - 그 질문이
+        # 없으면 무엇에 대한 답인지 자체를 알 수 없다.
+        scope = [t for t in prior if t.turn in carried or t is answered]
+    else:
+        scope = prior[-history_turns:] if history_turns > 0 else prior
 
     return Case(
-        case_id=f"{conv.user.user_id}:{conv.conversation_id}:{followup_turn}",
-        user_id=conv.user.user_id,
+        case_id=f"{conv.conversation_id}:{followup_turn}",
         dept=conv.user.dept,
         job_grade=conv.user.job_grade,
         job_name=conv.user.job_name,
-        position_name=conv.user.position_name,
         conversation_id=conv.conversation_id,
         turn=followup_turn,
-        # 최근 history_turns 개만 넘긴다. 마지막 항목이 비판받은 답변을 부른 질문이다.
-        pre_queries=questions[-history_turns:] if history_turns > 0 else questions,
+        # 마지막 항목이 비판받은 답변을 부른 질문이다.
+        pre_queries=[t.user_question for t in scope if t.user_question],
         llm_ans_on_last_q=answered.llm_response,
         current_query=followup.user_question,
-        # 비판받은 답변을 만든 문서여야 한다. 후속 턴의 검색 결과가 아니다.
-        rag_chunks=answered.retrieved,
+        rag_chunks=chunk_pool(answered, scope),
+        # history_quote 대조 대상. 앞에서 정한 조건이 원문 턴 대신 요약에만
+        # 남아 있을 수 있는데, 그래도 챗봇은 그 조건을 본 것이다.
+        memory=answered.memory,
     )
+
+
+def chunk_pool(answered: Turn, scope: list[Turn], cap: Optional[int] = None) -> list[str]:
+    """비판받은 답변이 **실제로 볼 수 있었던 문서 전부.**
+
+    세 갈래다. 끌려온 턴에서 오는 것은 `tool_output` 뿐이다 - 그 턴들의
+    `retrieved_data` 는 서비스가 넘기지 않는다.
+
+        비판받은 턴   retrieved_data + tool_output
+        끌려온 턴들   tool_output
+
+    **턴 N 것을 먼저 넣는다.** 상한에 걸려 잘려도 비판받은 답변의 문서는 남아야
+    한다 - 그게 충족도 판정의 본령이고, 끌려온 턴 쪽은 보조다.
+    """
+    if cap is None:
+        cap = settings.MAX_RAG_CHUNKS
+    pool = list(answered.retrieved) + list(answered.tool_output)
+    for turn in scope:
+        if turn is answered:
+            continue
+        pool += turn.tool_output
+    return pool[:cap] if cap > 0 else pool

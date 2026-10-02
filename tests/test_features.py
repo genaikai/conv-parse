@@ -217,8 +217,8 @@ def _turn_with_request(questions, fmt, quote):
     from ragdiag.schema import Case
     from tests.test_route import obs
 
-    case = Case(case_id="c", user_id="u", dept="d", job_grade="g", job_name="j",
-                position_name="p", conversation_id="c", turn=2, pre_queries=questions,
+    case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
+                conversation_id="c", turn=2, pre_queries=questions,
                 llm_ans_on_last_q="답변", current_query="표로 정리해 주세요.", rag_chunks=[])
     return TurnResult(case=case, observation=obs(requested_format=fmt, requested_quote=quote))
 
@@ -262,15 +262,15 @@ def test_no_request_means_nothing_to_check():
 # history_quote — "이전 조건을 어겼다" 는 앞 질문에 적힌 조건을 대야 한다
 # ---------------------------------------------------------------------------
 
-def _turn_with_history(questions, ignored, quote):
+def _turn_with_history(questions, ignored, quote, memory=""):
     from ragdiag.results import TurnResult
     from ragdiag.schema import Case
     from tests.test_route import obs
 
-    case = Case(case_id="c", user_id="u", dept="d", job_grade="g", job_name="j",
-                position_name="p", conversation_id="c", turn=len(questions) + 1,
+    case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
+                conversation_id="c", turn=len(questions) + 1,
                 pre_queries=questions, llm_ans_on_last_q="해외 출장 식비는 1일 80달러입니다.",
-                current_query="국내 기준이라고 했잖아요.", rag_chunks=[])
+                current_query="국내 기준이라고 했잖아요.", rag_chunks=[], memory=memory)
     return TurnResult(case=case, observation=obs(answer_ignored_history=ignored, history_quote=quote))
 
 
@@ -293,6 +293,21 @@ def test_ignored_without_a_condition_in_earlier_questions_is_withdrawn():
     history_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.observation.answer_ignored_history is False
     assert not turn.history.verified
+
+
+def test_a_condition_only_the_memory_holds_still_counts():
+    """서비스가 앞 턴을 원문으로 안 끌고 오고 요약만 들고 있는 경우가 있다.
+
+    그래도 챗봇은 그 조건을 본 것이다. 요약에만 남은 조건을 어긴 답변을
+    "그런 조건이 없었다" 로 되돌리면 case14 를 놓친다.
+    """
+    from ragdiag.features import history_quote
+
+    turn = _turn_with_history(["식비는 얼마인가요?"], True, "국내 기준으로만",
+                              memory="사용자가 국내 기준으로만 보기로 했다.")
+    history_quote.process_data(features.RunContext(turns=[turn]))
+    assert turn.observation.answer_ignored_history is True
+    assert turn.history.verified
 
 
 def test_a_condition_in_the_last_question_is_not_history():

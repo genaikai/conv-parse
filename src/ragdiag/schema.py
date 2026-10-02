@@ -32,17 +32,19 @@ class Case:
     """분석 단위. 사용자 메타는 상위 노드에서 상속받는다."""
 
     case_id: str
-    user_id: str
     dept: str
     job_grade: str
     job_name: str
-    position_name: str
     conversation_id: str
     turn: int
     pre_queries: list[str]
     llm_ans_on_last_q: str
     current_query: str
+    # 비판받은 답변이 볼 수 있었던 문서 전부 (conv.chunk_pool). 그 턴의
+    # retrieved_data 뿐 아니라 tool_output 과 끌려온 턴들의 tool_output 까지다.
     rag_chunks: list[str]
+    # 서비스가 들고 있던 요약 맥락. 판정 LLM 에는 안 넘기고 코드 대조에만 쓴다.
+    memory: str = ""
 
     @property
     def last_query(self) -> str:

@@ -27,6 +27,7 @@ from ._context import RunContext
 from ._shared import straggler_limit
 from . import (
     arithmetic,
+    carried,
     citation,
     classification,
     complaint_quote,
@@ -89,6 +90,7 @@ JUDGES = (
 # 끝난 뒤 한 번이다.
 REPORTS = (
     classification,
+    carried,
     llm_fallback,
     filter_fp,
     failures,
