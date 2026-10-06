@@ -77,12 +77,27 @@ def quote_looks_broken(answer: str, quote: str) -> bool:
             stems[w[:2]] = stems.get(w[:2], 0) + 1
         if any(n >= 4 for n in counts.values()) or any(n >= 4 for n in stems.values()):
             return True                               # "팀장은 팀장이 팀장에게 팀장을" · "정산되는 정산의 정산을 정산"
+    return _repeats_nearby(answer)
+
+
+# 같은 네 낱말이 되풀이될 때, **두 등장이 이만큼 안에 있어야** 붕괴로 본다 (낱말 수).
+# 거리를 안 보면 긴 정상 답변이 전부 걸린다 - 서론에서 쓴 말을 요약에서 다시 쓰는 것은
+# 글의 구조다. 실제 붕괴는 언제나 인접 반복이다: 골든셋 참값 다섯의 거리가 1 · 5 · 8 ·
+# 10 · 21 이고, 정상 답변 491건(골든 50 + 픽스처 441)에는 되풀이가 아예 없었다.
+# 30 은 가장 먼 참값(21)에 여유 9 를 둔 값이다.
+NEAR_REPEAT_WORDS = 30
+
+
+def _repeats_nearby(answer: str) -> bool:
+    """같은 4-gram 이 가까이서 다시 나오는가. 문단이 조금씩 바뀌며 되풀이되는 모양."""
     body = _WORD.findall(answer)
-    windows = {}
+    last: dict = {}
     for i in range(len(body) - 3):
         key = tuple(body[i:i + 4])
-        windows[key] = windows.get(key, 0) + 1
-    return any(n >= 2 for n in windows.values())      # 문단이 조금씩 바뀌며 되풀이
+        if key in last and i - last[key] <= NEAR_REPEAT_WORDS:
+            return True
+        last[key] = i
+    return False
 
 
 def inside_code_block(answer: str, quote: str) -> bool:

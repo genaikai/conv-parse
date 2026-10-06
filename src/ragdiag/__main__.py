@@ -342,6 +342,18 @@ def run_golden(args, backend=None) -> int:
     from ragdiag.conv import parse_conversations, to_case
     from ragdiag.golden import FieldScore, render, score_observation
 
+    if args.golden_set == "legibility":
+        # ④′ 만 단독으로. **재는 것은 오탐이다** - 모양이 특이하지만 멀쩡한 답변을
+        # 읽을 수 없다고 하면 그 턴의 진짜 원인이 아무 단계에서도 판정받지 못한다.
+        try:
+            backend = backend or make_backend(args)
+        except JudgeError as e:
+            print(e, file=sys.stderr)
+            return 2
+        judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
+        print(f"읽기 골든셋 · {backend.model} · 동시 {args.workers}", file=sys.stderr)
+        return run_legibility_golden(args, judge)
+
     if args.golden_set == "sufficiency":
         # Step 2·3 만 단독으로. 관측 골든셋을 앞에 돌리지 않는다 - 호출을 아끼고 층을 가른다.
         try:
@@ -470,6 +482,116 @@ def run_routing_golden(cases, judge, workers) -> None:
     print(f"\nLLM 호출 {sum(r.n_calls for r in results)}회")
 
 
+def run_legibility_golden(args, judge) -> int:
+    """④′ 읽기를 골든셋 72건으로 채점한다.
+
+    **오탐(정상을 붕괴로)과 미탐(붕괴를 정상으로)을 갈라 센다.** 둘의 대가가 다르다.
+    오탐이면 멀쩡한 턴이 case30 으로 닫혀 진짜 원인이 영영 안 나오고, 미탐이면
+    그냥 뒤 단계로 흘러가 다른 case 를 받는다 - 회수 가능한 쪽이다. 그래서
+    프롬프트가 "확신이 없으면 legible=true" 라고 못 박고 있고, 이 수치가 그
+    지시가 먹는지를 본다.
+
+    **두 층으로 센다.** LLM 이 뭐라 했나와, 코드 관문 셋을 지난 뒤 실제로 case30 이
+    됐나는 다르다. 파이프라인은 legible=false 를 그대로 믿지 않는다 - 인용이 답변에
+    있어야 하고, 코드 블록 안이 아니어야 하고, 그 구절이 실제로 깨져 보여야 한다.
+    관문이 LLM 의 오탐을 걷어내면 프롬프트는 그대로 둬도 된다.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ragdiag.features.legibility import inside_code_block, quote_looks_broken
+    from ragdiag.features.short_circuit.degenerate import check_degenerate
+    from ragdiag.fixtures.judgments import LEGIBILITY
+    from ragdiag.schema import Case
+    from ragdiag.textfmt import pad
+    from ragdiag.verify import verify_complaint_quote
+
+    cases = LEGIBILITY[: args.limit] if args.limit else LEGIBILITY
+
+    def ask(entry):
+        case = Case(case_id=entry["id"], dept="-", job_grade="-", job_name="-",
+                    conversation_id="-", turn=2, pre_queries=["-"],
+                    llm_ans_on_last_q=entry["answer"], current_query="-", rag_chunks=[])
+        try:
+            check, _ = judge.check_legibility(case)
+            return entry, check, None
+        except Exception as e:
+            return entry, None, f"{type(e).__name__}: {e}"
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        outcomes = list(pool.map(ask, cases))
+
+    def closes_the_turn(check, answer: str) -> tuple[bool, str]:
+        """파이프라인이 실제로 case30 으로 닫는가. 관문에서 걸리면 그 이름을 돌려준다."""
+        if check.legible:
+            return False, ""
+        if not verify_complaint_quote(check.quote, answer).verified:
+            return False, "인용 대조"
+        if inside_code_block(answer, check.quote):
+            return False, "코드 블록 안"
+        if not quote_looks_broken(answer, check.quote):
+            return False, "구절이 안 깨짐"
+        return True, ""
+
+    fp, fn, ok, errors = [], [], 0, []
+    llm_fp = llm_fn = 0
+    saved: list[tuple] = []          # LLM 은 틀렸는데 관문이 살린 것
+    by_cat: dict[str, list[int]] = {}
+    for entry, check, error in outcomes:
+        if error:
+            errors.append((entry["id"], error))
+            continue
+        closed, gate = closes_the_turn(check, entry["answer"])
+        # 파이프라인 기준: 닫히면 붕괴, 안 닫히면 뒤 단계로 간다(= legible 취급)
+        hit = (not closed) == entry["legible"]
+        ok += hit
+        slot = by_cat.setdefault(entry["cat"], [0, 0])
+        slot[0] += hit
+        slot[1] += 1
+        if not check.legible and entry["legible"]:
+            llm_fp += 1
+            if gate:
+                saved.append((entry["id"], entry["cat"], gate))
+        if check.legible and not entry["legible"]:
+            llm_fn += 1
+        if not hit:
+            (fp if entry["legible"] else fn).append(
+                (entry["id"], entry["cat"], entry["answer"]))
+
+    graded = len(cases) - len(errors)
+    lines = ["", "=" * 78, "④′ 읽기 채점", "=" * 78, ""]
+    if graded:
+        lines.append(f"  {pad('전체', 22)}{ok:>3}/{graded:<3} {ok / graded:>5.0%}")
+    n_legible = sum(1 for c in cases if c["legible"])
+    n_broken = len(cases) - n_legible
+    lines += [
+        f"  {pad('오탐 (정상 → 붕괴)', 22)}{len(fp):>3}/{n_legible:<3}"
+        f"   멀쩡한 턴이 case30 으로 닫힌다 — 진짜 원인이 사라진다",
+        f"  {pad('미탐 (붕괴 → 정상)', 22)}{len(fn):>3}/{n_broken:<3}"
+        f"   뒤 단계로 흘러간다 — 회수 가능한 쪽",
+        "",
+    ]
+    for cat, (hits, total) in sorted(by_cat.items()):
+        lines.append(f"    {pad(cat, 20)}{hits:>3}/{total}")
+    lines += ["", f"  LLM 단독   오탐 {llm_fp}/{n_legible} · 미탐 {llm_fn}/{n_broken}"]
+    if saved:
+        lines.append(f"  코드 관문이 살린 오탐 {len(saved)}건 — 프롬프트가 아니라 관문이 막고 있다")
+        lines += [f"    {cid:<8} {cat:<12} {gate}" for cid, cat, gate in saved[:8]]
+    for title, rows in (("오탐", fp), ("미탐", fn)):
+        if rows:
+            lines += ["", f"  {title}"]
+            lines += [f"    {cid:<8} {cat:<12} {ans[:60]!r}" for cid, cat, ans in rows]
+    if errors:
+        lines += ["", f"  실패 {len(errors)}건"] + [f"    {i}  {e}" for i, e in errors[:5]]
+
+    # 코드 규칙이 이 셋에서 무엇을 잡는지도 함께 - 둘이 같은 case30 을 낸다.
+    caught = [c["id"] for c in cases if check_degenerate(c["answer"]).violated]
+    wrong = [c["id"] for c in cases if c["legible"] and check_degenerate(c["answer"]).violated]
+    lines += ["", f"  코드 규칙(degenerate)이 잡은 것 {len(caught)}건 · "
+                  f"그중 오탐 {len(wrong)}건 {wrong or ''}"]
+    print("\n".join(lines))
+    return 0
+
+
 def run_judge_golden(args, judge) -> int:
     """Step 2·3 판정을 채점한다. 관측 채점과 층이 다르다."""
     from concurrent.futures import ThreadPoolExecutor
@@ -547,7 +669,8 @@ def main(argv=None, backend=None) -> int:
                    help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
     p.add_argument("--observe-only", action="store_true",
                    help="골든셋에서 Step 1 관측만 채점한다 (라우팅 · 충족도 호출을 안 한다)")
-    p.add_argument("--golden-set", choices=["observations", "messy", "sufficiency"],
+    p.add_argument("--golden-set",
+                   choices=["observations", "messy", "sufficiency", "legibility"],
                    default="observations",
                    help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다 / "
                         "sufficiency: Step 2·3 판정만 (문서 충족도 · 근거 활용)")
