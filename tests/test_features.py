@@ -46,7 +46,7 @@ def _ctx(results, *, fallbacks=()) -> Any:
     return features.RunContext(
         selection=_Selection(results),
         turns=results,
-        backend=_Backend(fallbacks),
+        backends=[_Backend(fallbacks)],
     )
 
 

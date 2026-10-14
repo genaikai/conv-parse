@@ -42,7 +42,7 @@ from ragdiag import contracts, features, settings
 from ragdiag.config import ConfigError, apply_overrides
 from ragdiag.config import apply as apply_config
 from ragdiag.config import load as load_config
-from ragdiag.judge import Judge
+from ragdiag.judge import STAGES, Judge
 from ragdiag.pipeline import (
     build_outcome,
     load_and_select,
@@ -209,7 +209,76 @@ def make_backend(args, config=None, trace=None):
     ))
 
 
-def _checkpointer(owners, turns, out_path, every_sec: float = 10.0):
+def per_stage_backends(args, config, default, trace=None) -> dict:
+    """단계별 판정 모델. **적힌 단계만** 돌려준다 - 빈 사전이면 전부 기본 백엔드로 돈다.
+
+    단계마다 모델 · 주소 · 키를 따로 줄 수 있다. 모델이 서버마다 따로 떠 있는 경우가
+    있어서 주소까지 받는다. 안 준 것은 기본 백엔드에서 물려받고, 주소만 주고 모델을
+    비우면 그 서버의 /v1/models 에서 찾는다.
+
+    골든셋 측정에는 이걸 쓰지 않는다. 한 번에 한 모델만 재는 게 맞고, 그쪽은
+    --model 로 통째로 바꾸면 된다. 섞어 돌리는 건 실제 실행 경로뿐이다.
+    """
+    picked: dict = {}
+    for stage in STAGES:
+
+        def given(kind: str):
+            """(값, 어디서 왔나). 안 적혔으면 (None, "").
+
+            설정 키와 플래그 이름이 다르다 - 설정은 llm.url_* 인데 플래그는
+            --base-url-* 다. 위쪽 llm.url / --base-url 과 짝을 맞춘 것이다.
+            """
+            attr, flag_name = {
+                "model": (f"model_{stage}", f"--model-{stage}"),
+                "url": (f"base_url_{stage}", f"--base-url-{stage}"),
+                "key": (f"api_key_{stage}", f"--api-key-{stage}"),
+            }[kind]
+            flag = getattr(args, attr, None)
+            if flag is not None:
+                return flag, flag_name
+            key = f"llm.{kind}_{stage}"
+            if config is not None and config.get(key) is not None:
+                return config.get(key), config.origins.get(key) or f"설정 {key}"
+            return None, ""
+
+        model, model_src = given("model")
+        url, url_src = given("url")
+        key, key_src = given("key")
+        if model is None and url is None and key is None:
+            continue
+        # 주소가 같은데 모델 이름도 같으면 기본 백엔드와 구별되지 않는다. 키만 다른
+        # 경우는 남겨 둔다 - 같은 모델에 다른 키를 쓰는 배포가 있을 수 있다.
+        if url is None and key is None and model == default.model:
+            continue
+        where = model_src or url_src or key_src
+        if not hasattr(default, "variant"):
+            raise JudgeError(
+                f"{where} 는 이 백엔드에 쓸 수 없습니다 ({type(default).__name__}).\n"
+                "  단계별 모델은 OpenAI 호환 서버를 전제합니다. "
+                "--backend local 로 돌리세요.")
+        picked[stage] = default.variant(model=model, base_url=url, api_key=key)
+        if url is not None and model is not None:
+            # 모델 이름을 주면 생성자가 서버에 아무것도 묻지 않는다. 그러면 주소 오타가
+            # 판정 중에야 드러나서, 턴마다 ⑤ ⑦ 를 다 사고 나서 이 단계만 전부 실패한다.
+            # 모델을 안 줬으면 생성자가 이미 /v1/models 를 물어봤으니 여기서 또 안 묻는다.
+            try:
+                picked[stage].list_models()
+            except JudgeError as e:
+                raise JudgeError(f"{url_src} 의 주소에 붙지 못했습니다 "
+                                 f"({stage} 단계).\n  {e}") from e
+        if trace is not None:
+            # 단계마다 한 줄. 한 줄로 묶으면 어느 단계가 어디서 왔는지 사라진다.
+            # 키는 값을 절대 찍지 않는다 - 다른 키를 쓴다는 사실만 적는다.
+            said = [f"{picked[stage].model}" + ("" if model else " (자동 탐지)")]
+            if url is not None:
+                said.append(url)
+            if key is not None:
+                said.append("키 따로")
+            trace.add(f"판정 · {stage}", "  ".join(said), where)
+    return picked
+
+
+def _checkpointer(owners, turns, out_path, models=None, every_sec: float = 10.0):
     """끝난 턴만 모아 결과 파일에 쓴다. 마지막 저장은 collect 뒤의 outcome.save 가 한다."""
     import threading
     import time
@@ -228,7 +297,8 @@ def _checkpointer(owners, turns, out_path, every_sec: float = 10.0):
             if not done:
                 return
             try:
-                build_outcome([o for o, _ in done], [t for _, t in done]).save(out_path)
+                build_outcome([o for o, _ in done], [t for _, t in done],
+                              models=models).save(out_path)
             except OSError:
                 pass                     # 중간 저장이 실패해도 판정은 계속 간다
 
@@ -694,6 +764,16 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--base-url", help="LLM 주소 (또는 $LLM_API_URL)")
     p.add_argument("--api-key", help="(또는 $LLM_API_KEY)")
     p.add_argument("--model", help="생략하면 서버의 /v1/models 에서 자동 탐지")
+    # 단계별 판정 모델. 적은 단계만 그쪽으로 가고 나머지는 --model 로 간다. 모델이
+    # 서버마다 따로 떠 있을 수 있어 주소 · 키도 받는다. 어디에 쓸 자리가 있는지는
+    # configs/env.example.yaml 의 llm.model_* 주석에 적어 두었다.
+    for _stage in STAGES:
+        p.add_argument(f"--model-{_stage}", metavar="이름",
+                       help=f"{_stage} 단계만 다른 모델로 (기본: --model)")
+        p.add_argument(f"--base-url-{_stage}", metavar="주소",
+                       help=f"{_stage} 단계가 붙을 서버. 모델을 비우면 그쪽에서 자동 탐지")
+        p.add_argument(f"--api-key-{_stage}", metavar="키",
+                       help=f"{_stage} 단계의 키가 다를 때만 (기본: --api-key)")
     p.add_argument("--json-mode",
                    choices=["auto", "json_schema", "guided_json", "json_object", "none"])
     p.add_argument("--thinking", choices=["auto", "on", "off"])
@@ -933,13 +1013,25 @@ def main(argv=None, backend=None) -> int:
         conditions.add("백엔드", type(backend).__name__, "주입됨 (tools/dev_run.py)")
         conditions.add("모델", backend.model, "주입됨")
 
+    try:
+        stage_backends = per_stage_backends(args, config, backend, trace=conditions)
+    except JudgeError as e:
+        print(conditions.render(), file=sys.stderr)
+        print(e, file=sys.stderr)
+        return finish("FAILED (백엔드)", 2)
+
     conditions.hint = (f"{config.source} 를 고친다" if config.source != "(기본값)" else
                            "--set 으로 준다" if config.values else
                        "configs/env.example.yaml 을 복사해 --config 로 주거나 위 플래그로 덮어쓴다")
     print("\n" + conditions.render(), file=sys.stderr)
     print(f"분류 대상 {len(selection)}턴", file=sys.stderr)
 
+    judge = make_judge(backend, use_cache=use_cache, per_stage=stage_backends)
+    models = judge.models()
     summary.metrics.append(("model", f"{backend.model}"))
+    for stage, name in models.items():
+        if name != backend.model:
+            summary.metrics.append((f"model · {stage}", name))
     summary.setup = conditions.compact()
 
     # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도
@@ -947,16 +1039,16 @@ def main(argv=None, backend=None) -> int:
     ctx = features.RunContext(
         selection=selection,
         turns=[TurnResult(case=c) for c in selection.cases],
-        judge=make_judge(backend, use_cache=use_cache),
+        judge=judge,
         workers=workers or settings.DEFAULT_WORKERS,
-        backend=backend,
+        backends=judge.all_backends(),
         progress=not args.no_progress,
     )
     # 턴 단위 실행이면 끝난 턴부터 결과 파일에 쌓는다 (10초에 한 번). 중간에 끊겨도
     # (Ctrl+C · 서버 다운) 거기까지의 판정은 남는다 - 30분 돌린 것을 통째로 잃지 않는다.
-    ctx.on_turn_done = _checkpointer(selection.owners, ctx.turns, out_path)
+    ctx.on_turn_done = _checkpointer(selection.owners, ctx.turns, out_path, models)
     got, said = features.collect(ctx)
-    outcome = build_outcome(selection.owners, ctx.turns, selection.report)
+    outcome = build_outcome(selection.owners, ctx.turns, selection.report, models)
 
     outcome.save(out_path)
     print(outcome.summary())

@@ -12,7 +12,11 @@ NAME = "llm_fallback"
 
 
 def process_data(ctx) -> tuple[list, list]:
-    saved = getattr(ctx.backend, "fallbacks", [])
+    # 백엔드가 둘 이상이면(단계별 모델) 어느 모델이 잘렸는지가 곧 다음 실행의 조치다.
+    # 하나로 합치면 --thinking off 를 어느 모델에 걸어야 하는지 알 수 없다.
+    many = len(ctx.backends) > 1
+    saved = [f"{label} · {b.model}" if many else label
+             for b in ctx.backends for label in getattr(b, "fallbacks", [])]
     if not saved:
         return [], []
 

@@ -115,8 +115,14 @@ def build_turn(result: TurnResult, source_turn_no: int) -> dict:
     return turn
 
 
-def build_output(pairs: list[tuple["Conversation", TurnResult]]) -> dict:
-    """(대화, 결과) 쌍들을 사용자 → 대화 → 턴 으로 다시 묶는다."""
+def build_output(pairs: list[tuple["Conversation", TurnResult]],
+                 models: dict | None = None) -> dict:
+    """(대화, 결과) 쌍들을 사용자 → 대화 → 턴 으로 다시 묶는다.
+
+    models 가 있으면 `judged_by` 로 함께 남긴다 - 단계마다 모델이 다를 수 있어서
+    "그 실행은 그 모델" 이 더는 성립하지 않는다. 실데이터를 가지고 나올 수 없는
+    환경에서 판정의 출처가 파일에 없으면 나중에 해석할 방법이 없다.
+    """
     users: dict[tuple, dict] = {}
     for conv, result in pairs:
         meta = conv.user
@@ -141,7 +147,10 @@ def build_output(pairs: list[tuple["Conversation", TurnResult]]) -> dict:
         for conversation in conversations:
             conversation["turns"].sort(key=lambda t: t["turn"])
         results.append({**user, "conversations": conversations})
-    return {"analysis_results": results}
+    payload = {"analysis_results": results}
+    if models:
+        payload["judged_by"] = dict(models)
+    return payload
 
 
 def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:

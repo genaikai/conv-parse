@@ -32,6 +32,7 @@
 |---|---|
 | [features_pipeline.md](features_pipeline.md) | 판정 순서를 코드에서 빼내 `features/` 등록부로 옮긴 설계 |
 | [features_pipeline_plan.md](features_pipeline_plan.md) | 그 구현 계획 (완료) |
+| [per_stage_model.md](per_stage_model.md) | 단계마다 다른 모델. ⑨ 만 작은 모델을 받을 수 있는 이유 — **아직 안 쟀다** |
 
 두 문서는 **그 변경 시점의 기록**이다. 지금의 기능 목록과 순서는
 `src/ragdiag/features/__init__.py` 의 `FEATURES` 가 유일한 출처다 — 그 뒤로

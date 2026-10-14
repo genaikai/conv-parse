@@ -304,6 +304,8 @@ class OpenAICompatBackend:
         self.max_attempts = max_attempts
         self.thinking = thinking
         self.thinking_param = thinking_param
+        # 받은 그대로. _mode 는 협상 결과로 바뀌므로 with_model 이 쓸 수 없다.
+        self.json_mode = json_mode
         self.negotiation_log: list[str] = []   # 어떤 모드가 왜 탈락했는지
         self._mode: Optional[str] = None if json_mode == "auto" else json_mode
         self._lock = threading.Lock()
@@ -346,6 +348,29 @@ class OpenAICompatBackend:
 
     def list_models(self) -> list[str]:
         return [m.get("id") for m in (self._get("/v1/models").get("data") or []) if m.get("id")]
+
+    def variant(self, *, model: Optional[str] = None,
+                base_url: Optional[str] = None,
+                api_key: Optional[str] = None) -> "OpenAICompatBackend":
+        """판정 조건은 그대로, 모델 · 주소 · 키만 바꾼 형제. 단계별 모델에 쓴다.
+
+        인스턴스를 공유하지 않고 새로 만드는 이유가 둘이다. 구조화 출력의 강제 방식은
+        모델마다 달라서 negotiate() 를 따로 해야 하고(_mode 가 인스턴스에 캐시된다),
+        fallbacks 도 따로 세어야 RUN SUMMARY 가 **어느 모델이** 잘렸는지 말할 수 있다.
+
+        안 준 것은 물려받는다. 주소만 주고 모델을 비우면 **그 서버의** /v1/models 에서
+        찾는다 - 모델 하나만 올린 서버를 가리킬 때 이름을 또 적지 않아도 된다.
+        json_mode · thinking · max_tokens · timeout 은 언제나 물려받는다. 그게 달라지면
+        같은 조건에서 모델을 비교하는 게 아니게 된다.
+        """
+        return OpenAICompatBackend(
+            base_url=base_url or self.base_url, model=model,
+            api_key=api_key or self.api_key,
+            timeout=self.timeout, json_mode=self.json_mode,
+            max_tokens=self.max_tokens, temperature=self.temperature,
+            max_attempts=self.max_attempts, thinking=self.thinking,
+            thinking_param=self.thinking_param,
+        )
 
     def _post(self, payload: dict) -> dict:
         url = f"{self.base_url}/v1/chat/completions"

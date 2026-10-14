@@ -175,7 +175,7 @@ def _judge_per_turn(ctx: RunContext) -> None:
             with lock:
                 started[id(turn)] = time.monotonic()
             one = RunContext(selection=ctx.selection, turns=[turn], judge=ctx.judge,
-                             workers=1, backend=ctx.backend, progress=False)
+                             workers=1, backends=ctx.backends, progress=False)
             for feature in JUDGES:
                 with lock:
                     if id(turn) in abandoned:

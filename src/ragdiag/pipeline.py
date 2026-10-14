@@ -77,7 +77,8 @@ def judge_cases(cases: list[Case], judge: Judge,
         judge=judge,
         # 기본 인자는 def 시점에 굳어 --config 적용이 안 먹는다. 여기서 푼다.
         workers=workers or settings.DEFAULT_WORKERS,
-        backend=getattr(judge, "backend", None),
+        # 테스트 대역은 백엔드를 안 들고 있다. 그때는 폴백 집계만 비면 된다.
+        backends=judge.all_backends() if hasattr(judge, "all_backends") else [],
         progress=progress,
     )
     features.collect(ctx)
@@ -85,14 +86,18 @@ def judge_cases(cases: list[Case], judge: Judge,
 
 
 def build_outcome(owners: list, results: list[TurnResult],
-                  filter_report: str = "") -> Outcome:
+                  filter_report: str = "",
+                  models: Optional[dict] = None) -> Outcome:
     """판정 결과를 출력 JSON 모양으로 묶는다.
 
     owners 는 결과를 되돌릴 대화 객체들이다. conversation_id 와 user 두 속성만
     쓰므로 실행 환경의 파서가 만든 객체를 그대로 넣어도 된다.
+
+    models 는 Judge.models() - 단계별로 어느 모델이 판정했는지. 생략하면 결과
+    파일에 그 칸이 안 생긴다 (dry-run · 테스트).
     """
     pairs = list(zip(owners, results))
-    return Outcome(results=results, payload=build_output(pairs),
+    return Outcome(results=results, payload=build_output(pairs, models),
                    filter_report=filter_report, _pairs=pairs)
 
 
@@ -287,5 +292,7 @@ def run_from_conv_eval(conv_path: str | Path, judge: Judge,
     return outcome
 
 
-def make_judge(backend: Any, use_cache: bool = True) -> Judge:
-    return Judge(backend, cache_dir=settings.CACHE_DIR if use_cache else None)
+def make_judge(backend: Any, use_cache: bool = True,
+               per_stage: Optional[dict] = None) -> Judge:
+    return Judge(backend, cache_dir=settings.CACHE_DIR if use_cache else None,
+                 per_stage=per_stage)

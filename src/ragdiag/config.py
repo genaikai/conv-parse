@@ -65,6 +65,32 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "llm.url": (str, False),
     "llm.key": (str, False),
     "llm.model": (str, False),
+
+    # 단계별 판정 모델. 비우면 위의 llm.url / key / model 로 돈다.
+    #
+    #   model_<단계>   한 서버에 모델 둘을 올린 경우
+    #   url_<단계>     모델이 서버마다 따로 떠 있는 경우. model 을 비우면 그 서버의
+    #                  /v1/models 에서 찾는다
+    #   key_<단계>     그 서버의 키가 다를 때만. 비우면 위의 llm.key 를 쓴다
+    #
+    # json_mode · thinking · max_tokens · timeout 은 언제나 공통이다 - 그게 단계마다
+    # 달라지면 같은 조건에서 모델을 비교하는 게 아니게 된다.
+    # 단계 이름은 judge.STAGES 와 같다. 모르는 이름은 설정 검사에서 걸린다.
+    "llm.model_observe": (str, False),
+    "llm.model_sufficiency": (str, False),
+    "llm.model_legibility": (str, False),
+    "llm.model_grounding": (str, False),
+
+    "llm.url_observe": (str, False),
+    "llm.url_sufficiency": (str, False),
+    "llm.url_legibility": (str, False),
+    "llm.url_grounding": (str, False),
+
+    "llm.key_observe": (str, False),
+    "llm.key_sufficiency": (str, False),
+    "llm.key_legibility": (str, False),
+    "llm.key_grounding": (str, False),
+
     "llm.json_mode": (str, False),
     "llm.thinking": (str, False),
     "llm.max_tokens": (int, False),

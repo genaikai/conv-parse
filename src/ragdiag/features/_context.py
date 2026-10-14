@@ -20,7 +20,9 @@ class RunContext:
     turns: list = field(default_factory=list)   # 턴마다 TurnResult 하나. 판정 기능이 채운다
     judge: Any = None           # LLM 호출 + 캐시. LLM 을 안 부르는 실행이면 None
     workers: int = 1            # LLM 기능이 동시에 처리하는 턴 수
-    backend: Any = None         # 쓴 모델. fallbacks 가 붙어 있을 수 있다
+    # 이 실행이 쓴 백엔드 전부. 단계마다 모델이 다를 수 있어서 목록이다 - 하나만
+    # 들고 있으면 폴백 집계가 조용히 절반을 놓친다.
+    backends: list = field(default_factory=list)
     progress: bool = True       # LLM 단계의 진행을 stderr 에 한 줄로 (--no-progress 로 끈다)
     # 턴 단위 실행(run.mode=turn)에서 턴 하나가 끝날 때마다 불린다. 중간 결과 저장용.
     on_turn_done: Any = None
