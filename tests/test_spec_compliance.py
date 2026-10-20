@@ -221,13 +221,15 @@ def test_unused_fields_do_not_count_as_contract_violations():
     for user in payload["users"]:
         for conv in user["conversations"]:
             for turn in conv["turns"]:
-                turn["prev_question"] = {"안": "쓰는 필드"}
+                # route_intent 는 받아만 두고 판정에 안 쓴다. prev_question 이
+                # 여기 있었는데 pre_queries 의 2순위가 되면서 쓰는 필드로 올라갔다.
+                turn["route_intent"] = {"안": "쓰는 필드"}
                 turn["llm_eval_score"] = "쓰는 필드"
 
     report = check_log(payload)
     assert [m.field for m in report.mismatches] == ["llm_eval_score"], (
         [m.line() for m in report.mismatches])
-    assert [m.field for m in report.notes] == ["prev_question"], (
+    assert [m.field for m in report.notes] == ["route_intent"], (
         [m.line() for m in report.notes])
     assert not report.ok, "쓰는 필드가 어긋났으므로 ok 가 아니다"
 

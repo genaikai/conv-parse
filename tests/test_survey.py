@@ -155,3 +155,44 @@ def test_survey_reports_integrity_instead_of_trace_distribution():
     text = survey(convs)
     assert "[7] 무결성" in text
     assert "trace_mismatch" in text
+
+
+# ---------------------------------------------------------------------------
+# 청크 풀 계측 — LLM 을 켜기 전에 "얼마나 커졌나" 를 본다
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+
+from ragdiag.survey import chunk_metric, chunk_report
+
+
+@dataclass
+class _Case:
+    rag_chunks: list
+
+
+def test_chunk_report_separates_count_from_characters():
+    """둘이 갈린다. 도구 결과는 청크 하나가 JSON 덩어리라 개수는 안 늘고
+    문자만 폭증할 수 있는데, 프리필 비용을 정하는 것은 그쪽이다."""
+    text = chunk_report([_Case(["a" * 500]), _Case(["b", "c", "d"])])
+    assert "청크 개수" in text and "문자 수" in text
+
+
+def test_chunk_report_flags_empty_pools():
+    text = chunk_report([_Case([]), _Case([]), _Case(["x"])])
+    assert "청크 0개 2건" in text and "case21" in text
+
+
+def test_chunk_report_survives_no_cases():
+    assert "케이스 없음" in chunk_report([])
+
+
+def test_chunk_metric_is_one_line_with_both_axes():
+    """결과 파일을 가지고 나올 수 없으니 RUN SUMMARY 에 숫자를 남긴다."""
+    line = chunk_metric([_Case(["ab"]), _Case(["cd", "ef"]), _Case(["gh"] * 9)])
+    assert "\n" not in line
+    assert "중앙" in line and "최대 9개" in line
+
+
+def test_chunk_metric_says_nothing_rather_than_zero():
+    assert chunk_metric([]) == "없음"

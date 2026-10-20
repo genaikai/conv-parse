@@ -50,6 +50,7 @@ from ragdiag.pipeline import (
     make_judge,
 )
 from ragdiag.results import TurnResult
+from ragdiag.survey import chunk_metric, chunk_report
 from ragdiag.summary import (
     Conditions,
     RunSummary,
@@ -971,6 +972,9 @@ def main(argv=None, backend=None) -> int:
 
     print(selection.report, file=sys.stderr)
     summary.metrics.append(("selected", f"{len(selection):,} turns"))
+    # 풀 크기는 파싱 시점에 정해진다. 결과 파일을 가지고 나올 수 없으므로 요약에
+    # 남긴다 - 상한을 걸지 말지가 이 숫자에 달려 있다.
+    summary.metrics.append(("chunks", chunk_metric(selection.cases)))
 
     if not selection.cases:
         # 첫 단계에서 다 빠졌으면 원인이 필터 조건이 아니라 로그 모양이다.
@@ -991,6 +995,7 @@ def main(argv=None, backend=None) -> int:
                            "configs/env.example.yaml 을 복사해 --config 로 준다")
         print("\n" + conditions.render(), file=sys.stderr)
         summary.setup = conditions.compact()
+        print("\n" + chunk_report(selection.cases), file=sys.stderr)
         print(f"\n분류 대상 {len(selection)}턴 (LLM 호출 없음)", file=sys.stderr)
         for sel, case in zip(selection.selected[:10], selection.cases[:10]):
             print(f"  {case.case_id}  turn {case.turn}  "

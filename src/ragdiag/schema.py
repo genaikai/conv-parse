@@ -10,7 +10,7 @@ Stage2에서 evidence를 verdict보다 앞에 둔 것도 같은 이유 - 인용�
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -40,11 +40,16 @@ class Case:
     pre_queries: list[str]
     llm_ans_on_last_q: str
     current_query: str
-    # 비판받은 답변이 볼 수 있었던 문서 전부 (conv.chunk_pool). 그 턴의
-    # retrieved_data 뿐 아니라 tool_output 과 끌려온 턴들의 tool_output 까지다.
+    # 비판받은 답변이 볼 수 있었던 문서 전부 (conv.chunk_pool). 그 턴이 가져온
+    # retrieved_data · tool_output 에 history_input 으로 넘어온 과거 것까지다.
     rag_chunks: list[str]
     # 서비스가 들고 있던 요약 맥락. 판정 LLM 에는 안 넘기고 코드 대조에만 쓴다.
     memory: str = ""
+    # **이 턴이** 가져온 청크 수 (retrieved_data + tool_output). rag_chunks 에는
+    # history_input 으로 넘어온 과거 문서가 섞여 있어서, "이번 턴 검색이 0건이었다"
+    # 는 rag_chunks 로는 알 수 없다 - case21(Retrieve 미수행) 이 묻는 것이 그것이다.
+    # None 이면 모른다는 뜻이고 라우팅은 rag_chunks 길이로 떨어진다 (옛 경로).
+    n_fetched: Optional[int] = None
 
     @property
     def last_query(self) -> str:

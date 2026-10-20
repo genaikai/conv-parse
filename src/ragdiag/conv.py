@@ -57,10 +57,7 @@ def split_concatenated(text: str) -> list[str]:
         return parts
     return [p.strip() for p in text.split("\n") if p.strip()]
 
-# Step 1 에 넘길 이전 질문의 최대 개수.
-# 대명사 해소에 필요한 것은 보통 직전 2~3턴이다. 그보다 오래된 질문은 노이즈에
-# 가깝고, resolved_question 을 엉뚱한 주제로 끌고 갈 수 있다. 긴 대화(필터에
-# "51턴 이상" 구간이 있다)에서는 입력 토큰도 턴 수에 비례해 늘어난다.
+# history_input 이 없을 때 턴 순서로 자르는 폴백 창. 있으면 안 본다 (pre_queries).
 MAX_HISTORY_TURNS = settings.MAX_HISTORY_TURNS
 
 
@@ -141,6 +138,96 @@ def parse_retrieved(value: Any) -> list[str]:
     return chunks
 
 
+def parse_tool_output(value: Any) -> list[str]:
+    """도구 결과를 청크 리스트로. 두 모양이 온다.
+
+    턴 레벨(`tool_output`)은 통문자열이고, `history_input.tool_output` 은 호출
+    단위로 묶인 구조체 배열이다:
+
+        [{"turn_no": 1,
+          "tool_calls": [{"name": ..., "arguments": ...}],
+          "outputs": ["...", "..."]}]
+
+    **청크로 쓰는 것은 `outputs` 뿐이다.** `tool_calls` 는 무엇을 물었는지지
+    무엇이 나왔는지가 아니라 충족도 대조의 대상이 아니고, outputs 와 인덱스로
+    짝이 맞는지도 아직 확인되지 않았다 - 짝을 가정해 붙이면 틀린 짝이 근거로
+    인용된다.
+
+    `turn_no` 도 안 붙인다. 청크 본문에 머리말을 끼우면 인용 대조(연속 일치
+    `match_threshold`)가 보는 문자열이 로그에 없던 것으로 바뀐다.
+    """
+    if isinstance(value, list) and any(
+            isinstance(item, dict) and "outputs" in item for item in value):
+        chunks = []
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+            for out in entry.get("outputs") or []:
+                text = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+                if text.strip():
+                    chunks.append(text)
+        return chunks
+    return parse_retrieved(value)
+
+
+@dataclass(frozen=True)
+class HistoryInput:
+    """서비스가 이 턴을 답할 때 모델에 **실제로 넣은 입력**. 직전 턴까지다.
+
+    이게 있으면 **턴 레코드 하나가 자족적이다** - 과거를 알려고 다른 턴의 레코드를
+    열 필요가 없다. 같은 이름의 키가 턴 레벨에도 있고 여기에도 있는데, 한 레코드
+    안의 두 자리다: 턴 레벨이 이 턴 것이고 여기가 ~N-1 것이다. **둘은 겹치지
+    않는다** - 그래서 청크 풀은 둘을 더하면 되고, 턴들을 따로 순회하면 같은 것을
+    두 번 넣는다.
+
+    `present` 를 따로 두는 이유는 "키가 없다"(옛 로그 · 골든셋)와 "있는데 비었다"
+    (맥락 없이 답한 첫 턴)가 다른 사실이라서다. 전자면 턴 순서 추정으로 떨어져야
+    하고 후자면 추정하면 안 된다 - 서비스가 정말 아무것도 안 넣은 것이다.
+    """
+
+    present: bool = False
+    queries: list[str] = field(default_factory=list)
+    retrieved: list[str] = field(default_factory=list)
+    tool_output: list[str] = field(default_factory=list)
+    memory: str = ""
+
+
+def parse_history_input(value: Any) -> HistoryInput:
+    """`history_input` 을 우리가 쓰는 네 갈래로 가른다.
+
+    `history_chat` 은 role/content 메시지 배열이고, 거기서 **`role == "user"` 만**
+    순서대로 뽑아 `pre_queries` 를 대신한다. assistant 쪽을 버리는 것은 지금
+    `Case` 가 앞 턴의 답변을 아예 안 싣기 때문이다 (싣는 답변은 비판받은 것 하나).
+    """
+    if not isinstance(value, dict):
+        return HistoryInput()
+    queries = []
+    for message in value.get("history_chat") or []:
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role", "")).strip().lower() != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            queries.append(content)
+    return HistoryInput(
+        present=True,
+        queries=queries,
+        retrieved=parse_retrieved(value.get("retrieved_data")),
+        tool_output=parse_tool_output(value.get("tool_output")),
+        memory=value.get("memory") or "",
+    )
+
+
+def _as_questions(value: Any) -> list[str]:
+    """prev_question 은 str 로도 list 로도 온다 (실행 환경 2026-09-01, 16,141건)."""
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, str) and item.strip()]
+    return []
+
+
 def _normalize_alternatives(raw: Any) -> list[dict]:
     """대안 목록의 키 오타를 흡수한다.
 
@@ -199,14 +286,16 @@ class Turn:
     tool_output: list[str]
     # 서비스가 이 턴을 답할 때 **실제로 끌고 들어간** 앞 턴 번호들. 자기 턴은 없다.
     # 전에는 턴 순서로 최근 3개를 우리가 추정했다 - 이건 추정이 아니라 사실이다.
-    # 끌려온 것은 그 턴들의 질문 · 답변 · tool_output 이고 retrieved_data 는 아니다.
+    # history_input 이 있으면 **내용까지** 사실이라 이 번호들로 할 일이 없다. 남은
+    # 쓰임은 둘이다: history_input 없는 옛 로그에서 scope 를 자르는 것과,
+    # features/carried 가 "그전 추정이 얼마나 맞았나" 를 세는 것.
     carried_turn_nos: list[int]
     carried_turn_count: Optional[int]
     # 서비스가 들고 있던 요약 맥락. **판정 LLM 에는 넘기지 않는다** - 다른 LLM 이 쓴
     # 해석이라 넘기면 우리 관측이 그쪽으로 끌려간다. 앞에서 정한 조건이 원문 턴 대신
     # 여기 남아 있을 수 있어서 history_quote 대조 대상에만 더한다.
     memory: str
-    prev_question: str
+    prev_questions: list[str]
     trace_matched: Optional[bool]
     # 이 턴이 직전 턴과 어떤 관계인지에 대한 기존 분류. 필터가 거는 대상.
     eval_result: str
@@ -217,6 +306,16 @@ class Turn:
     emotion_score: Optional[float] = None
     emotion_score_top1: Optional[float] = None
     emotion_alternatives: list[dict] = field(default_factory=list)
+    # 모델에 실제로 들어간 ~N-1 턴의 입력. pre_queries 재구성과 청크 풀이 여기 기댄다.
+    history: HistoryInput = field(default_factory=HistoryInput)
+    # 라우팅 계열 넷. **판정에는 안 쓴다** - 어느 플랫폼에서 묻고 어디가 답했는지는
+    # 실패의 원인이 아니라 실패가 일어난 자리다. 값의 모양을 회수하려고 받아만 둔다.
+    # answered_by 가 집계 축이 될 수 있는데, 실제 값을 보고 정할 일이다. fallback 은
+    # 모델이 스스로 다른 서비스로 넘겼다 돌아온 것이라 자원 부족(case9)과 무관하다.
+    ask_on: str = ""
+    answered_by: str = ""
+    route_intent: str = ""
+    fallback: str = ""
 
     @property
     def is_followup(self) -> bool:
@@ -277,12 +376,17 @@ def _parse_turn(raw: dict) -> Turn:
         user_question=raw.get("user_question") or "",
         llm_response=raw.get("llm_response") or "",
         retrieved=parse_retrieved(raw.get("retrieved_data")),
-        tool_output=parse_retrieved(raw.get("tool_output")),
+        tool_output=parse_tool_output(raw.get("tool_output")),
         carried_turn_nos=_as_turn_nos(raw.get("carried_turn_nos")),
         carried_turn_count=_as_int(raw.get("carried_turn_count")),
         memory=raw.get("memory") or "",
-        prev_question=raw.get("prev_question") or "",
+        prev_questions=_as_questions(raw.get("prev_question")),
         trace_matched=_as_bool(raw.get("trace_matched")),
+        history=parse_history_input(raw.get("history_input")),
+        ask_on=raw.get("ask_on") or "",
+        answered_by=raw.get("answered_by") or "",
+        route_intent=raw.get("route_intent") or "",
+        fallback=raw.get("fallback") or "",
         eval_result=raw.get("llm_eval_result") or "",
         eval_score=_as_float(raw.get("llm_eval_score")),
         eval_score_top1=_as_float(raw.get("llm_eval_score_top1")),
@@ -353,10 +457,12 @@ def to_case(
         return None
     answered = prior[-1]
 
+    # scope 는 **옛 로그용 폴백**이다. history_input 이 있으면 pre_queries 도
+    # chunk_pool 도 answered 레코드 하나로 끝나서 여기를 안 본다.
     carried = set(answered.carried_turn_nos)
     if carried:
-        # 답변을 부른 질문은 끌려온 목록에 없어도 반드시 들어간다 - 그 질문이
-        # 없으면 무엇에 대한 답인지 자체를 알 수 없다.
+        # 답변을 부른 질문은 그 목록에 없어도 반드시 들어간다 - 그 질문이 없으면
+        # 무엇에 대한 답인지 자체를 알 수 없다.
         scope = [t for t in prior if t.turn in carried or t is answered]
     else:
         scope = prior[-history_turns:] if history_turns > 0 else prior
@@ -369,27 +475,79 @@ def to_case(
         conversation_id=conv.conversation_id,
         turn=followup_turn,
         # 마지막 항목이 비판받은 답변을 부른 질문이다.
-        pre_queries=[t.user_question for t in scope if t.user_question],
+        pre_queries=pre_queries(answered, scope),
         llm_ans_on_last_q=answered.llm_response,
         current_query=followup.user_question,
         rag_chunks=chunk_pool(answered, scope),
+        n_fetched=len(answered.retrieved) + len(answered.tool_output),
         # history_quote 대조 대상. 앞에서 정한 조건이 원문 턴 대신 요약에만
         # 남아 있을 수 있는데, 그래도 챗봇은 그 조건을 본 것이다.
-        memory=answered.memory,
+        memory=memory_pool(answered),
     )
+
+
+def pre_queries(answered: Turn, scope: list[Turn]) -> list[str]:
+    """Step 1 에 넘길 이전 질문들. **마지막 항목이 비판받은 답변을 부른 질문이다.**
+
+    세 갈래이고 위에서부터 이긴다. 위로 갈수록 사실에 가깝다.
+
+        1. history_input.history_chat   모델에 실제로 들어간 질문들
+        2. prev_question                서비스가 적어 준 앞 질문들
+        3. 턴 순서 재구성                우리 추정 (옛 로그 · 골든셋)
+
+    1·2 는 **직전 턴까지**라서 비판받은 답변을 부른 질문이 들어 있지 않다. 따로
+    붙인다 - 그게 없으면 무엇에 대한 답인지 자체를 알 수 없고, `pre_queries[-1]`
+    을 보는 pii 검증기도 무너진다. 3 은 scope 에 그 턴이 이미 들어 있다.
+
+    3 을 남겨 두는 이유는 골든셋이다. 픽스처에는 두 필드가 다 없어서, 2단으로
+    끊으면 골든셋이 통째로 빈 맥락으로 돌고 회귀가 난다.
+
+    1·2 에는 `history_turns` 상한을 걸지 않는다. 상한은 추정이 넓게 틀리는 것을
+    막으려고 둔 것인데, 이 둘은 추정이 아니라 챗봇이 실제로 본 것이다. 사실을
+    자르면 못 본 턴 대신 **본 턴**을 지우게 된다.
+    """
+    carried = answered.history.queries or answered.prev_questions
+    if carried:
+        tail = [answered.user_question] if answered.user_question else []
+        return [*carried, *tail]
+    return [t.user_question for t in scope if t.user_question]
+
+
+def memory_pool(answered: Turn) -> str:
+    """history_quote 코드 대조 대상. 판정 LLM 에는 안 넘긴다.
+
+    턴의 `memory` 와 `history_input.memory` 를 합친다. 둘 다 "챗봇이 본 요약 맥락"
+    이고, 이 값은 분석 대상이 아니라 **대조 대상**이라 넓을수록 안전하다 - 넓으면
+    "앞에서 정한 조건을 챗봇이 봤다"를 더 많이 인정하게 되고, 그 방향은 case14
+    오탐을 줄인다. 중복은 부분 일치라 해롭지 않다.
+    """
+    parts = [p for p in (answered.memory, answered.history.memory) if p.strip()]
+    if len(parts) == 2 and parts[1] in parts[0]:
+        return parts[0]
+    return "\n".join(parts)
 
 
 def chunk_pool(answered: Turn, scope: list[Turn]) -> list[str]:
     """비판받은 답변이 **실제로 볼 수 있었던 문서 전부.**
 
-    세 갈래다. 끌려온 턴에서 오는 것은 `tool_output` 뿐이다 - 그 턴들의
-    `retrieved_data` 는 서비스가 넘기지 않는다.
+    새 포맷에서는 `answered` **레코드 하나로 끝난다.** 과거가 통째로 그 턴의
+    `history_input` 안에 있어서 다른 턴의 레코드를 열 일이 없다. 한 레코드 안의
+    네 자리를 더하는 것이고, 네 자리는 서로 겹치지 않는다.
 
-        비판받은 턴   retrieved_data + tool_output
-        끌려온 턴들   tool_output
+        이 턴 자신      retrieved_data              tool_output
+        history_input   .retrieved_data             .tool_output (outputs)
 
-    **턴 N 것을 먼저 넣는다.** 충족도 판정의 본령이 그 문서이고 끌려온 턴 쪽은
-    보조라, 순서가 곧 중요도다.
+    **이 턴 것을 먼저 넣는다.** 충족도 판정의 본령이 그 문서이고 과거 쪽은 보조라,
+    순서가 곧 중요도다.
+
+    `scope` 를 도는 아래 가지는 `history_input` 이 **없을 때만** 탄다 (옛 로그 ·
+    골든셋). 둘 다 타면 같은 도구 결과가 두 번 들어가고, 중복 청크는 인용 대조에서
+    `index_corrected` 를 양산한다.
+
+    과거 턴의 `retrieved_data` 가 풀에 들어오는 것은 2026-10 의 전제가 뒤집힌
+    것이다. 전에는 "서비스가 넘기지 않는다"고 적혀 있었는데 `history_input` 이
+    넘긴다. 이 집합이 넓어지면 **case20(문서에 없었다)이 case22(있었는데 안 썼다)로
+    옮겨 간다** - 고칠 곳이 문서팀에서 생성 쪽으로 바뀐다.
 
     상한은 두지 않는다. Step 2 골든셋이 문서 10~15개 기준이라 풀이 그보다 한참
     커지면 약한 모델이 무너질 수 있는데, **실데이터에서 실제로 커지는지를 아직
@@ -397,6 +555,8 @@ def chunk_pool(answered: Turn, scope: list[Turn]) -> list[str]:
     필요하면 그때 넣는다.
     """
     pool = list(answered.retrieved) + list(answered.tool_output)
+    if answered.history.present:
+        return pool + answered.history.retrieved + answered.history.tool_output
     for turn in scope:
         if turn is answered:
             continue

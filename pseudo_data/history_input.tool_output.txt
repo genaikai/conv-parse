@@ -1,0 +1,19 @@
+"tool_output": [
+  {
+    "turn_no":1,
+    "tool_calls":[
+      {
+        "name": "tool_1",
+        "arguments": "{\"part\": \"photo\", ...}"
+      },
+      {
+        "name": "tool_2",
+        "arguments": "{\query\": \"S3 WSPED01\"}"
+      }
+    ],
+    "outputs":[
+      "{\pattern\": \"WSP\", \"equptment\": [], \"count\": 0}",
+      "{...}"
+    ]
+  }
+]

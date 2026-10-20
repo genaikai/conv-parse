@@ -19,7 +19,8 @@ def process_data(ctx) -> tuple[list, list]:
     def decide(turn):
         turn.classification = route(turn.observation, turn.checks, turn.judgment,
                                     turn.citation, turn.grounding,
-                                    complaint=turn.complaint)
+                                    complaint=turn.complaint,
+                                    n_fetched=turn.case.n_fetched)
 
     each_turn(ctx, NAME, decide)
     return [], []

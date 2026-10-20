@@ -82,11 +82,20 @@ TURN_SCHEMA = (
           note="청크가 \\n\\n 또는 \\n 으로 연결된 문자열로 오는 배포가 있다. "
                "파서가 쪼갠다. 비어 있으면 검색 결과 0건이고, 서비스가 "
                "'검색 없이 답할 수 있다'고 판단한 경우도 여기 해당한다 (case21). "
-               "**이 턴의 것만 쓰인다** — 끌려온 턴의 retrieved_data 는 서비스가 넘기지 않는다"),
+               "**이 턴의 것이다** — 앞 턴들의 것은 history_input.retrieved_data 로 온다"),
     Field("tool_output", "str|list", True,
-          note="도구 결과. **문서 검색 결과와 같은 성격이고 답변 생성에 들어간다.** "
-               "retrieved_data 와 함께 청크 풀로 간다 — 빼고 보면 도구 결과를 제대로 "
-               "쓴 답변이 case22 로, 그 인용이 case24 로 집계된다"),
+          note="**이 턴의** 도구 결과이고 통문자열로 온다. 문서 검색 결과와 같은 성격이고 "
+               "답변 생성에 들어가서 retrieved_data 와 함께 청크 풀로 간다 — 빼고 보면 "
+               "도구 결과를 제대로 쓴 답변이 case22 로, 그 인용이 case24 로 집계된다. "
+               "앞 턴들의 것은 history_input.tool_output 이고 거긴 구조체 배열이다"),
+    Field("history_input", "dict", True,
+          note="서비스가 이 턴을 답할 때 모델에 **실제로 넣은 입력**. 직전 턴까지다. "
+               "history_chat[{role, content}] · memory · retrieved_data · "
+               "tool_output[{turn_no, tool_calls[{name, arguments}], outputs[]}]. "
+               "history_chat 의 role=='user' 가 pre_queries 를 대신하고 (없으면 "
+               "prev_question, 그것도 없으면 턴 순서 추정), 안쪽 retrieved_data 와 "
+               "tool_output 은 청크 풀로 간다. **tool_calls 는 안 쓴다** — outputs 와 "
+               "인덱스로 짝이 맞는지 확인되지 않았다"),
     Field("carried_turn_nos", "str|list", True,
           note="서비스가 이 턴을 답할 때 실제로 끌고 들어간 앞 턴 번호들 ([1,2]). "
                "자기 턴은 포함하지 않는다. 끌려오는 것은 그 턴들의 질문 · 답변 · "
@@ -97,20 +106,38 @@ TURN_SCHEMA = (
           note="서비스가 들고 있던 요약 맥락. **판정 LLM 에는 넘기지 않는다** - 다른 "
                "LLM 이 쓴 해석이라 넘기면 우리 관측이 그쪽으로 끌려간다. "
                "history_quote 코드 대조 대상에만 더한다"),
-    Field("prev_question", "str|list", True, unused=True,
-          note="실행 환경로그에서 list 로 관측됨 (2026-09-01, 16,141건). 파이프라인은 "
-               "읽지 않는다 - pre_queries 를 turn 순서로 직접 만든다. "
-               "다만 이게 서비스가 모델에 실제로 넘긴 히스토리라면 우리가 재구성한 "
-               "것과 다를 수 있다. case14 판정의 전제가 걸려 있으니 내용 확인 필요"),
+    Field("prev_question", "str|list", True,
+          note="실행 환경로그에서 list 로 관측됨 (2026-09-01, 16,141건). "
+               "**pre_queries 의 2순위다** — history_input.history_chat 이 없을 때 쓴다. "
+               "unused 였던 것을 내렸다: 의지하는 필드가 계약 경고에서 빠지면 안 된다"),
     Field("trace_matched", "str", True,
           note="2026-10 에 bool 에서 str 로. 'true'/'yes'/'y'/'1'/'n' 을 파서가 흡수한다. "
                "2턴 이상 대화라는 뜻이지만 선언값과 실제 턴 수가 어긋난 로그를 본 적 있다"),
+    # 라우팅 계열 넷 (2026-10 추가). 파서가 받아만 두고 판정에는 안 쓴다 - 어느
+    # 플랫폼에서 묻고 어디가 답했는지는 실패의 원인이 아니라 실패가 일어난 자리다.
+    # 값의 모양을 한 사이클 회수한 뒤에 쓸지 정한다.
+    Field("ask_on", "str", True, unused=True,
+          note="사용자가 질문한 플랫폼"),
+    Field("answered_by", "str", True, unused=True,
+          note="실제로 답변한 플랫폼. ask_on 과 다를 수 있다. **집계 축 후보** — "
+               "어느 플랫폼이 실패하는지를 가르려면 이게 필요하다"),
+    Field("route_intent", "str", True, unused=True,
+          note="라우터가 어떤 의도로 라우팅했는지. 값 집합 미확인. "
+               "'검색 불필요' 가 구분되면 case21 을 결과(retrieved 0건) 가 아니라 "
+               "의도로 가를 수 있다"),
+    Field("fallback", "str", True, unused=True,
+          note="모델이 스스로 '다른 서비스가 더 잘 답하겠다'고 판단해 그쪽에서 시도했다가 "
+               "적절치 않아 ask_on 으로 돌아와 답했는지. **자원 부족(case9)과 무관하다** — "
+               "서비스 장애가 아니라 모델의 자체 판단이다. 쓸 자리가 아직 안 보인다"),
     Field("llm_eval_result", "str", True,
           note="직전 턴과의 관계 분류. turn 1 에서는 비어 있다. "
                "실제 라벨 목록은 운영 taxonomy 에 있다"),
     Field("llm_eval_score", "float", True, rng=(0, 100)),
-    Field("llm_eval_score_top1", "float", True, rng=(0, 100),
-          note="1순위 라벨의 점수. llm_eval_score 는 확률가중 기대점수일 수 있다"),
+    Field("llm_eval_score_top1", "float", True, rng=(0, 100), unused=True,
+          note="1순위 라벨의 점수. **읽는 곳이 없다** — 필터는 alternatives 로 새 "
+               "점수표에 맞춰 다시 계산하고, 없을 때만 llm_eval_score 를 쓴다. "
+               "2026-10 컬럼 목록에서 빠졌는데 llm_emotion_score_top1 은 남아 있다 — "
+               "둘은 같은 공식의 짝이라 비대칭이 이상하다. 누락인지 확인 필요"),
     Field("llm_eval_alternatives", "list", True,
           note="[{label, probability}]. 확률가중 기대점수 계산에 쓴다"),
     Field("llm_eval_context_summarized", "bool", True, unused=True,
@@ -118,7 +145,8 @@ TURN_SCHEMA = (
                "라벨 값이 미덥지 않을 때 이 값이 참인 턴을 갈라 보는 용도"),
     Field("llm_emotion_result", "str", True),
     Field("llm_emotion_score", "float", True, rng=(0, 100)),
-    Field("llm_emotion_score_top1", "float", True, rng=(0, 100)),
+    Field("llm_emotion_score_top1", "float", True, rng=(0, 100), unused=True,
+          note="llm_eval_score_top1 과 같다 — 읽는 곳이 없다"),
     Field("llm_emotion_alternatives", "list", True),
     Field("llm_emotion_context_summarized", "bool", True, unused=True,
           note="감정 라벨 쪽의 같은 표시"),

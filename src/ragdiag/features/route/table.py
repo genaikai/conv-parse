@@ -118,8 +118,13 @@ def route(
     citation: Optional[CitationCheck] = None,
     grounding: Optional[GroundingCheck] = None,
     complaint: Optional[QuoteCheck] = None,
+    n_fetched: Optional[int] = None,
 ) -> Classification:
-    """관측 + 검증 → case. 값싸고 확실한 갈림길을 앞에 둔다."""
+    """관측 + 검증 → case. 값싸고 확실한 갈림길을 앞에 둔다.
+
+    n_fetched 는 **이 턴이** 가져온 청크 수다 (Case.n_fetched). None 이면 모른다는
+    뜻이고 citation.n_chunks 로 떨어진다.
+    """
     extra = secondary_from(obs, checks)
 
     def done(case_id: str, reason: str, notes: Optional[list[str]] = None) -> Classification:
@@ -268,7 +273,7 @@ def route(
                     ["문법은 통과 — 실행 검증 없이는 정확성을 확인할 수 없음"])
 
     if obs.question_domain == "domain":
-        return _route_domain(obs, judgment, citation, grounding, done)
+        return _route_domain(obs, judgment, citation, grounding, done, n_fetched)
 
     # --- 6. 남은 것 -----------------------------------------------------------
     # case14 는 여기서만 주 라벨이 된다. 앞에 두면 case20/case22 을 가로챈다 —
@@ -288,18 +293,26 @@ def route(
                 f"domain={obs.question_domain})")
 
 
-def _route_domain(obs, judgment, citation, grounding, done) -> Classification:
+def _route_domain(obs, judgment, citation, grounding, done,
+                  n_fetched: Optional[int] = None) -> Classification:
     """TYPE5 분기 — 검증된 case20/case22 판별 로직을 그대로 쓴다.
 
-    n_chunks 가 0 이면 검색 결과가 아예 없었다는 뜻이다. 이건 판정이 아니라
-    로그에 적힌 사실이라 "가져온 문서가 요구를 충족하지 못했다"와 구분해 적는다.
-    고칠 곳이 다르다 - 0건은 검색을 탈지 말지 정하는 쪽이나 검색기 자체이고,
-    가져왔는데 빗나간 것은 임베딩·청킹이나 문서 쪽이다.
+    "이 턴 검색이 0건" 이면 case21 이다. 이건 판정이 아니라 로그에 적힌 사실이라
+    "가져온 문서가 요구를 충족하지 못했다"와 구분해 적는다. 고칠 곳이 다르다 -
+    0건은 검색을 탈지 말지 정하는 쪽이나 검색기 자체이고, 가져왔는데 빗나간 것은
+    임베딩·청킹이나 문서 쪽이다.
+
+    세는 것은 **n_fetched** 지 citation.n_chunks 가 아니다. 풀(n_chunks)에는
+    history_input 으로 넘어온 과거 문서가 섞여 있어서, 이번 턴이 검색을 안 탔어도
+    0 이 아니다. 그걸로 가르면 case21 이 조용히 case20 으로 흘러가고 - 심각도가
+    high 에서 medium 으로, 고칠 곳이 검색 트리거에서 문서 쪽으로 틀어진다.
+    n_fetched 가 None 인 옛 경로(골든셋 · 테스트)만 n_chunks 로 떨어진다.
     """
     if judgment is None:
         return done(taxonomy.UNCLASSIFIED, "도메인 질문인데 충족도 판정이 없음")
 
     n_chunks = citation.n_chunks if citation else None
+    fetched = n_fetched if n_fetched is not None else n_chunks
     # 인용이 하나도 검증되지 않은 sufficient/partial 주장은 사전지식에서 나온 것으로 본다.
     # 규칙은 final_verdict 한 곳에 있다 - grounding 이 물을지 정할 때도 같은 규칙을 본다.
     verdict = final_verdict(judgment, citation)
@@ -307,7 +320,7 @@ def _route_domain(obs, judgment, citation, grounding, done) -> Classification:
 
     if verdict in ("insufficient", "partial"):
         note = ["인용 검증 실패로 강등됨"] if downgraded else []
-        if n_chunks == 0:
+        if fetched == 0:
             note.append("서비스가 '검색 없이 답할 수 있다'고 판단했을 수 있다. "
                         "그 판단이 틀린 것이라면 고칠 곳은 검색 트리거다.")
             return done("case21", "검색 결과가 0건 — 대조할 문서가 아예 없음", note)

@@ -573,15 +573,16 @@ CASES = [
         expect=dict(answer_ignored_history=False),
     ),
     dict(
-        id="hq03", note="조건이 히스토리 창(3턴) 밖에 있다 — 판정자는 볼 수 없다",
+        id="hq03", note="조건이 4턴 앞에 있다 — history_chat 에 있으면 멀어도 본 것이다",
         pre_queries=["국내 기준으로만 알려주세요.", "출장 신청은 어디서 하나요?",
                      "승인은 누가 하나요?", "정산 기한은 언제인가요?", "식비는 얼마인가요?"],
         answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
         complaint="국내 기준이라고 했는데요.",
         chunks=RULES,
-        # 실제로는 ignored 가 맞다. 그러나 조건이 창 밖이라 판정자에게 보이지 않고,
-        # 보이지 않는 조건을 인용할 수 없으므로 철회된다 - 창 3턴의 비용이 여기 드러난다.
-        expect=dict(answer_ignored_history=False),
+        # 전에는 창 3턴 밖이라 판정자가 못 봐서 False 였다. history_input 이 들어오고
+        # 창이 폴백으로 내려가면서 조건이 보인다 - 챗봇이 봤는데 어긴 것이고 ignored 다.
+        # 조건이 멀리 있어도 history_quote 가 그걸 글자 그대로 찾아 와야 한다.
+        expect=dict(answer_ignored_history=True, history_quote_verified=True),
     ),
     dict(
         id="hq04", note="조건이 짧은 어절 하나 — 4자 하한을 정당한 조건이 넘는지",
@@ -668,6 +669,7 @@ def build() -> tuple[dict, dict]:
     """
     import json as _json
 
+    from ragdiag.fixtures import context_fields
     from ragdiag.labels import EMOTION_LABELS, QUERY_LABELS
 
     users, expected = [], {}
@@ -680,15 +682,14 @@ def build() -> tuple[dict, dict]:
             turns.append({
                 "turn": i + 1,
                 "request_time": f"2026-03-0{(index % 9) + 1} 10:0{i}:00.000",
-                "prev_question": history[i - 1] if i else None,
                 "retrieved_data": _json.dumps(case["chunks"] if last else [],
                                               ensure_ascii=False),
                 "llm_response": case["answer"] if last else f"(이전 답변 {i + 1})",
                 "user_question": question,
                 "trace_matched": "True",
+                **context_fields(turns),
                 "llm_eval_result": None if i == 0 else QUERY_LABELS["E"].name,
                 "llm_eval_score": None if i == 0 else 60,
-                "llm_eval_score_top1": None if i == 0 else 60,
                 "llm_eval_alternatives": [] if i == 0 else [{"label": "E", "probability": 1.0}],
                 "llm_eval_context_summarized": False,
                 "llm_emotion_result": None if i == 0 else EMOTION_LABELS["E"].name,
@@ -702,13 +703,13 @@ def build() -> tuple[dict, dict]:
         turns.append({
             "turn": complaint_turn,
             "request_time": f"2026-03-0{(index % 9) + 1} 10:{len(history)}0:00.000",
-            "prev_question": history[-1],
             "retrieved_data": "[]",
             "llm_response": "(아직 답변 없음)",
             "user_question": case["complaint"],
             "trace_matched": "True",
+            **context_fields(turns),
             "llm_eval_result": QUERY_LABELS["K"].name,
-            "llm_eval_score": 25, "llm_eval_score_top1": 25,
+            "llm_eval_score": 25,
             "llm_eval_alternatives": [{"label": "K", "probability": 1.0}],
             "llm_eval_context_summarized": False,
             "llm_emotion_result": EMOTION_LABELS["I"].name,

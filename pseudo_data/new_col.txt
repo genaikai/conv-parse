@@ -1,0 +1,25 @@
+turn
+request_time
+retrieved_data: ""
+tool_output: []
+memory: ""
+carried_turn_count: int
+carried_turn_nos: []
+user_question: str
+llm_response: str
+trace_matched: str
+ask_on: str
+answered_by: str
+route_intent: ""
+fallback: ""
+history_input: null | dict
+prev_question: null | []
+llm_eval_result: null
+llm_eval_score: null
+llm_eval_alternatives: []
+llm_eval_context_summarized: null
+llm_emotion_result: null | str
+llm_emotion_score: null | float
+llm_emotion_score_top1: null | int
+llm_emotion_alternatives: [] 
+llm_emotion_context_summarized: null | true/false

@@ -272,3 +272,54 @@ def preview_filter(
                 f"{turn.eval_result or '-':<10} {question}"
             )
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 청크 풀 계측 — LLM 호출 0
+#
+# 풀 크기는 파싱 시점에 정해진다. 그런데 지금껏 그걸 찍는 데가 없어서, "얼마나
+# 커졌나" 를 알려면 전체 실행을 끝내고 결과 파일의 chunk_data 길이를 세야 했다
+# (features/carried 의 설명이 그렇게 적혀 있다). 에어갭에서는 그게 비싸다 -
+# 풀이 터지면 ⑦ 가 깨지면서 알게 되고, 그 시점에 GPU 시간은 이미 쓴 뒤다.
+#
+# 그래서 LLM 을 켜기 전에 숫자부터 본다. 상한을 걸지 말지는 이 숫자를 보고 정한다.
+# ---------------------------------------------------------------------------
+
+def chunk_report(cases: Sequence) -> str:
+    """고른 케이스들의 청크 풀이 얼마나 큰가. `--dry-run` 에서 찍는다.
+
+    청크 **개수**와 **문자 수**를 같이 낸다. 둘이 갈리기 때문이다 - 도구 결과는
+    청크 하나가 JSON 덩어리라 개수는 안 늘고 문자만 폭증할 수 있고, 그쪽이
+    프리필 비용과 "lost in the middle" 을 정하는 값이다.
+
+    Step 2 골든셋이 문서 10~15개 기준이라, 중앙값이 거기서 멀어지면 충족도 판정이
+    골든셋에서 재 본 적 없는 영역으로 들어간 것이다.
+    """
+    if not cases:
+        return "  (케이스 없음)"
+    counts = [len(c.rag_chunks) for c in cases]
+    chars = [sum(len(x) for x in c.rag_chunks) for c in cases]
+    lines = ["청크 풀 (LLM 호출 없음)"]
+    lines += _numeric("청크 개수", counts)
+    # 개수는 정수라 폭이 좁으면 막대가 "2.0~2.2" 같은 빈 칸으로 열 줄 나간다.
+    # 화면으로 읽는 블록이라 그 열 줄이 정작 볼 줄을 밀어낸다.
+    if max(counts) - min(counts) >= 10:
+        lines += _histogram(counts)
+    lines += [""]
+    lines += _numeric("문자 수  ", chars)
+    empty = sum(1 for n in counts if n == 0)
+    if empty:
+        lines += ["", f"  청크 0개 {empty}건 ({empty / len(counts):.0%}) "
+                      f"— 검색 결과가 없었다는 뜻이다 (case21 후보)"]
+    return "\n".join(lines)
+
+
+def chunk_metric(cases: Sequence) -> str:
+    """RUN SUMMARY 한 줄. 결과를 가지고 나올 수 없으니 요약에 숫자를 남긴다."""
+    if not cases:
+        return "없음"
+    counts = sorted(len(c.rag_chunks) for c in cases)
+    chars = sorted(sum(len(x) for x in c.rag_chunks) for c in cases)
+    mid = len(counts) // 2
+    return (f"중앙 {counts[mid]}개 / {chars[len(chars) // 2]:,}자 · "
+            f"최대 {counts[-1]}개 / {chars[-1]:,}자")

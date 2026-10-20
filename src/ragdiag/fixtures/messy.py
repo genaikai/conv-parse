@@ -12,9 +12,9 @@ observations.py 의 케이스는 깔끔하다. 문장이 완결되고 맞춤법�
 - 라우팅 (expect_case): 판정이 끝났을 때 나와야 하는 case. 정답이 하나로 확정되지 않으면
   허용 집합으로 둔다.
 
-턴 필드는 실행 로그(pseudo_input/conv-data.json 에서 본 것)를 따른다 — 
-영문 직급 · "<user>_conv_N" 대화 id · 밀리초 시각 · A~R 라벨 이름과 alternatives.
-retrieved_data 만 이쪽 파서의 계약대로 JSON 문자열로 싣는다 (그 로그에는 없던 필드다).
+턴 필드는 실행 로그를 따른다 — 영문 직급 · "<user>_conv_N" 대화 id · 밀리초 시각 ·
+A~R 라벨 이름과 alternatives · 2026-10 의 history_input 과 라우팅 넷(fixtures.context_fields).
+llm_eval_score_top1 은 2026-10 컬럼 목록에 없어 싣지 않는다.
 
 한계는 observations.py 와 같다. 내가 만든 데이터이므로 실데이터의 분포와 다르고,
 프롬프트를 여기 맞춰 고치면 점수가 과대평가된다.
@@ -272,16 +272,17 @@ CASES = [
 
     # ---------- 5턴 넘게 이어지는 대화 ----------
     dict(
-        id="deep01", note="6턴 — 앞에서 정한 조건(국내)을 4턴 뒤 답변이 어김, 창 3턴 밖",
+        id="deep01", note="6턴 — 앞에서 정한 조건(국내)을 4턴 뒤 답변이 어김. 멀어도 history_chat 에 있다",
         pre_queries=["출장비 규정 좀 볼게요", "국내 기준으로만 볼게요", "식비 상한은요?",
                      "숙박비는요?", "정산은 언제까지예요?", "식비 다시 알려주세요"],
         answer="해외 출장 식비는 미주 지역 기준 1일 80달러입니다.",
         complaint="국내라고 했잖아요",
         chunks=RULES,
-        # 조건이 창(3턴) 밖이라 판정자는 못 본다. 답변이 틀린 것은 내용 불만으로 잡힌다.
-        expect=dict(answer_ignored_history=False,
+        # deep02 와 같은 상황인데 조건이 4턴 앞이다. 옛 창(3턴)으로는 못 봤고 지금은
+        # history_chat 이 전부 와서 본다. 거리가 판정을 바꾸면 안 된다 - deep02 와 같은 기대값.
+        expect=dict(answer_ignored_history=True, history_quote_verified=True,
                     complaint_target={"content_wrong", "content_missing"}),
-        expect_case={"case22", "case18", "case13"},
+        expect_case={"case14", "case22", "case18", "case13"},
     ),
     dict(
         id="deep02", note="6턴 — 조건이 직전 턴에 있어 창 안이다. ignored 가 맞다",
@@ -894,8 +895,9 @@ CASES = [
 
 def build() -> tuple[dict, dict]:
     """실행 로그 모양(pseudo_input)으로 조립한 conv_eval 페이로드와 케이스별 기대값."""
+    from ragdiag.fixtures import context_fields
     from ragdiag.labels import EMOTION_LABELS, QUERY_LABELS
-    
+
     grades = ["Assistant Engineer", "Engineer", "Senior Engineer", "Staff Engineer",
               "Principal Engineer"]
     users, expected = [], {}
@@ -910,11 +912,11 @@ def build() -> tuple[dict, dict]:
                 "request_time": f"2026-04-{(index % 28) + 1:02d} 1{i % 10}:{(index * 7) % 60:02d}:14.000",
                 "user_question": question,
                 "llm_response": case["answer"] if last else f"(이전 답변 {i + 1})",
-                "conversation_id": conv_id,
                 "retrieved_data": json.dumps(case["chunks"] if last else [], ensure_ascii=False),
+                "trace_matched": "true",
+                **context_fields(turns, ask_on="messenger"),
                 "llm_eval_result": None if i == 0 else QUERY_LABELS["E"].name,
                 "llm_eval_score": None if i == 0 else 60,
-                "llm_eval_score_top1": None if i == 0 else 60,
                 "llm_eval_alternatives": [] if i == 0 else [
                     {"label": "E", "name": QUERY_LABELS["E"].name, "probability": 0.7},
                     {"label": "A", "name": QUERY_LABELS["A"].name, "probability": 0.3}],
@@ -932,10 +934,11 @@ def build() -> tuple[dict, dict]:
             "request_time": f"2026-04-{(index % 28) + 1:02d} 1{complaint_turn % 10}:00:14.000",
             "user_question": case["complaint"],
             "llm_response": "(아직 답변 없음)",
-            "conversation_id": conv_id,
             "retrieved_data": "[]",
+            "trace_matched": "true",
+            **context_fields(turns, ask_on="messenger"),
             "llm_eval_result": QUERY_LABELS["K"].name,
-            "llm_eval_score": 25, "llm_eval_score_top1": 25,
+            "llm_eval_score": 25,
             "llm_eval_alternatives": [{"label": "K", "name": QUERY_LABELS["K"].name, "probability": 0.8},
                                  {"label": "L", "name": QUERY_LABELS["L"].name, "probability": 0.2}],
             # 맥락이 길면 라벨 판정에 요약본이 들어간다. 파이프라인은 이 값을 읽지

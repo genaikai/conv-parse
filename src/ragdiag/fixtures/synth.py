@@ -805,6 +805,27 @@ def _turn(no, question, answer, docs, rng, followup):
         "carried_turn_nos": carried,
         "carried_turn_count": len(carried),
         "memory": "" if no < 4 else "(앞 대화 요약)",
+        # 모델에 실제로 들어간 ~N-1 턴의 입력. turn 1 은 앞이 없어 null 이다 -
+        # "키가 없다"(옛 로그) 와 "있는데 앞이 없다" 가 다른 사실이라 둘 다 쓴다.
+        "history_input": None if no == 1 else {
+            "history_chat": [
+                m for n in carried
+                for m in ({"role": "user", "content": f"(턴 {n} 질문)"},
+                          {"role": "assistant", "content": f"(턴 {n} 답변)"})
+            ],
+            "memory": "" if no < 4 else "(앞 대화 요약)",
+            "retrieved_data": "[]",
+            # 구조체 배열이다. outputs 만 청크로 간다 - tool_calls 는 안 쓴다.
+            "tool_output": [] if no % 3 else [{
+                "turn_no": carried[0],
+                "tool_calls": [{"name": "lookup", "arguments": "{\"q\": \"x\"}"}],
+                "outputs": [f"{{\"turn\": {carried[0]}, \"hit\": 0}}"],
+            }],
+        },
+        "ask_on": "platform_a",
+        "answered_by": "platform_a" if no % 4 else "platform_b",
+        "route_intent": "search",
+        "fallback": "false" if no % 4 else "true",
         "llm_response": answer,
         "user_question": question,
         "trace_matched": "True",

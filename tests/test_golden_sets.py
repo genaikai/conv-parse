@@ -178,12 +178,24 @@ def test_messy_set_looks_like_the_operational_log():
     assert {"job_grade", "db_dept_name", "db_job_name"} <= set(user)
     assert not {"user_id", "db_login_id", "db_position_name"} & set(user)
     turn = user["conversations"][0]["turns"][-1]
-    assert {"request_time", "user_question", "llm_response", "conversation_id",
-            "llm_eval_result", "llm_eval_score", "llm_eval_score_top1", "llm_eval_alternatives",
+    assert {"request_time", "user_question", "llm_response",
+            "llm_eval_result", "llm_eval_score", "llm_eval_alternatives",
             "llm_eval_context_summarized",
             "llm_emotion_result", "llm_emotion_alternatives",
-            "llm_emotion_context_summarized"} <= set(turn)
-    assert turn["conversation_id"].endswith("_conv_1")
+            "llm_emotion_context_summarized",
+            # 2026-10. 골든셋이 옛 모양을 들고 있으면 실제 실행이 타는 경로를 안 잰다.
+            "history_input", "tool_output", "memory", "carried_turn_nos",
+            "ask_on", "answered_by", "route_intent", "fallback"} <= set(turn)
+    # 2026-10 컬럼 목록에서 빠졌다. 짝인 emotion 쪽은 남아 있어 확인 중이다.
+    assert "llm_eval_score_top1" not in turn
+    # 대화 id 는 대화 층에만 있다 - 턴마다 되풀이되던 것은 옛 로그 모양이다.
+    assert "conversation_id" not in turn
+    assert user["conversations"][0]["conversation_id"].endswith("_conv_1")
+    # 2턴 이상인 턴은 history_input 이 있고, 그 안의 user 메시지가 앞 질문들이다.
+    prior = user["conversations"][0]["turns"][:-1]
+    users_in_chat = [m["content"] for m in turn["history_input"]["history_chat"]
+                     if m["role"] == "user"]
+    assert users_in_chat == [t["user_question"] for t in prior]
 
 
 def coverage() -> dict[str, int]:
@@ -223,3 +235,44 @@ def test_legibility_golden_set_is_well_formed():
     assert sum(c["legible"] for c in judgments.LEGIBILITY) == 50, "정상을 붕괴의 두 배 이상으로 둔다 - 재는 것이 오탐이다"
     caught = [c["id"] for c in judgments.LEGIBILITY if check_degenerate(c["answer"]).violated]
     assert not caught, f"코드 규칙이 먼저 잡는다: {caught}"
+
+
+def test_golden_sets_take_the_whole_history_chat_and_fall_back_to_a_window():
+    """pre_queries 에 고정 길이는 없다. history_chat 이 있으면 그 길이만큼이다.
+
+    최근 3턴(MAX_HISTORY_TURNS)으로 자르는 것은 history_input 이 **없을 때의** 폴백이다.
+    두 길이 다르게 나오는 케이스(긴 대화)가 있어야 폴백이 실제로 다른 길인 것이고,
+    짧은 대화에서는 둘이 같아야 폴백이 멀쩡한 것이다.
+    """
+    import copy
+
+    from ragdiag import settings
+    from ragdiag.conv import parse_conversations, to_case
+
+    def cases(raw):
+        return {c.case_id: c for conv in parse_conversations(raw)
+                for c in [to_case(conv, conv.turns[-1].turn)]}
+
+    for mod in (observations, messy):
+        raw, _ = mod.build()
+        stripped = copy.deepcopy(raw)
+        for user in stripped["users"]:
+            for conv in user["conversations"]:
+                for turn in conv["turns"]:
+                    for key in ("history_input", "prev_question",
+                                "carried_turn_nos", "carried_turn_count"):
+                        turn.pop(key, None)
+        full, fallback = cases(raw), cases(stripped)
+        longer = 0
+        for conv in parse_conversations(raw):
+            key = f"{conv.conversation_id}:{conv.turns[-1].turn}"
+            questions = [t.user_question for t in conv.turns[:-1]]
+            # 새 경로: 앞 질문 전부 + 비판받은 답변을 부른 질문. 자르지 않는다.
+            assert full[key].pre_queries == questions, key
+            # 폴백: 최근 N개.
+            assert fallback[key].pre_queries == questions[-settings.MAX_HISTORY_TURNS:], key
+            # 청크 풀과 이 턴 검색 건수는 길에 따라 달라지면 안 된다.
+            assert full[key].rag_chunks == fallback[key].rag_chunks, key
+            assert full[key].n_fetched == fallback[key].n_fetched, key
+            longer += len(full[key].pre_queries) > len(fallback[key].pre_queries)
+        assert longer, f"{mod.__name__}: 폴백과 길이가 갈리는 긴 대화가 하나도 없다"

@@ -563,3 +563,37 @@ def test_an_unmeasurable_request_keeps_its_case():
     got = route(obs(complaint_target="length"),
                 checks(length=Check("length", "undetermined", "요구 vague_short · 149자")))
     assert got.primary_case == "case11" and got.confidence == "medium", got
+
+
+# ---------------------------------------------------------------------------
+# case21 은 "이 턴 검색이 0건" 이지 "풀이 비었다" 가 아니다
+#
+# history_input 이 과거 문서를 풀에 넣기 시작하면서 둘이 갈라졌다. 풀 길이로 가르면
+# 이번 턴이 검색을 안 탔어도 0 이 아니라서 case21 이 조용히 case20 으로 흐른다 -
+# 심각도가 high → medium, 고칠 곳이 검색 트리거 → 문서 쪽으로 틀어진다.
+# ---------------------------------------------------------------------------
+
+def test_case21_is_about_this_turn_not_the_pool():
+    """이번 턴 0건 + 과거 문서 1개 = 풀 1개. 그래도 case21 이다."""
+    result = route(obs(), checks(), judgment("insufficient"),
+                   citation(0, n_chunks=1), n_fetched=0)
+    assert result.primary_case == "case21"
+
+
+def test_pool_only_from_history_does_not_become_case20():
+    """같은 상황을 n_fetched 없이 돌리면 case20 으로 샌다 - 그게 고친 결함이다."""
+    result = route(obs(), checks(), judgment("insufficient"), citation(0, n_chunks=1))
+    assert result.primary_case == "case20"
+
+
+def test_fetched_this_turn_is_case20_even_if_pool_is_the_same_size():
+    """이번 턴이 1개 가져왔는데 빗나갔다. 풀 크기는 위와 같은 1이다."""
+    result = route(obs(), checks(), judgment("insufficient"),
+                   citation(0, n_chunks=1), n_fetched=1)
+    assert result.primary_case == "case20"
+
+
+def test_unknown_n_fetched_falls_back_to_pool_size():
+    """골든셋 · 옛 테스트는 n_fetched 가 None 이다. 옛 규칙 그대로 돈다."""
+    assert route(obs(), checks(), judgment("insufficient"),
+                 citation(0, n_chunks=0)).primary_case == "case21"

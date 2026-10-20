@@ -1,0 +1,20 @@
+"history_input":{
+  "history_chat":[
+    {
+      "role": "user",
+      "content": "hi, are you there?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, I am here."
+    }
+  ],
+  "memory": "",
+  "retrieved_data": "",
+  "tool_output": [
+    {
+      ...
+    }
+  ]
+
+}
