@@ -63,42 +63,14 @@ def test_narrow_need_keeps_only_the_first_item_for_single_intent_questions(need,
     assert narrow_need(need, multi) == want
 
 
-def test_sufficiency_feature_narrows_the_need_but_keeps_the_observation_intact():
-    """Step 2 프롬프트에는 첫 항목만 가고, 관측 · 결과 파일의 unmet_need 는 그대로다."""
-    from types import SimpleNamespace
+def test_narrow_need_keeps_the_first_item_for_single_questions():
+    """v3 의 충족도는 resolved_question 과 unmet_need 로 묻는다. narrow_need 는 대시보드의
+    "요구" 열과 골든셋 러너가 쓴다 - 질문이 한 가지면 첫 항목만."""
+    from ragdiag.features.sufficiency import narrow_need
 
-    from ragdiag.features import sufficiency
-    from ragdiag.schema import Case, Observation, SufficiencyJudgment
-
-    obs = Observation(
-        reasoning="r", resolved_question="3년차면 연가 며칠이에요?",
-        unmet_need="재직 3년차 연가 일수, 연가 신청 방법, 반차 사용 가능 여부",
-        complaint_target="content_missing", question_domain="domain", question_clarity="clear",
-        question_multi_intent=False, answer_refused=False, answer_covers_all_intents=True,
-        answer_actionable=True, answer_ignored_history=False, requests_unsupported_output=False,
-        requested_language="none", requested_length_kind="none", requested_length_value=0,
-        requested_format="none")
-    case = Case(case_id="c", dept="-", job_grade="-", job_name="-",
-                conversation_id="-", turn=2, pre_queries=["3년차면 연가 며칠이에요?"],
-                llm_ans_on_last_q="규정을 참고하세요", current_query="며칠이냐구요",
-                rag_chunks=["재직 3년 이상 4년 미만 연가 14일"])
-    seen = {}
-
-    class FakeJudge:
-        def judge_sufficiency_from(self, case, o):
-            seen["need"] = o.unmet_need
-            return SufficiencyJudgment(reasoning="", evidence=[], verdict="insufficient", missing=""), None
-
-    turn = SimpleNamespace(case=case, observation=obs, judgment=None, error=None, notes=[], n_calls=0,
-                           usage=None)
-    ctx = SimpleNamespace(judge=FakeJudge(), turns=[turn], workers=1, backend=None,
-                          open_turns=lambda: [turn])
-    try:
-        sufficiency.process_data(ctx)
-    except Exception:
-        pass   # each_turn 의 부수 처리는 여기서 재지 않는다 - 판정자에 간 요구만 본다
-    assert seen["need"] == "재직 3년차 연가 일수"
-    assert obs.unmet_need.startswith("재직 3년차 연가 일수, 연가 신청 방법")
+    need = "재직 3년차 연가 일수, 연가 신청 방법, 반차 사용 가능 여부"
+    assert narrow_need(need, False) == "재직 3년차 연가 일수"
+    assert narrow_need(need, True) == need
 
 
 def test_grounding_golden_set_is_well_formed():
@@ -164,9 +136,11 @@ def test_messy_set_expects_real_fields_and_reachable_cases():
         unknown = set(case["expect"]) - graded
         assert not unknown, f"{case['id']}: 관측에 없는 필드 {unknown}"
         assert case["expect_case"], f"{case['id']}: expect_case 가 없다"
+        # messy 셋은 v2 번호로 적혀 있다. v3 라벨로 옮겨지거나(라벨 · 태그) 제외된 것이어야 한다.
         for cid in case["expect_case"] | case.get("expect_secondary", set()):
-            assert cid in (taxonomy.UNCLASSIFIED, taxonomy.OUT_OF_TAXONOMY) or (
-                taxonomy.get(cid) and taxonomy.get(cid).diagnosable), f"{case['id']}: {cid}"
+            label, tag = taxonomy.from_v2(cid)
+            assert cid in (taxonomy.UNCLASSIFIED, taxonomy.OUT_OF_TAXONOMY) or label or tag \
+                or cid in taxonomy.V2_TO_V3, f"{case['id']}: {cid}"
 
 
 def test_messy_set_looks_like_the_operational_log():
@@ -199,30 +173,35 @@ def test_messy_set_looks_like_the_operational_log():
 
 
 def coverage() -> dict[str, int]:
-    """messy 셋이 case 마다 몇 건을 겨냥하는가 (expect_case ∪ expect_secondary)."""
-    counts = {cid: 0 for cid in taxonomy.CASES}
+    """messy 셋(v2 번호 → v3 라벨)과 v3 테스트셋이 라벨 · 플래그 · 이벤트마다 몇 건을 겨냥하는가."""
+    from ragdiag.fixtures import v3_cases
+
+    counts = {cid: 0 for cid in taxonomy.LABELS}
     for case in messy.CASES:
         for cid in case["expect_case"] | case.get("expect_secondary", set()):
+            label, _ = taxonomy.from_v2(cid)
+            if label in counts:
+                counts[label] += 1
+    for case in v3_cases.CASES:
+        for cid in [case["expect"], *case.get("flags", []), *case.get("events", [])]:
             if cid in counts:
                 counts[cid] += 1
     return counts
 
 
-def test_messy_set_reaches_every_diagnosable_case():
-    """판정 가능한 case 는 전부 라우팅 골든셋에 겨냥하는 케이스가 있어야 한다.
+def test_test_sets_reach_every_label_flag_and_event():
+    """라벨 · 플래그 · 이벤트는 전부 어느 테스트셋이든 겨냥하는 케이스가 있어야 한다.
 
-    없으면 그 case 로 가는 경로는 한 번도 실제로 돌아본 적이 없는 것이다 — case6 · 21 · 24 가
-    그랬다. 판정 불가 넷(5 · 7 · 19 · 23)은 라우팅이 만들지 않으므로 제외한다.
+    없으면 그리로 가는 경로는 한 번도 실제로 돌아본 적이 없는 것이다.
     """
-    missing = [cid for cid, n in coverage().items()
-               if n == 0 and taxonomy.get(cid).diagnosable]
-    assert not missing, f"라우팅 골든셋이 한 번도 겨냥하지 않는 case: {missing}"
+    missing = [cid for cid, n in coverage().items() if n == 0]
+    assert not missing, f"어느 테스트셋도 겨냥하지 않는 라벨: {missing}"
 
 
 if __name__ == "__main__":
     for cid, n in coverage().items():
         meta = taxonomy.get(cid)
-        print(f"{cid:<8}{meta.name:<24}{n:>3}" + ("" if meta.diagnosable else "   (판정 불가)"))
+        print(f"{cid:<6}{meta.name:<24}{n:>3}")
 
 
 def test_legibility_golden_set_is_well_formed():

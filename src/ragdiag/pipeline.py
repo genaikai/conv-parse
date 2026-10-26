@@ -292,7 +292,16 @@ def run_from_conv_eval(conv_path: str | Path, judge: Judge,
     return outcome
 
 
+def make_decision_backend():
+    """설정의 kev.url 이 있으면 kev, 없으면 None (Judge 가 일반 LLM 에뮬레이션으로 떨어진다)."""
+    if not settings.KEV_URL:
+        return None
+    from ragdiag.decide import KevBackend
+    return KevBackend(settings.KEV_URL, settings.KEV_KEY or "", settings.KEV_MODEL,
+                      settings.KEV_TIMEOUT_SEC)
+
+
 def make_judge(backend: Any, use_cache: bool = True,
-               per_stage: Optional[dict] = None) -> Judge:
+               per_stage: Optional[dict] = None, decision: Any = None) -> Judge:
     return Judge(backend, cache_dir=settings.CACHE_DIR if use_cache else None,
-                 per_stage=per_stage)
+                 per_stage=per_stage, decision=decision or make_decision_backend())

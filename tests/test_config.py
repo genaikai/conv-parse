@@ -115,7 +115,7 @@ def test_out_of_range_threshold_is_rejected(tmp_path):
 
 
 def test_empty_service_error_template_is_rejected(tmp_path):
-    """빈 문자열은 모든 답변에 일치해 전부 case9 가 된다."""
+    """빈 문자열은 모든 답변에 일치해 전부 I1 이 된다."""
     path = write(tmp_path, """
         service_error:
           templates:
@@ -123,7 +123,7 @@ def test_empty_service_error_template_is_rejected(tmp_path):
     """)
     with pytest.raises(ConfigError) as e:
         load(path)
-    assert "case9" in str(e.value)
+    assert "I1" in str(e.value)
 
 
 def test_all_problems_are_reported_at_once(tmp_path):

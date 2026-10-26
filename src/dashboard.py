@@ -77,9 +77,21 @@ from ragdiag.features.sufficiency import narrow_need
 _VERSION = tuple(int(x) for x in re.findall(r"\d+", st.__version__)[:2])
 WIDE = {"width": "stretch"} if _VERSION >= (1, 49) else {"use_container_width": True}
 
+# 신뢰도는 주 라벨의 증거 등급에서 나온다 (4·3 → high, 2 → medium, 1·0 → low).
 CONF_ORDER = ["high", "medium", "low"]
-CONF_LABEL = {"high": "높음 (코드 검증)", "medium": "중간 (LLM+인용)",
-              "low": "낮음 (사전지식 의존)"}
+CONF_LABEL = {"high": "높음 (등급 4·3 — 코드·근거 확정)", "medium": "중간 (등급 2 — 확신 p≥0.9)",
+              "low": "낮음 (등급 1·0 — 기울어짐·불일치)"}
+GRADE_LABEL = {4: "4 코드 확정", 3: "3 근거 확정", 2: "2 확신", 1: "1 기울어짐", 0: "0 불일치"}
+
+# 화면이 따로 다루는 라벨. 번호를 흩어 놓으면 체계가 바뀔 때 하나씩 빠진다.
+NORMAL = "N0"            # 정상 후속 — 실패가 아니다. 필터를 가리킨다
+SERVICE_ERROR = "I1"     # 자원 부족 문구 — 모델이 답을 만든 적이 없다
+COLLAPSED = "I2"         # 붕괴 · 읽을 수 없음
+CORPUS_GAP = "D1"        # 검색 근거에 답 없음 — 코퍼스 보강 목록의 재료
+NO_TOOL_CALL = "T1"      # 호출 없음 — 검색 0건의 갈림길
+FABRICATED_QUOTE_TAG = "G5:지어낸인용"
+# 등급 1 · 0 은 표본 검토 대상이다. 다른 등급과 같은 무게로 집계하지 않는다.
+LOW_GRADE_MAX = 1
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +184,7 @@ def load(path: str) -> pd.DataFrame:
                 evidence = cls.get("evidence") or {}
                 obs = evidence.get("observation") or {}
                 suf = evidence.get("sufficiency") or {}
+                case_id, case_name, tags = _label_of(cls)
                 rows.append({
                     "부서": user.get("db_dept_name", "-"),
                     # db_position_name(직위)이 로그에서 빠져(2026-10) job_grade 가
@@ -181,13 +194,21 @@ def load(path: str) -> pd.DataFrame:
                     "직무": user.get("db_job_name", "-"),
                     "대화": conv.get("conversation_id", "-"),
                     "턴": turn.get("turn"),
-                    "case": cls.get("case_id", "error"),
-                    "case명": cls.get("case_name", ""),
-                    "type": cls.get("type_name", ""),
+                    "case": case_id,
+                    "case명": case_name,
+                    "type": (tx.describe(case_id)["type_name"] if tx.get(case_id)
+                             else cls.get("type_name", "")),
                     "신뢰도": cls.get("confidence", ""),
+                    # 증거 등급. 옛 결과 파일에는 없다 - 그 행은 NaN 으로 남겨 집계에서 빠진다.
+                    "등급": cls.get("grade"),
                     "판정근거": cls.get("reason", ""),
-                    "부가": [c.get("case_id") for c in cls.get("secondary_cases", [])],
-                    "주의": cls.get("notes", []),
+                    "부가": [c.get("case_id") for c in cls.get("secondary_cases") or []],
+                    # 주 라벨에 딸린 것들. 태그는 "무엇을 어겼나", 플래그는 "이 기록을
+                    # 믿을 수 있나", 이벤트는 "챗봇 실패가 아닌 사건".
+                    "태그": tags,
+                    "플래그": list(cls.get("flags") or []),
+                    "이벤트": list(cls.get("events") or []),
+                    "주의": cls.get("notes") or [],
                     "질문": obs.get("resolved_question", ""),
                     "원한것": obs.get("unmet_need", ""),
                     # Step 2 에 실제로 간 요구. Step 1 은 "정확한 금액이요" 에 절차 · 서류 ·
@@ -197,26 +218,47 @@ def load(path: str) -> pd.DataFrame:
                                       bool(obs.get("question_multi_intent"))),
                     "불만유형": obs.get("complaint_target", ""),
                     "질문성격": obs.get("question_domain", ""),
-                    # 인용 대조를 거친 값. 옛 결과 파일에는 없어서 원판정으로 떨어진다.
+                    # v3 는 final_verdict 가 verdict 와 같다. 옛 결과 파일(인용 대조로
+                    # 강등하던 시절)은 둘이 다를 수 있어 거친 쪽을 읽는다.
                     "충족도": suf.get("final_verdict") or suf.get("verdict", ""),
-                    "충족도원판정": suf.get("verdict", ""),
                     "없던것": suf.get("missing", ""),
-                    # 검색된 청크. 0 이면 검색 결과가 없었다는 뜻이고 그게 case21 의 갈림길이다.
+                    # 검색된 청크. 0 이면 검색 결과가 없었다는 뜻이고 그게 T1 의 갈림길이다.
                     "문서수": len(turn.get("chunk_data") or []),
-                    "인용수": len(suf.get("evidence", [])),
-                    # 폐기 사유를 가른다. not_found 만 "지어낸 것" 이다 - too_short 는
-                    # 판정자가 너무 짧게 잘라 온 것이라 문서에 있는 문장일 수 있다.
-                    # 둘을 합쳐 세면 경고가 실제보다 크게 뜬다 (실측: 폐기 12건 중 지어낸 것 0).
-                    "지어낸인용": sum(1 for d in suf.get("dropped_evidence", [])
-                                   if d.get("reason", "not_found") != "too_short"),
-                    "짧은인용": sum(1 for d in suf.get("dropped_evidence", [])
-                                 if d.get("reason") == "too_short"),
+                    # ③ 충족도가 근거로 세운 청크 수 (p ≥ 임계). 인용 대조는 없어졌다 -
+                    # 근거는 청크 인덱스와 확률이다.
+                    "인용수": len(suf.get("evidence") or []),
+                    # 지어낸 인용은 코드 검증기(quoted_spans)가 잡아 태그로 남는다.
+                    "지어낸인용": 1 if FABRICATED_QUOTE_TAG in tags else 0,
                     "근거활용": (evidence.get("grounding") or {}).get("answer_used_rag", ""),
-                    "검증": evidence.get("checks", []),
+                    "검증": evidence.get("checks") or [],
                     "LLM호출": cls.get("llm_calls", 0),
+                    "kev호출": cls.get("kev_calls", 0),
                     "_원본": turn,
                 })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        # None 이 섞인 열은 object 가 되어 `<=` 비교에서 죽는다. 숫자(NaN 허용)로 맞춘다.
+        df["등급"] = pd.to_numeric(df["등급"], errors="coerce")
+    return df
+
+
+def _label_of(cls: dict) -> tuple[str, str, list[str]]:
+    """결과 파일의 라벨 · 이름 · 태그. 옛 파일(case0~30)은 v3 로 옮겨 읽는다.
+
+    결과는 실행 환경에 쌓이고 사이드바에서 옛 실행을 고를 수 있다. 번호를 그대로
+    두면 열 머리글도 툴팁도 안 붙어 표를 읽을 수 없다. 대응이 없는 번호(제외된
+    실패)는 원래 값으로 남긴다 - 지어내지 않는다.
+    """
+    case_id = cls.get("case_id", "error")
+    case_name = cls.get("case_name", "")
+    tags = list(cls.get("tags") or [])
+    if case_id not in tx.LABELS and case_id != tx.UNCLASSIFIED:
+        moved, tag = tx.from_v2(case_id)
+        if moved:
+            case_id, case_name = moved, tx.describe(moved)["case_name"]
+        if tag and tag not in tags:
+            tags.append(tag)
+    return case_id, case_name, tags
 
 
 @st.cache_data
@@ -299,20 +341,21 @@ def heat(value: float) -> str:
 
 
 def column_label(case_id: str) -> str:
-    """`TYPE5/case20` — 열 머리글에 type 을 함께 적는다.
+    """`G/G5` — 열 머리글에 묶음 글자를 함께 적는다.
 
-    case 는 번호순이라 같은 type 이 이어 붙지만, 열이 열일곱 개면 지금 어느 묶음을
-    보고 있는지 놓친다. type 이 앞에 있으면 경계가 보이고, "이 부서는 TYPE5 가
-    통째로 많다" 같은 읽기가 열 단위 합계 없이도 된다.
+    라벨은 묶음순이라 같은 묶음이 이어 붙지만, 열이 열일곱 개면 지금 어느 묶음을
+    보고 있는지 놓친다. 묶음이 앞에 있으면 경계가 보이고, "이 부서는 G 가 통째로
+    많다" 같은 읽기가 열 단위 합계 없이도 된다. 글자 하나가 겹쳐 보이지만 묶음은
+    고치는 사람이라 그 글자가 곧 받는 쪽이다.
     """
     case = tx.get(case_id)
     return f"{case.type_id}/{case_id}" if case else case_id
 
 
 def type_label(case_id: str) -> str:
-    """`도메인 관련 Retrieve Context 문제` — type 으로 묶어 볼 때의 열 머리글.
+    """`G · 생성` — 묶음으로 묶어 볼 때의 열 머리글.
 
-    열이 일곱 개뿐이라 이름을 그대로 쓸 자리가 있다. case 열은 열일곱 개라
+    열이 여덟 개뿐이라 이름을 그대로 쓸 자리가 있다. 라벨 열은 열일곱 개라
     번호만 쓰고 툴팁으로 펼치지만, 여기서는 이름이 바로 보이는 편이 낫다.
     """
     case = tx.get(case_id)
@@ -320,38 +363,42 @@ def type_label(case_id: str) -> str:
 
 
 def case_of(column: str) -> str:
-    """열 머리글에서 case id 만 꺼낸다. 툴팁·정렬이 이걸로 붙는다."""
+    """열 머리글에서 라벨 id 만 꺼낸다. 툴팁·정렬이 이걸로 붙는다."""
     return column.rsplit("/", 1)[-1]
 
 
 def type_of(column: str) -> str:
-    """열 머리글에서 TYPE id 만 꺼낸다. 없으면 빈 문자열."""
+    """열 머리글에서 묶음 글자만 꺼낸다. 없으면 빈 문자열."""
     head = column.split("/", 1)[0].split(" · ", 1)[0]
-    return head if head.startswith("TYPE") and head[4:].isdigit() else ""
+    return head if head in tx.GROUPS else ""
+
+
+# 묶음의 순서. tx.GROUPS 가 선언된 순서가 곧 sort_key 의 묶음 순서다.
+GROUP_RANK = {g: i for i, g in enumerate(tx.GROUPS)}
 
 
 def column_order(name: str):
-    """type 번호가 먼저, 그 안에서 case 번호. 두 모양 다 이 키로 정렬된다.
+    """묶음이 먼저, 그 안에서 번호. 두 모양 다 이 키로 정렬된다.
 
-    tx.sort_key 가 이미 (type, 번호) 다 - 사이드바에서 고르는 순서와 같아야 하므로
-    같은 함수를 쓴다. 열 머리글이 type 만 담고 있을 때(type별 묶기)는 그 번호를 쓴다.
+    tx.sort_key 가 이미 (묶음, 번호) 다 - 사이드바에서 고르는 순서와 같아야 하므로
+    같은 함수를 쓴다. 열 머리글이 묶음만 담고 있을 때(묶음별 묶기)는 그 순위를 쓴다.
     """
     kind = type_of(name)
     if not tx.get(case_of(name)) and kind:
-        return (0, int(kind[4:]), -1, "")        # "TYPE5 · 이름" 처럼 type 만인 열
+        return (0, GROUP_RANK[kind], -1, "")        # "G · 생성" 처럼 묶음만인 열
     return tx.sort_key(case_of(name))
 
 
 def case_tooltips(columns, numeric: bool = True) -> dict:
-    """case 열 머리글에 설명을 매단다.
+    """라벨 열 머리글에 설명을 매단다.
 
-    머리글에는 TYPE5/case20 까지만 찍는다. 이름을 다 적으면 열이 넓어져 한 화면에
+    머리글에는 G/G5 까지만 찍는다. 이름을 다 적으면 열이 넓어져 한 화면에
     안 들어오고, 번호만 있으면 무엇인지 알 수 없다 - 머리글은 짧게 두고 마우스를
-    올렸을 때 펼친다. type 은 번호(TYPE5)만 보이므로 툴팁이 그 이름도 말한다.
+    올렸을 때 펼친다. 묶음은 글자(G)만 보이므로 툴팁이 그 이름과 고칠 곳도 말한다.
     """
-    # unclassified · out_of_taxonomy 도 붙인다. 오히려 이 둘이 제일 헷갈린다 -
-    # "분류 실패"를 "문제 없음"으로 읽으면 집계 전체를 잘못 읽는다.
-    known = set(tx.CASES) | {tx.UNCLASSIFIED, tx.OUT_OF_TAXONOMY}
+    # unclassified 도 붙인다. 오히려 이것이 제일 헷갈린다 - "분류 실패"를
+    # "문제 없음"으로 읽으면 집계 전체를 잘못 읽는다.
+    known = set(tx.LABELS) | {tx.UNCLASSIFIED}
     column = st.column_config.NumberColumn if numeric else st.column_config.TextColumn
     tips = {}
     for name in columns:
@@ -359,13 +406,15 @@ def case_tooltips(columns, numeric: bool = True) -> dict:
             continue
         case = tx.get(case_of(name))
         if case:
-            # 머리글에는 TYPE5 까지만 보인다. 번호가 무엇을 뜻하는지는 여기서.
+            # 머리글에는 G 까지만 보인다. 번호가 무엇을 뜻하는지는 여기서.
             tips[name] = column(name, help=f"{case.type_id} {case.type_name}\n\n"
                                            f"{tx.tooltip(case_of(name))}")
         elif type_of(name):
-            members = ", ".join(tx.label(c) for c, v in tx.CASES.items()
+            group = tx.GROUPS[type_of(name)]
+            members = ", ".join(tx.label(c) for c, v in tx.LABELS.items()
                                 if v.type_id == type_of(name))
-            tips[name] = column(name, help=f"{type_of(name)} — 이 묶음의 case: {members}")
+            tips[name] = column(name, help=f"{group.group_id}({group.word}) {group.name} — "
+                                           f"고칠 곳: {group.owner}\n\n이 묶음의 라벨: {members}")
         elif case_of(name) in known:
             tips[name] = column(name, help=tx.tooltip(case_of(name)))
     return tips
@@ -483,9 +532,9 @@ def main() -> None:
         st.header("좁히기")
         narrowed = {axis: cascade(axis) for axis in ORG_AXES}
         # 번호만 보고 무엇인지 아는 사람은 없다. 고르는 자리에 이름을 붙이고,
-        # 고른 뒤에는 옆 케이스와 가르는 기준까지 펼쳐 준다.
-        # 문자열로 정렬하면 case10 이 case2 앞에 온다. 표(crosstab)와 순서가
-        # 어긋나서, 표에서 본 케이스를 고르는 자리에서 못 찾는다.
+        # 고른 뒤에는 옆 라벨과 가르는 기준까지 펼쳐 준다.
+        # 문자열로 정렬하면 G1 이 U1 앞에 온다. 표(crosstab)는 묶음순(N U C T D G S I)
+        # 이라 어긋나서, 표에서 본 라벨을 고르는 자리에서 못 찾는다.
         cases = st.multiselect("case", tx.ordered(df["case"].unique()),
                                format_func=tx.label)
         for cid in cases:
@@ -511,9 +560,9 @@ def main() -> None:
                     st.caption(f"· {label} 매칭 실패 — 원래 값으로 표시")
         st.divider()
         hide_low = st.checkbox(
-            "신뢰도 낮음 제외", value=False,
-            help="판정자의 사전지식에 의존하는 케이스(case25 상식 등)를 뺀다. "
-                 "다른 케이스와 같은 무게로 집계하면 안 되는 값이다.")
+            "등급 ≤1 제외", value=False,
+            help="증거 등급 1(확률만 기울어진 G3 등) · 0(unclassified) 을 뺀다. "
+                 "표본 검토 대상이라 다른 등급과 같은 무게로 집계하면 안 되는 값이다.")
 
     view = df
     # None 은 "안 좁혔다", 빈 집합은 "골랐는데 해당 없음"이다. 둘을 같게 다루면
@@ -523,7 +572,8 @@ def main() -> None:
         if chosen is not None:
             view = view[view[column].isin(chosen)]
     if hide_low:
-        view = view[view["신뢰도"] != "low"]
+        # 등급이 없는 옛 결과(NaN)는 남긴다 - 낮은 것이 아니라 모르는 것이다.
+        view = view[~(view["등급"] <= LOW_GRADE_MAX)]
 
     if view.empty:
         st.warning("조건에 맞는 케이스가 없습니다. 좁히기를 완화하세요.")
@@ -532,41 +582,45 @@ def main() -> None:
     # --- 판정 건강 지표 (라벨 분포보다 먼저) ---------------------------------
     st.subheader("판정 건강")
     st.caption("라벨 분포보다 먼저 볼 숫자다. 여기가 나쁘면 아래 집계를 믿을 수 없다.")
-    dropped = int(view["지어낸인용"].sum())
-    short = int(view["짧은인용"].sum())
-    low = int((view["신뢰도"] == "low").sum())
-    unclassified = int(view["case"].isin(["unclassified", "out_of_taxonomy"]).sum())
+    fabricated = int(view["지어낸인용"].sum())
+    low = int((view["등급"] <= LOW_GRADE_MAX).sum())
+    unclassified = int((view["case"] == tx.UNCLASSIFIED).sum())
 
-    # 서비스 자원 부족(case9)은 모델이 답을 만든 적이 없는 턴이다. 품질 분포에
+    # 서비스 자원 부족(I1)은 모델이 답을 만든 적이 없는 턴이다. 품질 분포에
     # 섞어 두면 "챗봇이 나쁘다"로 읽히는데 실제로는 인프라가 모자랐던 것이다.
-    service = int((view["case"] == "case9").sum())
-    # 생성 붕괴(case30)도 모델이 답을 만든 적이 없는 것과 같다 - 품질 분포에서 뺀다.
-    collapsed = int((view["case"] == "case30").sum())
+    service = int((view["case"] == SERVICE_ERROR).sum())
+    # 생성 붕괴(I2)도 모델이 답을 만든 적이 없는 것과 같다 - 품질 분포에서 뺀다.
+    collapsed = int((view["case"] == COLLAPSED).sum())
 
-    # case0 은 실패가 아니다. 필터가 넓게 잡아 들어온 정상 턴이라 실패율 분모에서
+    # N0 은 실패가 아니다. 필터가 넓게 잡아 들어온 정상 턴이라 실패율 분모에서
     # 빼야 하고, 이 숫자가 가리키는 것은 챗봇이 아니라 필터다.
-    normal = int((view["case"] == "case0").sum())
+    normal = int((view["case"] == NORMAL).sum())
+
+    # 분모 밖의 둘. 플래그는 그 턴의 기록을 믿을 수 없다는 표시고, 이벤트는
+    # 사용자 쪽 사건이다. 라벨이 아니라 셀을 만들지 않지만 몇 건인지는 보여야 한다.
+    flags = Counter(f for fs in view["플래그"] for f in fs)
+    events = Counter(e for es in view["이벤트"] for e in es)
 
     cols = st.columns(7)
     cols[0].metric("분류된 턴", len(view),
                    delta=f"-{normal} 정상" if normal else None, delta_color="off",
-                   help="case0(정상)을 빼면 실제 실패 건수가 된다.")
-    cols[1].metric("지어낸 인용", dropped,
-                   help="판정자가 제시한 인용이 원문 어디에도 없는 건수(not_found). "
-                        "크면 사전지식 오염을 의심해야 한다. 너무 짧아서 버린 인용"
-                        "(too_short)은 여기 안 센다 - 문서에 있는 문장일 수 있다.")
-    cols[2].metric("신뢰도 낮음", low,
-                   help="판정 근거가 판정자의 사전지식뿐인 케이스")
+                   help="N0(정상)을 빼면 실제 실패 건수가 된다.")
+    cols[1].metric("지어낸 인용", fabricated,
+                   help=f"태그 {FABRICATED_QUOTE_TAG} 가 붙은 턴 — 답변이 인용부호로 제시한 "
+                        "문장이 근거 어디에도 없다. 코드 검증기(quoted_spans)가 잡는다.")
+    cols[2].metric("등급 ≤1", low,
+                   help="증거 등급 1(확률만 기울어짐) · 0(불일치). 표본 검토 대상이라 "
+                        "다른 등급과 같은 무게로 집계하지 말 것.")
     cols[3].metric("미분류", unclassified,
-                   help="분류 실패. '문제 없음'이 아니라 수동 검토 대상이다.")
+                   help="분류 실패(unclassified). '문제 없음'이 아니라 수동 검토 대상이다.")
     cols[4].metric("서비스 오류", service,
-                   help="case9 — 모델 자원 부족으로 서비스가 안내 문구를 낸 턴. "
+                   help="I1 — 모델 자원 부족으로 서비스가 안내 문구를 낸 턴. "
                         "검색·생성 품질과 무관하므로 아래 분포를 읽을 때 빼고 봐야 한다.")
     cols[5].metric("생성 붕괴", collapsed,
-                   help="case30 — 5555… 같은 반복이나 읽을 수 없는 글. 코드가 잡으면 high, "
-                        "읽기 판정(LLM)이 잡으면 medium. 고칠 곳은 모델·서빙이다.")
+                   help="I2 — 5555… 같은 반복이나 읽을 수 없는 글. 코드 규칙이 잡으면 등급 4, "
+                        "읽기 판정(kev)이 잡으면 등급 2. 고칠 곳은 모델·서빙이다.")
     cols[6].metric("정상", normal,
-                   help="case0 — 후속 발화가 앞 답변을 문제 삼지 않은 턴. "
+                   help="N0 — 후속 발화가 앞 답변을 문제 삼지 않은 턴. "
                         "필터가 넓게 잡아 들어온 것이라 챗봇이 아니라 필터를 가리킨다.")
     if normal:
         st.info(f"필터가 고른 {len(view)}건 중 {normal}건({normal/len(view):.0%})은 "
@@ -577,11 +631,14 @@ def main() -> None:
         st.info(f"서비스 자원 부족 응답이 {service}건이다 "
                 f"(전체의 {service/len(view):.0%}). 모델이 답을 만든 적이 없는 턴이라 "
                 "검색·생성 품질 지표에서 빼고 읽어야 한다 — 고칠 곳은 인프라다.", icon="🔌")
-    if dropped:
-        st.warning(f"지어낸 인용이 {dropped}건 있다. 해당 케이스의 판정을 먼저 확인할 것.")
-    if short:
-        st.caption(f"짧아서 버린 인용 {short}건은 위 숫자에 넣지 않았다 - 판정자가 원문을 "
-                   "너무 짧게 잘라 온 것이라 지어낸 것과 다르다.")
+    if fabricated:
+        st.warning(f"지어낸 인용이 {fabricated}건 있다. 해당 케이스의 판정을 먼저 확인할 것.")
+    if flags or events:
+        parts = [f"{k} {tx.describe(k)['case_name']} {n}건"
+                 for k, n in [*sorted(flags.items()), *sorted(events.items())]]
+        st.caption("실패율 분모 밖 — " + " · ".join(parts))
+        if flags.get("C1"):
+            st.caption("C1 이 선 턴은 G2(맥락) 를 판정하지 않았다. 많으면 G2 집계를 보류할 것.")
 
     # --- 분포 ---------------------------------------------------------------
     # 절을 탭으로 가른다. 한 화면에 다 쌓으면 태블릿에서 계속 스크롤해야 하고,
@@ -638,19 +695,19 @@ def _distribution(view: pd.DataFrame) -> None:
 
     # 분모에서 둘을 뺀다.
     #
-    # case0 은 실패가 아니고(필터가 넓게 잡아 딸려온 턴), unclassified 는 판정이
-    # 실패한 것이라 어느 유형인지 모른다. 둘을 섞어 두면 "case20 22%" 가 "실패 중
+    # N0 은 실패가 아니고(필터가 넓게 잡아 딸려온 턴), unclassified 는 판정이
+    # 실패한 것이라 어느 유형인지 모른다. 둘을 섞어 두면 "D1 22%" 가 "실패 중
     # 22%" 로 읽히는데 실제로는 "판정된 턴 중 22%" 다. 다른 숫자를 같은 말로
     # 읽게 만드는 것이라, 보기 좋고 나쁘고의 문제가 아니다.
-    is_zero = view["case"] == "case0"
-    is_unjudged = view["case"].isin([tx.UNCLASSIFIED, tx.OUT_OF_TAXONOMY])
+    is_zero = view["case"] == NORMAL
+    is_unjudged = view["case"] == tx.UNCLASSIFIED
     failures = view[~is_zero & ~is_unjudged]
 
     head = st.columns(3)
     head[0].metric("실패", f"{len(failures):,}건",
                    help="아래 차트의 분모다. 아래 둘을 뺀 수다.")
     head[1].metric("필터 오탐", f"{int(is_zero.sum()):,}건",
-                   help="case0 — 후속 발화가 앞 답변을 문제 삼지 않는다. "
+                   help="N0 — 후속 발화가 앞 답변을 문제 삼지 않는다. "
                         "챗봇이 아니라 필터를 볼 것.")
     head[2].metric("판정 실패", f"{int(is_unjudged.sum()):,}건",
                    help="어느 유형인지 모르는 턴. 유형별 집계에 넣으면 "
@@ -690,16 +747,16 @@ def _distribution(view: pd.DataFrame) -> None:
     # 읽는 것은 "무엇이 제일 많나" 하나인데, 그걸 보려고 잘린 라벨을 짚어야 했다.
     # 세로로 쌓으면 스크롤이 늘지만 한 눈에 읽힌다 - 스크롤이 더 싸다.
     #
-    # 색은 신뢰도다. case25(상식 오답)는 판정자의 사전지식에 기대고 case9(서비스
-    # 오류)는 코드가 판정하는데, 같은 길이의 막대로 나란히 있으면 같은 무게로
-    # 읽힌다. "이 숫자는 덜 믿어라"가 차트 안에 있어야 한다.
-    st.caption("case 별 — 많은 것부터 · 색은 신뢰도")
+    # 색은 신뢰도(= 증거 등급)다. G3(의도와 다른 답)은 확률만 기울어진 등급 1 이고
+    # I1(서비스 오류)은 코드가 확정한 등급 4 인데, 같은 길이의 막대로 나란히 있으면
+    # 같은 무게로 읽힌다. "이 숫자는 덜 믿어라"가 차트 안에 있어야 한다.
+    st.caption("라벨 별 — 많은 것부터 · 색은 신뢰도(증거 등급)")
     hbar(counts, y="라벨", x="건수", color="신뢰", height=bar_height(len(counts)))
 
-    # 위 차트를 type 으로 묶은 것이다. 그냥 막대로 그리면 위와 같은 말을 한 번 더
-    # 하는 셈이라, case 로 쌓아서 "TYPE5 가 크고 그 안은 case20 이 대부분" 까지
-    # 한 번에 읽히게 한다.
-    st.caption("type 별 — case 를 쌓은 것")
+    # 위 차트를 묶음으로 묶은 것이다. 그냥 막대로 그리면 위와 같은 말을 한 번 더
+    # 하는 셈이라, 라벨로 쌓아서 "생성(G) 이 크고 그 안은 G5 가 대부분" 까지
+    # 한 번에 읽히게 한다. 묶음이 곧 고칠 곳이다.
+    st.caption("묶음(고칠 곳) 별 — 라벨을 쌓은 것")
     by_type = (failures.assign(type=failures["type"].replace("", "(미분류)"))
                .groupby(["type", "case"]).size().reset_index(name="건수"))
     hbar(by_type, y="type", x="건수", color="case",
@@ -711,7 +768,7 @@ def _distribution(view: pd.DataFrame) -> None:
 def _pareto(counts: pd.DataFrame) -> None:
     """상위 몇 종이 실패의 절반인가.
 
-    19종을 다 고칠 수는 없다. 막대만 보면 "case20 이 제일 많다"까지는 알겠는데
+    19종을 다 고칠 수는 없다. 막대만 보면 "D1 이 제일 많다"까지는 알겠는데
     다음에 무엇을 할지는 안 나온다 - 몇 개를 고치면 어디까지 덮이는지가 그 답이다.
 
     순위를 x 축으로 둔다. case 이름을 축에 두면 위 막대 차트와 순서가 어긋날 때
@@ -744,13 +801,14 @@ ALL_CASES = "(전체)"
 def _suspect_first(view: pd.DataFrame) -> pd.DataFrame:
     """판정을 믿기 어려운 순서.
 
-    폐기된 인용이 있으면 판정자가 문서에 없는 문장을 지어냈다는 뜻이라 제일 먼저
-    본다. 그 다음이 신뢰도 낮음(사전지식 의존), 분류 실패, 부가 케이스가 붙은 것.
+    지어낸 인용이 있으면 답변이 근거에 없는 문장을 인용부호로 냈다는 뜻이라 제일
+    먼저 본다. 그 다음이 등급 ≤1(확률만 기울어짐), 무결성 플래그(기록을 믿을 수
+    없음), 분류 실패, 부가 라벨이 붙은 것.
     """
     return view.assign(_의심=(view["지어낸인용"].fillna(0) * 4
-                             + (view["신뢰도"] == "low") * 3
-                             + view["case"].isin([tx.UNCLASSIFIED,
-                                                  tx.OUT_OF_TAXONOMY]) * 2
+                             + (view["등급"] <= LOW_GRADE_MAX) * 3
+                             + view["플래그"].map(bool) * 2
+                             + (view["case"] == tx.UNCLASSIFIED) * 2
                              + view["부가"].map(bool))
                        ).sort_values("_의심", ascending=False).drop(columns="_의심")
 
@@ -775,7 +833,7 @@ MIN_OUTLIER_TURNS = 5
 def expected(counts: pd.DataFrame) -> pd.DataFrame:
     """부서 규모와 전사 case 비율만으로 예상되는 건수.
 
-    "이 부서에 case20 이 많다"는 그 부서가 크기만 해도 성립한다. 규모를 빼고
+    "이 부서에 D1 이 많다"는 그 부서가 크기만 해도 성립한다. 규모를 빼고
     남는 것이 편중이다.
     """
     rows, cols = counts.sum(axis=1), counts.sum(axis=0)
@@ -787,14 +845,14 @@ def expected(counts: pd.DataFrame) -> pd.DataFrame:
 def _by_org(view: pd.DataFrame, org: dict) -> None:
     st.subheader("어느 팀이 무엇을 겪나")
     st.caption(
-        "**이 표가 이 도구의 핵심이다.** case20(Retrieve 실패)는 '검색기가 못 찾음'과 "
+        "**이 표가 이 도구의 핵심이다.** D1(검색 근거에 답 없음)은 '검색기가 못 찾음'과 "
         "'코퍼스에 문서가 없음'을 합친 라벨이라 로그만으로는 가를 수 없다. "
         "특정 부서에 몰려 있으면 후자, 즉 그 도메인 문서가 비어 있다는 뜻이다.")
 
-    # 실패만 센다. case0 은 실패가 아니고 unclassified 는 어느 유형인지 모르는데,
+    # 실패만 센다. N0 은 실패가 아니고 unclassified 는 어느 유형인지 모르는데,
     # **그 비중이 부서마다 다르다.** 분모에 남겨 두면 부서마다 다르게 왜곡되어
     # 부서 간 비교 자체가 흔들린다 - 이 탭의 존재 이유가 그 비교다.
-    dropped = view["case"].isin(["case0", tx.UNCLASSIFIED, tx.OUT_OF_TAXONOMY])
+    dropped = view["case"].isin([NORMAL, tx.UNCLASSIFIED])
     failures = view[~dropped]
     if failures.empty:
         st.info("실패로 분류된 턴이 없습니다.")
@@ -805,9 +863,10 @@ def _by_org(view: pd.DataFrame, org: dict) -> None:
         axis = st.radio("기준", list(ORG_AXES), horizontal=True,
                         label_visibility="collapsed")
     with picker[2]:
-        # case 는 열이 열일곱 개라 한 화면에 안 들어오고, 옆 칸과 한 건씩 나뉘어
-        # 편중이 흐려진다. type 으로 묶으면 일곱 열이라 다 보이고 표본도 커져서
-        # 배수가 덜 흔들린다 - "TYPE5 가 통째로 많다" 는 case 단위로는 잘 안 보인다.
+        # 라벨은 열이 열일곱 개라 한 화면에 안 들어오고, 옆 칸과 한 건씩 나뉘어
+        # 편중이 흐려진다. 묶음으로 묶으면 여덟 열이라 다 보이고 표본도 커져서
+        # 배수가 덜 흔들린다 - "G 가 통째로 많다" 는 라벨 단위로는 잘 안 보인다.
+        # 선택지 이름(case별 · type별)은 그대로 둔다 - 손에 익은 자리다.
         #
         # 다른 조직 축을 열로 두면 축 두 개가 교차한다. "특정 직급이 특정 부서에서"
         # 는 한 축씩 봐서는 안 보인다 - 다만 칸이 잘게 쪼개지므로 건수를 함께 본다.
@@ -843,14 +902,14 @@ def _by_org(view: pd.DataFrame, org: dict) -> None:
     ratio = counts / expected(counts)
 
     st.caption(f"실패 {len(failures):,}건 기준 · "
-               f"case0·판정 실패 {int(dropped.sum()):,}건은 뺐다")
+               f"N0·판정 실패 {int(dropped.sum()):,}건은 뺐다")
     st.dataframe(baseline_row(table, table.sum(axis=0)),
                  **WIDE,
                  column_config=case_tooltips(table.columns))
 
     # 색이 무엇을 가리킬지 고르게 한다.
     #
-    # 비율로 칠하면 상위가 전부 case20 이 된다 - 전사 실패의 4분의 1이라 어느
+    # 비율로 칠하면 상위가 전부 D1 이 된다 - 전사 실패의 4분의 1이라 어느
     # 부서를 봐도 크게 나오기 때문이다. 그건 분포 탭에서 이미 아는 사실이고,
     # 여기서 알고 싶은 것은 "이 부서에서 **유독** 많은가"다.
     mode = st.radio("색 기준", ["관측÷기대", "행 내 비율"], horizontal=True,
@@ -958,9 +1017,9 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
     부서에서 나왔는데 부서별로 나누면 세 줄로 흩어져 안 보인다.
     문서팀이 받는 것은 "쓸 문서 목록"이므로 요구를 축으로 세운다.
     """
-    gaps = view[view["case"].isin(["case20"]) & (view["없던것"] != "")]
-    # 묶는 축은 코드로 좁힌 요구(Step 2 가 실제로 본 것)다. 없던것은 Step 2 가 문서를
-    # 보고 적은 더 정확한 문장이지만 표현이 매번 달라 묶는 축으로는 못 쓴다 - 대표로 보인다.
+    gaps = view[(view["case"] == CORPUS_GAP) & (view["없던것"] != "")]
+    # 묶는 축은 코드로 좁힌 요구(③ 충족도가 실제로 본 것)다. 없던것은 관측이 적은
+    # unmet_need 라 더 정확한 문장이지만 표현이 매번 달라 묶는 축으로는 못 쓴다 - 대표로 보인다.
     grouped = (gaps.groupby("요구")
                .agg(건수=("질문", "size"),
                     부서=("부서", lambda x: " · ".join(sorted(set(x)))),
@@ -994,7 +1053,7 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
             "요구": st.column_config.TextColumn("필요한 문서", width="large"),
             "없던것": st.column_config.TextColumn(
                 "문서에 없던 것", width="medium",
-                help="Step 2 가 문서를 보고 적은 것. 같은 요구라도 표현이 조금씩 다르다"),
+                help="관측이 적은 unmet_need. 같은 요구라도 표현이 조금씩 다르다"),
             "부서수": st.column_config.NumberColumn(
                 "막힌 부서", help="여러 부서가 같은 것에 막혔으면 공통 문서가 비어 있다"),
             "건수": st.column_config.NumberColumn("턴"),
@@ -1005,15 +1064,16 @@ def _corpus_gaps(view: pd.DataFrame) -> None:
 
 
 def _cases(view: pd.DataFrame) -> None:
-    with st.expander(f"케이스 설명 — 이 데이터에 나온 {view['case'].nunique()}종"):
-        st.caption("무엇이 아닌가까지 적었다. 헷갈리는 쌍(case3/case15, case4/case14, "
-                   "case13/case17, case20/case22, case2/case12)에서 라벨이 갈린다.")
+    with st.expander(f"라벨 설명 — 이 데이터에 나온 {view['case'].nunique()}종"):
+        st.caption("묶음은 **고치는 사람**이다. 같은 묶음 안의 '무엇을 어겼나'는 라벨이 "
+                   "아니라 태그(G1:언어 · G5:어긋남 …)에 있고, 무엇이 아닌가까지 적었다.")
         counts = view["case"].value_counts()
         st.dataframe(pd.DataFrame([
             {"case": cid,
              "이름": case.name if (case := tx.get(cid)) else cid,
              "건수": int(n),
-             "신뢰도": CONF_LABEL.get(case.confidence, "—") if case else "—",
+             "묶음": f"{case.type_id} · {case.type_name}" if case else "—",
+             "고칠 곳": case.group.owner if case else "—",
              "설명": tx.desc(cid)}
             for cid, n in counts.items()
         ]), **WIDE, hide_index=True)
@@ -1024,8 +1084,8 @@ def _cases(view: pd.DataFrame) -> None:
 
     state = st.session_state
 
-    # 한 유형만 훑는 것과 전부 섞어 훑는 것은 다른 일이다. "case20 이 왜 이렇게
-    # 많지"는 case20 만 연달아 봐야 답이 나오고, "이 데이터가 대체로 어떤가"는
+    # 한 유형만 훑는 것과 전부 섞어 훑는 것은 다른 일이다. "D1 이 왜 이렇게
+    # 많지"는 D1 만 연달아 봐야 답이 나오고, "이 데이터가 대체로 어떤가"는
     # 섞어 봐야 한다. 사이드바 case 필터로도 좁힐 수 있지만 그건 모든 탭에 걸려서,
     # 분포와 조직 탭까지 한 유형으로 좁아진다 - 비교 대상이 사라진다.
     per_case = view["case"].value_counts()
@@ -1060,7 +1120,7 @@ def _cases(view: pd.DataFrame) -> None:
     # 인데, 그렇다면 의심스러운 것부터 훑는 편이 같은 시간에 더 많이 잡는다.
     order = st.selectbox(
         "정렬", list(CASE_ORDERS), label_visibility="collapsed",
-        help="의심스러운 순: 인용이 폐기된 것 · 신뢰도 낮음 · 분류 실패 · 부가 케이스")
+        help="의심스러운 순: 지어낸 인용 · 등급 ≤1 · 무결성 플래그 · 분류 실패 · 부가 라벨")
     view = CASE_ORDERS[order](view)
 
     if (found, order, picked) != state.get("case_scope"):
@@ -1082,7 +1142,7 @@ def _cases(view: pd.DataFrame) -> None:
     # st.dataframe 의 선택은 **프로그램으로 못 옮긴다** - session_state 에 넣어도
     # 조용히 무시된다(실제로 확인했다). 버튼으로 옮긴 자리에 표시가 따라오게
     # 하려면 체크 상태를 우리가 쥐고 있어야 해서 data_editor 를 쓴다.
-    compact = view[["부서", "턴", "case명", "신뢰도", "문서수", "질문"]].copy()
+    compact = view[["부서", "턴", "case명", "등급", "문서수", "질문"]].copy()
     compact.insert(0, "보기", False)
     compact.iloc[state.case_idx, 0] = True
 
@@ -1094,11 +1154,12 @@ def _cases(view: pd.DataFrame) -> None:
             "보기": st.column_config.CheckboxColumn(
                 "보기", help="체크한 행이 아래에 펼쳐진다. 이전/다음 버튼도 여기를 옮긴다"),
             "case명": st.column_config.TextColumn("무엇이", width="medium"),
-            "신뢰도": st.column_config.TextColumn(
-                "신뢰도", help="낮음은 판정자의 사전지식에 의존한다"),
-            # 열어보지 않고도 검색 0건 턴을 훑을 수 있어야 한다 - 그게 case21 의 갈림길이다.
+            "등급": st.column_config.NumberColumn(
+                "등급", width="small",
+                help="증거 등급. 4 코드 확정 · 3 근거 확정 · 2 확신(p≥0.9) · 1 기울어짐 · 0 불일치"),
+            # 열어보지 않고도 검색 0건 턴을 훑을 수 있어야 한다 - 그게 T1 의 갈림길이다.
             "문서수": st.column_config.NumberColumn(
-                "문서", help="그때 검색된 청크 수. 0 이면 검색 결과가 없었다 (case21 의 갈림길)"),
+                "문서", help="그때 검색된 청크 수. 0 이면 검색 결과가 없었다 (T1 의 갈림길)"),
             "질문": st.column_config.TextColumn(
                 "질문(정리)", width="large",
                 help="대명사와 생략을 푼 것. 사용자가 실제로 친 말은 아래 상세에 있다")})
@@ -1165,7 +1226,7 @@ def history_text(prior: list[str]) -> str:
     """앞 질문 전부를 한 상자에. 마지막 것이 판정 대상의 질문이라 굵게 친다.
 
     직전 질문만 보이면 "미주 말고 유럽" 처럼 요구가 좁혀진 것이나 앞 조건을 잊은
-    것(case14)을 화면에서 확인할 수 없다 - Step 1 은 이 질문들을 전부 보고 판정했다.
+    것(G2:조건)을 화면에서 확인할 수 없다 - 관측은 이 질문들을 전부 보고 판정했다.
     """
     if not prior:
         return "—"
@@ -1205,44 +1266,64 @@ def chunk_table(chunks: list, row: pd.Series) -> None:
 
     전에는 상세 맨 아래 접힘 상자에 청크를 통째로 늘어놓았다. 문서가 있었는지조차
     스크롤해서 봐야 했고, 열면 500자짜리 열 개가 쏟아져 어느 것이 판정에 쓰였는지
-    알 수 없었다. 표로 두면 개수 · 길이 · 인용 여부가 한 화면에 들어오고, 전문은
+    알 수 없었다. 표로 두면 개수 · 길이 · 근거 여부가 한 화면에 들어오고, 전문은
     필요한 것만 본다.
+
+    근거는 인용문이 아니라 청크 인덱스와 확률이다 - ③ 충족도가 청크마다 "답하나"
+    를 묻고 p 가 임계를 넘은 것만 근거로 선다.
     """
     suf = (row["_원본"].get("classification", {}).get("evidence") or {}).get("sufficiency") or {}
-    cited = {e.get("chunk_index"): e.get("quote", "") for e in suf.get("evidence", [])}
+    evidence = {e.get("chunk_index"): e for e in suf.get("evidence") or []}
 
     if not chunks:
         st.warning("그때 검색된 문서가 0건이다. 서비스가 '검색 없이 답할 수 있다' 고 "
-                   "판단했을 수 있다 (case21) — 충족도는 물어볼 것도 없이 insufficient 다.", icon="🔍")
+                   "판단했을 수 있다 (T1) — 충족도는 물어볼 것도 없이 insufficient 다.", icon="🔍")
         return
 
     table = pd.DataFrame([{
         "번호": i,
-        "인용": "✓" if i in cited else "",
+        "근거": "✓" if i in evidence else "",
+        "p": evidence[i].get("p") if i in evidence else None,
         "길이": len(c),
         "첫 줄": c.strip().splitlines()[0][:120] if c.strip() else "(빈 청크)",
     } for i, c in enumerate(chunks)])
-    st.markdown(f"**그때 검색된 문서 {len(chunks)}개** — Step 2 가 이것만 보고 충족도를 판정했다")
+    st.markdown(f"**그때 검색된 문서 {len(chunks)}개** — ③ 충족도가 이것만 보고 청크마다 판정했다")
     st.dataframe(
         table, **WIDE, hide_index=True, height=min(240, 40 + 36 * len(chunks)),
         column_config={
             "번호": st.column_config.NumberColumn("청크", width="small"),
-            "인용": st.column_config.TextColumn(
-                "인용", width="small",
-                help="Step 2 가 근거로 댄 청크 (인용 대조를 통과한 것)"),
+            "근거": st.column_config.TextColumn(
+                "근거", width="small",
+                help="③ 충족도가 근거로 세운 청크 (p 가 임계를 넘은 것)"),
+            "p": st.column_config.NumberColumn(
+                "p", width="small", format="%.2f",
+                help="이 청크가 질문에 답하는 내용을 담고 있을 확률"),
             "길이": st.column_config.NumberColumn("글자", width="small"),
             "첫 줄": st.column_config.TextColumn("첫 줄", width="large")})
 
     # 전문은 하나씩. 열 개를 다 펼치면 아래 코드 검증이 화면 밖으로 밀린다.
     picked = st.selectbox(
         "청크 전문", range(len(chunks)), label_visibility="collapsed",
-        format_func=lambda i: (f"청크 {i}" + (" · Step 2 가 인용" if i in cited else "")
+        format_func=lambda i: (f"청크 {i}" + (" · 근거" if i in evidence else "")
                                + f" · {len(chunks[i])}자"),
         key=f"chunk-{row.get('대화', '')}-{row.get('턴', 0)}")
     with st.container(border=True, height=ANSWER_BOX_PX):
         st.write(chunks[picked])
-    if picked in cited:
-        st.success(f"Step 2 의 인용 — {cited[picked][:200]}")
+    if picked in evidence:
+        st.success(_evidence_line(evidence[picked]))
+
+
+def _evidence_line(ev: dict) -> str:
+    """근거 청크 한 줄 — `청크 3 · p=0.93 · 출처 retrieved`."""
+    p = ev.get("p")
+    parts = [f"청크 {ev.get('chunk_index')}"]
+    if p is not None:
+        parts.append(f"p={float(p):.2f}")
+    if ev.get("source"):
+        parts.append(f"출처 {ev['source']}")
+    if ev.get("scope"):
+        parts.append(f"범위 {ev['scope']}")
+    return " · ".join(parts)
 
 
 def detail(row: pd.Series) -> None:
@@ -1251,35 +1332,36 @@ def detail(row: pd.Series) -> None:
     if tx.desc(row["case"]):
         st.caption(tx.desc(row["case"]))
     meta = st.columns(5)
-    meta[0].metric("신뢰도", CONF_LABEL.get(row["신뢰도"], row["신뢰도"]))
-    # 강등됐으면 그 사실이 보여야 한다. sufficient 라고 했는데 case20 이면 화면이
-    # 파이프라인과 다른 말을 하는 것이고, 이 패널의 존재 이유가 그 설명이다.
-    demoted = row["충족도원판정"] and row["충족도원판정"] != row["충족도"]
+    # 신뢰도는 증거 등급에서 나온다. 등급을 보이고 신뢰도는 그 옆에 적는다 -
+    # "high" 보다 "4 코드 확정" 이 왜 믿을 수 있는지를 말한다.
+    grade = None if pd.isna(row["등급"]) else int(row["등급"])
+    meta[0].metric("증거 등급", GRADE_LABEL.get(grade, "—"),
+                   delta=CONF_LABEL.get(row["신뢰도"], row["신뢰도"]) or None, delta_color="off",
+                   help="4 코드 확정 · 3 근거 확정(⑦ 2차 일치 · 주장 대조) · 2 확신(p≥0.9) · "
+                        "1 기울어짐(0.6≤p<0.9) · 0 불일치. 주 라벨은 등급이 제일 높은 후보다.")
     meta[1].metric("충족도", row["충족도"] or "—",
-                   delta=f"LLM 은 {row['충족도원판정']}" if demoted else None,
-                   delta_color="inverse" if demoted else "off",
-                   help="인용 대조를 거친 값. 인용이 하나도 안 살아남으면 "
-                        "sufficient · partial 도 insufficient 로 내린다.")
+                   help="③ 청크마다 '답하나' 를 물어 p≥임계인 청크가 있으면 sufficient, "
+                        "max p 가 중간이면 partial, 그 외 insufficient. 태그 2차불일치가 "
+                        "붙었으면 ⑦ 되물음이 1차와 어긋나 등급이 내려간 것이다.")
     meta[2].metric("근거 활용", row["근거활용"] or "—")
     # llm_calls 는 **이번 실행에서 실제로 부른 횟수**다. 캐시가 맞으면 0 이 된다.
-    # 그대로 "LLM 호출 0" 이라 적으면 case22 처럼 LLM 이 세 번 필요한 판정도
-    # LLM 이 관여 안 한 것처럼 읽힌다. 어디까지 봤는지를 evidence 로 보여준다.
-    ran = [name for name, key in [("읽기", "legibility"), ("관측", "observation"), ("충족도", "sufficiency"),
-                                  ("근거활용", "grounding")]
+    # 그대로 "LLM 호출 0" 이라 적으면 G5 처럼 판정이 여러 번 필요한 라벨도
+    # 모델이 관여 안 한 것처럼 읽힌다. 어디까지 봤는지를 evidence 로 보여준다.
+    ran = [name for name, key in [("읽기", "legibility"), ("관측", "observation"),
+                                  ("충족도", "sufficiency"), ("주장", "claims"),
+                                  ("memory", "memory"), ("일관성", "consistency")]
            if (row["_원본"].get("classification", {}).get("evidence") or {}).get(key)]
     meta[3].metric("판정 단계", " · ".join(ran) if ran else "코드만",
-                   help=f"이번 실행의 LLM 호출 {row['LLM호출']}회. "
+                   help=f"이번 실행의 LLM 호출 {row['LLM호출']}회 · 결정(kev) 호출 {row['kev호출']}회. "
                         "0 이면 캐시에 있었거나 코드만으로 판정된 것이다.")
-    # 문서가 있었나는 스크롤해서 찾을 것이 아니다. 0 건은 case21 의 갈림길이고,
-    # 인용 · 폐기 건수가 옆에 있어야 "문서는 있었는데 안 썼다" 가 한 줄에서 읽힌다.
+    # 문서가 있었나는 스크롤해서 찾을 것이 아니다. 0 건은 T1 의 갈림길이고,
+    # 근거 건수가 옆에 있어야 "문서는 있었는데 안 썼다" 가 한 줄에서 읽힌다.
     chunk_n = int(row["문서수"])
     meta[4].metric("검색 문서", f"{chunk_n}개" if chunk_n else "0개",
-                   delta=(f"인용 {int(row['인용수'])}"
-                          + (f" · 폐기 {int(row['지어낸인용'])}" if row["지어낸인용"] else "")
-                          if chunk_n else "검색 결과 없음"),
+                   delta=f"근거 {int(row['인용수'])}" if chunk_n else "검색 결과 없음",
                    delta_color="off" if chunk_n else "inverse",
-                   help="Step 2 가 이 청크만 보고 충족도를 판정했다. 0 이면 서비스가 "
-                        "'검색 없이 답할 수 있다' 고 판단했을 수 있다 (case21).")
+                   help="③ 충족도가 이 청크만 보고 판정했다. 0 이면 서비스가 "
+                        "'검색 없이 답할 수 있다' 고 판단했을 수 있다 (T1).")
 
     # 판정 대상인 답변과 사용자의 불만은 접어두면 안 된다. 이 패널은 "왜 이
     # 라벨이지"에 답하는 자리인데, 무엇을 보고 판정했는지가 없으면 답이 안 된다.
@@ -1295,8 +1377,8 @@ def detail(row: pd.Series) -> None:
     asked, said, complained = st.columns([1, 3, 1])
     with asked:
         st.markdown("**앞 질문**")
-        st.caption("마지막 질문에 대한 답이 판정 대상이다. 그 앞 질문들은 Step 1 이 "
-                   "맥락으로 봤다 — 요구가 좁혀졌는지 · 앞 조건을 잊었는지가 여기서 갈린다")
+        st.caption("마지막 질문에 대한 답이 판정 대상이다. 그 앞 질문들은 관측이 "
+                   "맥락으로 봤다 — 요구가 좁혀졌는지 · 앞 조건을 잊었는지(G2)가 여기서 갈린다")
         boxed(history_text(prior), 1, _bordered)
     with said:
         st.markdown("**비판받은 답변**")
@@ -1308,18 +1390,27 @@ def detail(row: pd.Series) -> None:
         boxed(original.get("current_query", "") or "—", 1, st.warning)
 
     st.info(f"**판정 근거** — {row['판정근거']}")
-    legibility = (row["_원본"].get("classification", {}).get("evidence") or {}).get("legibility")
-    if legibility and not legibility.get("legible"):
-        # 읽을 수 없다는 판정. 인용이 안 맞아 무효가 된 것도 보인다 - 그 판정이 왜 안
-        # 먹었는지가 여기서 확인된다.
-        if legibility.get("quote_verified"):
-            st.error(f"읽을 수 없는 답변으로 판정 — 인용: {legibility.get('quote', '')[:80]}")
-        else:
-            st.caption(f"읽기 판정자가 '읽을 수 없다' 고 했으나 인용이 원문과 맞지 않아 무효 — "
-                       f"{legibility.get('quote', '')[:60]!r}")
+    evidence = row["_원본"].get("classification", {}).get("evidence") or {}
+    legibility = evidence.get("legibility")
+    if legibility and legibility.get("illegible_p") is not None:
+        # ① 읽기 판정의 확률. I2 가 됐으면 왜 그랬는지, 안 됐으면 얼마나 가까웠는지.
+        p = float(legibility["illegible_p"])
+        line = f"① 읽기 판정 — 읽을 수 없을 확률 {p:.2f}"
+        (st.error if row["case"] == COLLAPSED else st.caption)(line)
+
+    # 플래그는 경고다 - 이 턴의 기록을 믿을 수 없고, G2 를 묻지 않았다는 뜻이다.
+    # 이벤트 · 태그 · 부가는 주 라벨에 딸린 사실이라 caption 으로 흘린다.
+    for flag in row["플래그"]:
+        st.warning(f"무결성 플래그 {tx.label(flag)} — {tx.desc(flag)}", icon="🚩")
+    if row["이벤트"]:
+        st.caption("이벤트: " + " · ".join(tx.label(e) for e in row["이벤트"])
+                   + " (분모 밖 — 답변은 따로 끝까지 판정했다)")
+    if row["태그"]:
+        st.caption("태그: " + " · ".join(
+            f"{t} ({tx.TAGS[t]})" if t in tx.TAGS else t for t in row["태그"]))
     if row["부가"]:
-        st.caption(f"부가 케이스: {', '.join(row['부가'])} "
-                   "(주 라벨과 별개로 성립한다)")
+        st.caption(f"부가 라벨: {', '.join(row['부가'])} "
+                   "(후보로 섰지만 등급에서 밀린 것 — 주 라벨과 별개로 성립한다)")
     for note in row["주의"]:
         st.warning(note, icon="⚠️")
 
@@ -1330,31 +1421,49 @@ def detail(row: pd.Series) -> None:
                  "불만 유형": row["불만유형"], "질문 성격": row["질문성격"]}, expanded=True)
     with right:
         st.markdown("**Step 2 · 충족도** — 챗봇 답변을 주지 않고 문서만 본다")
-        suf = (row["_원본"]["classification"].get("evidence") or {}).get("sufficiency")
+        suf = evidence.get("sufficiency")
         if suf:
-            for ev in suf.get("evidence", []):
-                st.success(f"청크 {ev['chunk_index']} · 원문 일치 {ev['ratio']}\n\n"
-                           f"> {ev['quote']}")
-            for bad in suf.get("dropped_evidence", []):
-                st.error(f"폐기 ({bad.get('reason')}) — {bad.get('quote', '')[:80]}")
+            # 근거는 청크 인덱스와 확률이다. 인용 대조는 없어졌다.
+            for ev in suf.get("evidence") or []:
+                st.success(_evidence_line(ev))
+            if not (suf.get("evidence") or []):
+                st.caption("근거로 선 청크가 없다 (p 가 임계를 넘은 청크 없음).")
             if row["없던것"]:
                 st.caption(f"없던 것: {row['없던것']}")
         else:
-            st.caption("도메인 질문이 아니거나 내용 불만이 아니어서 판정하지 않았다.")
+            st.caption("관측까지 가지 않았거나(확정 사건) 청크가 없어 판정하지 않았다.")
     with third:
         # Step 1·2 는 자기 칸이 있는데 Step 3 만 지표 하나로 끝났다. 무엇을
-        # 봤고 무슨 뜻인지가 없으면 case22 와 case18 이 왜 갈렸는지 알 수 없다.
-        st.markdown("**Step 3 · 근거 활용** — 불만을 주지 않고 질문 · 답변 · 문서만 본다")
+        # 봤고 무슨 뜻인지가 없으면 G5:안씀 과 G5:어긋남 이 왜 갈렸는지 알 수 없다.
+        st.markdown("**Step 3 · 근거 활용** — 답변의 주장을 뽑아 근거 청크와 대조한다")
         used = row["근거활용"]
-        meaning = {"used": "문서를 썼다. 그런데도 불만이면 기대와 다른 것이다",
-                   "ignored": "문서에 답이 있는데 답변이 쓰지 않았다 (case22)",
-                   "contradicted": "답변이 문서와 어긋나는 주장을 했다 (case18)"}
+        meaning = {"used": "근거를 썼다. 그런데도 불만이면 기대와 다른 것이다",
+                   "ignored": "근거에 답이 있는데 답변이 쓰지 않았다 (G5:안씀)",
+                   "contradicted": "답변이 근거와 어긋나는 주장을 했다 (G5:어긋남)"}
         if used:
             st.metric("answer_used_rag", used)
             st.caption(meaning.get(used, ""))
-        else:
-            st.caption("충족도가 sufficient 이고 인용이 살아남았을 때만 돈다. "
-                       "여기까지 오지 않았다.")
+        claims = evidence.get("claims")
+        if claims:
+            st.dataframe(
+                pd.DataFrame(claims), **WIDE, hide_index=True,
+                height=min(240, 40 + 36 * len(claims)),
+                column_config={
+                    "text": st.column_config.TextColumn("주장", width="large"),
+                    "expected_source": st.column_config.TextColumn(
+                        "출처", width="small", help="doc 만 근거와 대조한다. tool 은 수치 대조, "
+                                                  "general 은 미검증주장 태그"),
+                    "verdict": st.column_config.TextColumn("판정", width="small"),
+                    "p": st.column_config.NumberColumn("p", width="small", format="%.2f")})
+        if not used and not claims:
+            st.caption("주장 추출까지 가지 않았다 — 확정 사건이거나 청크가 없었다.")
+        memory = evidence.get("memory")
+        if memory:
+            st.caption(f"⑤ memory 반영: {memory.get('use')} (p={float(memory.get('p', 0)):.2f})")
+        consistency = evidence.get("consistency")
+        if consistency:
+            st.caption("⑥ 앞 답변과 모순 확률: " + " · ".join(
+                f"#{i} {float(p):.2f}" for i, p in consistency.items()))
 
     # 청크는 Step 1·2·3 아래다. 판정 경로를 먼저 읽고 "그래서 문서에 뭐가 있었나"
     # 로 내려가는 순서다 - 청크를 위에 두면 표 · 선택 상자 · 전문 상자가 화면을
@@ -1362,17 +1471,18 @@ def detail(row: pd.Series) -> None:
     chunk_table(original.get("chunk_data", []), row)
 
     if row["검증"]:
-        st.markdown("**코드 검증** — LLM 없이, 코드가 본 것")
-        st.caption("case6(질문 속 개인정보) · case9(서비스 자원 부족) · case30(생성 붕괴)은 "
-                   "**여기서** 판정된다. 신뢰도가 high 인 이유이고, LLM 판정이 "
-                   "무엇을 말하든 이쪽이 이긴다.")
+        st.markdown("**코드 검증** — 모델 없이, 코드가 본 것")
+        st.caption("I1(자원 부족 문구) · I2(붕괴 규칙) · S2(인젝션) · S3(정보 유출) · "
+                   "G1(언어 · 포맷 · 길이) · G6(계산 · 코드) · U2(질문에 개인정보)는 "
+                   "**여기서** 판정된다. 등급 4 인 이유이고, 모델 판정이 무엇을 말하든 "
+                   "이쪽이 이긴다. 전 턴에 돌고 위반한 검증기 이름은 태그로도 남는다.")
         checks = pd.DataFrame(row["검증"])
         st.dataframe(
             checks, **WIDE, hide_index=True,
             column_config={
                 "name": st.column_config.TextColumn("무엇을"),
                 "verdict": st.column_config.TextColumn(
-                    "결과", help="violated 면 그 case 로 확정된다"),
+                    "결과", help="violated 면 그 라벨이 등급 4 후보로 선다"),
                 "detail": st.column_config.TextColumn("근거", width="large")})
 
 

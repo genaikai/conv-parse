@@ -25,10 +25,12 @@ CORE = [
     "ragdiag.settings",     # 배포마다 바뀌는 값
     "ragdiag.schema",       # Case · 판정 결과 모델
     "ragdiag.results",      # 턴 판정 결과 (Check · Classification · TurnResult)
-    "ragdiag.taxonomy",     # 케이스 29개
-    "ragdiag.prompts",      # 시스템 프롬프트 4종
+    "ragdiag.taxonomy",     # 라벨 v3 (묶음 · 태그 · 등급)
+    "ragdiag.prompts",      # 일반 LLM 프롬프트
+    "ragdiag.questions",    # kev 문항
     "ragdiag.backends",     # LLM 접속
-    "ragdiag.judge",        # 3스텝 호출
+    "ragdiag.decide",       # 결정 백엔드 (kev · 에뮬레이션 · 스텁)
+    "ragdiag.judge",        # 호출 오케스트레이션
     "ragdiag.textfmt",      # 터미널 표 정렬 (표시 폭)
     "ragdiag.verify",       # 인용 대조
     "ragdiag.requests",     # 요구(형식 · 언어 · 길이)가 앞 질문에 있는지 코드로 확인
@@ -168,4 +170,4 @@ def test_core_accepts_a_foreign_conversation_object():
     assert outcome.n_llm_calls == 0, "확정 문구는 LLM 없이 판정돼야 한다"
     assert outcome.n_failed == 0
     turn = outcome.payload["analysis_results"][0]["conversations"][0]["turns"][0]
-    assert turn["classification"]["case_id"] == "case9"
+    assert turn["classification"]["case_id"] == "I1"

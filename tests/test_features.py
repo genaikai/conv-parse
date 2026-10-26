@@ -1,6 +1,6 @@
 """기능 등록부. 지표가 진입점이 아니라 여기서 나오는지 본다."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pytest
@@ -11,6 +11,9 @@ from ragdiag import features
 @dataclass
 class _Cls:
     primary_case: str
+    grade: int = 2
+    flags: list = field(default_factory=list)
+    events: list = field(default_factory=list)
 
 
 @dataclass
@@ -18,6 +21,7 @@ class _Result:
     classification: Optional[_Cls] = None
     error: Optional[str] = None
     n_calls: int = 0
+    n_kev_calls: int = 0
 
 
 @dataclass
@@ -95,7 +99,7 @@ def test_failures_in_several_stages_do_not_collide():
 
 def test_filter_false_positives_surface_with_a_note():
     """case0 은 챗봇 지표가 아니라 필터 지표다. 필터 쪽으로 돌아가는 피드백이다."""
-    results = [_Result(_Cls("case0")), _Result(_Cls("case1"))]
+    results = [_Result(_Cls("N0")), _Result(_Cls("G3"))]
     metrics, notes = features.collect(_ctx(results))
     assert any(name == "filter FP" for name, _ in metrics)
     assert any("필터" in n for n in notes)
@@ -132,10 +136,10 @@ def test_every_feature_exposes_the_agreed_shape():
 
 def test_features_run_in_an_order_that_feeds_each_step():
     """순서가 틀리면 뒤 기능이 아직 비어 있는 값(None)을 읽는다."""
-    from ragdiag.features import (CHECKS, citation, classification, complaint_quote,
-                                  failures, filter_fp, format, grounding, language, length,
-                                  history_quote, llm_fallback, observe, request_quote, route,
-                                  short_circuit, sufficiency)
+    from ragdiag.features import (CHECKS_EARLY, CHECKS_LATE, arbitrate, claims, classification,
+                                  consistency, failures, filter_fp, history_quote, integrity,
+                                  legibility, llm_fallback, memory_check, observe, quotes,
+                                  request_quote, short_circuit, sufficiency)
 
     order = {feature.NAME: i for i, feature in enumerate(features.FEATURES)}
 
@@ -143,21 +147,25 @@ def test_features_run_in_an_order_that_feeds_each_step():
         assert order[first.NAME] < order[then.NAME], (
             f"{first.NAME} 가 {then.NAME} 보다 앞이어야 한다")
 
-    before(short_circuit, observe)       # LLM 전에 확정할 턴을 닫는다
-    before(observe, complaint_quote)     # 관측의 complaint_quote 를 대조한다
-    before(observe, request_quote)       # 관측의 requested_quote 를 대조한다
-    before(observe, history_quote)       # 관측의 history_quote 를 대조한다
-    before(history_quote, route)         # 대조를 거친 answer_ignored_history 를 읽는다
-    for check in (language, format, length):
-        before(request_quote, check)     # 대조를 거친 요구값을 읽는다
+    before(integrity, short_circuit)     # 플래그 · 이벤트는 닫히는 턴에도 남는다
+    for check in CHECKS_EARLY:
+        before(check, short_circuit)     # 일찍 닫히는 턴에도 코드 검증기 태그가 남는다
+    before(short_circuit, legibility)
+    before(legibility, observe)          # kev 전에 확정할 턴을 닫는다
+    before(observe, request_quote)       # 관측의 요구값을 확인한다
+    before(observe, history_quote)       # ②b 의 조건 인용을 대조한다
+    for check in CHECKS_LATE:
+        before(request_quote, check)     # 확인을 거친 요구값을 읽는다
     before(observe, sufficiency)
-    before(sufficiency, citation)
-    before(citation, grounding)          # 강등된 verdict 로 물을지 정한다
-    for check in CHECKS:
-        before(check, route)             # 진리표가 검증기 결과를 전부 읽는다
-    before(grounding, route)
+    before(sufficiency, claims)          # 근거 청크를 골라 준다
+    before(integrity, memory_check)      # C2 가 선 턴은 묻지 않는다
+    for stage in (claims, memory_check, consistency):
+        before(stage, quotes)            # 어긋남으로 판정된 쌍에만 인용을 받는다
+    for check in CHECKS_EARLY + CHECKS_LATE:
+        before(check, arbitrate)         # 중재가 검증기 결과를 전부 읽는다
+    before(quotes, arbitrate)
     for report in (classification, llm_fallback, filter_fp, failures):
-        before(route, report)            # 집계는 판정이 끝난 뒤에 읽는다
+        before(arbitrate, report)        # 집계는 판정이 끝난 뒤에 읽는다
 
 
 # ---------------------------------------------------------------------------
@@ -194,14 +202,16 @@ def test_the_first_rule_that_fires_decides_and_the_rest_are_not_asked(monkeypatc
                                NOTES=("주의",), check=check)
 
     monkeypatch.setattr(short_circuit, "RULES", (
-        rule("passes", "case9", "ok"),
-        rule("fires", "case8", "violated"),
-        rule("never", "case28", None),
+        rule("passes", "I1", "ok"),
+        rule("fires", "S3", "violated"),
+        rule("never", "S1", None),
     ))
-    turn = TurnResult(case=SimpleNamespace())
+    from tests.helpers import case
+    turn = TurnResult(case=case())
     short_circuit.process_data(features.RunContext(turns=[turn]))
 
-    assert turn.classification.primary_case == "case8"
+    assert turn.classification.primary_case == "S3"
+    assert turn.classification.grade == 4 and turn.classification.confidence == "high"
     assert turn.classification.reason == "fires 이유 — fires 판정"
     assert turn.classification.notes == ["주의"]
     assert set(turn.checks) == {"passes", "fires"}, "걸리기 전까지의 결과는 전부 남는다"
@@ -212,21 +222,21 @@ def test_the_first_rule_that_fires_decides_and_the_rest_are_not_asked(monkeypatc
 # request_quote — 요구는 이전 질문들에 적힌 것만
 # ---------------------------------------------------------------------------
 
-def _turn_with_request(questions, fmt, quote):
+def _turn_with_request(questions, fmt):
     from ragdiag.results import TurnResult
     from ragdiag.schema import Case
-    from tests.test_route import obs
+    from tests.helpers import obs
 
     case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
                 conversation_id="c", turn=2, pre_queries=questions,
                 llm_ans_on_last_q="답변", current_query="표로 정리해 주세요.", rag_chunks=[])
-    return TurnResult(case=case, observation=obs(requested_format=fmt, requested_quote=quote))
+    return TurnResult(case=case, observation=obs(requested_format=fmt))
 
 
 def test_a_request_the_questions_contain_is_kept():
     from ragdiag.features import request_quote
 
-    turn = _turn_with_request(["출장비 항목을 표로 정리해 주세요."], "table", "표로")
+    turn = _turn_with_request(["출장비 항목을 표로 정리해 주세요."], "table")
     request_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.observation.requested_format == "table"
     assert turn.request.verified
@@ -235,13 +245,12 @@ def test_a_request_the_questions_contain_is_kept():
 def test_a_request_only_the_follow_up_made_is_dropped():
     """후속 발화에서 처음 나온 요구는 비판받은 답변이 따를 수 없었다.
 
-    남겨 두면 그 답변이 "요구 포맷 불이행"(case12, high) 이 된다 — 골든셋의 req01 ·
+    남겨 두면 그 답변이 "요구 포맷 불이행"(G1:포맷, 등급 4) 이 된다 — 골든셋의 req01 ·
     req02 에서 Opus 도 Haiku 도 그렇게 적었다.
     """
     from ragdiag.features import request_quote
 
-    turn = _turn_with_request(["국내 출장비 항목별 상한을 알려주세요."], "table",
-                              "표로 정리해 주세요")
+    turn = _turn_with_request(["국내 출장비 항목별 상한을 알려주세요."], "table")
     request_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.observation.requested_format == "none"
     assert turn.observation.requested_language == ""
@@ -252,61 +261,54 @@ def test_a_request_only_the_follow_up_made_is_dropped():
 def test_no_request_means_nothing_to_check():
     from ragdiag.features import request_quote
 
-    turn = _turn_with_request(["출장비 규정 알려주세요."], "none", "")
+    turn = _turn_with_request(["출장비 규정 알려주세요."], "none")
     request_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.request is None
 
 
 
 # ---------------------------------------------------------------------------
-# history_quote — "이전 조건을 어겼다" 는 앞 질문에 적힌 조건을 대야 한다
+# history_quote — ②b 가 댄 "앞 질문의 조건" 구절이 앞 질문들(과 memory)에 실제로 있는지
 # ---------------------------------------------------------------------------
 
-def _turn_with_history(questions, ignored, quote, memory=""):
+def _turn_with_history(questions, quote, memory=""):
     from ragdiag.results import TurnResult
     from ragdiag.schema import Case
-    from tests.test_route import obs
+    from tests.helpers import obs
 
     case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
                 conversation_id="c", turn=len(questions) + 1,
                 pre_queries=questions, llm_ans_on_last_q="해외 출장 식비는 1일 80달러입니다.",
                 current_query="국내 기준이라고 했잖아요.", rag_chunks=[], memory=memory)
-    return TurnResult(case=case, observation=obs(answer_ignored_history=ignored, history_quote=quote))
+    return TurnResult(case=case, observation=obs(answer_ignored_history=True, history_quote=quote))
 
 
-def test_an_ignored_condition_the_earlier_questions_contain_is_kept():
+def test_a_condition_the_earlier_questions_contain_is_verified():
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는 얼마인가요?"],
-                              True, "국내 기준으로만")
+    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는 얼마인가요?"], "국내 기준으로만")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_ignored_history is True
     assert turn.history.verified
 
 
-def test_ignored_without_a_condition_in_earlier_questions_is_withdrawn():
-    """부실한 답변을 '조건을 어겼다' 로 읽는 것을 막는다 (골든셋 halo02, Haiku 가 흔들렸다)."""
+def test_a_condition_not_in_earlier_questions_is_recorded_but_the_claim_is_kept():
+    """v3 는 주장을 지우지 않는다 - 확률이 있는데 인용이 없다는 이유로 지우면 약한 텍스트
+    모델이 맞는 판정을 끌어내린다. 대조 실패는 등급(3 → 2)으로만 반영된다."""
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["출장비 규정을 알려주세요.", "숙박비 상한은요?"],
-                              True, "숙박비 금액을 알려달라")
+    turn = _turn_with_history(["출장비 규정을 알려주세요.", "숙박비 상한은요?"], "숙박비 금액을 알려달라")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_ignored_history is False
+    assert turn.observation.answer_ignored_history is True
     assert not turn.history.verified
 
 
 def test_a_condition_only_the_memory_holds_still_counts():
-    """서비스가 앞 턴을 원문으로 안 끌고 오고 요약만 들고 있는 경우가 있다.
-
-    그래도 챗봇은 그 조건을 본 것이다. 요약에만 남은 조건을 어긴 답변을
-    "그런 조건이 없었다" 로 되돌리면 case14 를 놓친다.
-    """
+    """서비스가 앞 턴을 원문으로 안 끌고 오고 요약만 들고 있어도 챗봇은 그 조건을 본 것이다."""
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["식비는 얼마인가요?"], True, "국내 기준으로만",
+    turn = _turn_with_history(["식비는 얼마인가요?"], "국내 기준으로만",
                               memory="사용자가 국내 기준으로만 보기로 했다.")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_ignored_history is True
     assert turn.history.verified
 
 
@@ -314,14 +316,14 @@ def test_a_condition_in_the_last_question_is_not_history():
     """마지막 질문에 적힌 조건을 어긴 것은 의도를 잘못 읽은 것이지 맥락 상실이 아니다."""
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["국내 기준으로 식비는 얼마인가요?"], True, "국내 기준으로")
+    turn = _turn_with_history(["국내 기준으로 식비는 얼마인가요?"], "국내 기준으로")
     history_quote.process_data(features.RunContext(turns=[turn]))
-    assert turn.observation.answer_ignored_history is False
+    assert not turn.history.verified
 
 
-def test_no_ignored_claim_means_nothing_to_check():
+def test_no_quote_means_nothing_to_check():
     from ragdiag.features import history_quote
 
-    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는?"], False, "")
+    turn = _turn_with_history(["국내 기준으로만 알려주세요.", "식비는?"], "")
     history_quote.process_data(features.RunContext(turns=[turn]))
     assert turn.history is None

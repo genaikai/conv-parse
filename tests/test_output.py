@@ -3,10 +3,10 @@
 import json
 
 from ragdiag.conv import parse_conversations, to_case
-from ragdiag.features.route import route
+from ragdiag.features.arbitrate import arbitrate
 from ragdiag.output import build_output, summarize
-from ragdiag.results import Check, TurnResult
-from tests.test_route import checks, citation, judgment, obs
+from ragdiag.results import Check, ChunkSupport, Sufficiency, TurnResult
+from tests.helpers import checks, obs, probs
 
 RAW = {"users": [{
     "user_id": "EMP-원본", "db_login_id": "login1", "job_grade": "대리",
@@ -21,15 +21,18 @@ RAW = {"users": [{
 }]}
 
 
+def _insufficient(case, verified=True):
+    return {"own": Sufficiency("own", "q", [ChunkSupport(0, 0.05, "retrieved")],
+                               "insufficient", verified=verified)}
+
+
 def _pairs():
     conv = parse_conversations(RAW)[0]
     case = to_case(conv, 2)
-    result = TurnResult(
-        case=case, observation=obs(), checks=checks(),
-        judgment=judgment("insufficient"), citation=citation(0),
-        classification=route(obs(), checks(), judgment("insufficient"), citation(0)),
-        n_calls=2,
-    )
+    result = TurnResult(case=case, observation=obs(), checks=checks(),
+                        sufficiency=_insufficient(case), n_calls=2, n_kev_calls=5)
+    result.probabilities.update(probs(complaint_target={"content_missing": 0.9}))
+    arbitrate(result)
     return [(conv, result)]
 
 
@@ -62,7 +65,7 @@ def test_classification_is_kept_in_its_own_block():
     turn = build_output(_pairs())["analysis_results"][0]["conversations"][0]["turns"][0]
     assert set(turn) == {"turn", "pre_queries", "llm_ans_on_last_q",
                          "current_query", "chunk_data", "classification"}
-    assert turn["classification"]["case_id"] == "case20"
+    assert turn["classification"]["case_id"] == "D1"
 
 
 def test_chunk_data_comes_from_the_answered_turn():
@@ -98,111 +101,62 @@ def test_failed_turn_names_the_step_it_died_in():
     관측이면 프롬프트·토큰 쪽이고, 충족도에만 몰리면 청크가 길어서 잘리는 것이다.
     단계 이름이 없으면 실데이터 한 번 돌린 뒤 어디를 고칠지 정할 수 없다.
     """
-    from ragdiag.backends import Usage
+    import sys
+    from pathlib import Path
+
     from ragdiag.pipeline import judge_cases
-    from tests.test_route import obs as make_obs
 
-    def classify_turn(case, judge):
-        return judge_cases([case], judge, workers=1)[0]
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from stub_judge import ScriptedJudge, make_case
 
-    class _Dies:
-        def __init__(self, at):
-            self.at = at
+    def classify(scenario):
+        return judge_cases([make_case(scenario)], ScriptedJudge(), workers=1, progress=False)[0]
 
-        def check_legibility(self, case):
-            from ragdiag.schema import LegibilityCheck
-            return LegibilityCheck(reasoning="r", quote="", legible=True), Usage()
-
-        def observe(self, case):
-            if self.at == "observe":
-                raise RuntimeError("잘림")
-            return make_obs(), Usage(input_tokens=1, output_tokens=1)
-
-        def judge_sufficiency_from(self, case, obs):
-            raise RuntimeError("잘림")
-
-    case = to_case(parse_conversations(RAW)[0], 2)
-    assert case.rag_chunks, "충족도 단계까지 가려면 청크가 있어야 한다"
-
-    assert classify_turn(case, _Dies("observe")).error.startswith("[observe]")
-    assert classify_turn(case, _Dies("sufficiency")).error.startswith("[sufficiency]")
+    assert classify("rich|missing|sufficient|supported|fail-observe").error.startswith("[observe]")
+    assert classify("rich|missing|sufficient|supported|fail-sufficiency").error.startswith("[sufficiency]")
+    assert classify("rich|missing|sufficient|supported|fail-claims").error.startswith("[claims]")
 
 
-def test_no_complaint_skips_the_sufficiency_step():
-    """불만이 없는데 문서 충족도를 묻는 건 무의미하고 호출만 쓴다.
+def test_no_complaint_still_runs_every_stage_but_lands_on_N0():
+    """v3 는 분기하지 않는다 - 불만이 없어도 충족도 · 주장을 돈다 (정확성 우선).
 
-    없는 문서에서 인용을 지어낼 표면도 생긴다 - verify 가 잡지만 잡을 일을 안 만든다.
+    관측 하나가 틀려도 내용 결함이 태그로 남고, 관측 오류가 교차 검증된다. 주 라벨은 N0 다.
     """
-    from ragdiag.backends import Usage
+    import sys
+    from pathlib import Path
+
     from ragdiag.pipeline import judge_cases
-    from tests.test_route import obs as make_obs
 
-    class _Judge:
-        def __init__(self):
-            self.asked = []
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from stub_judge import ScriptedJudge, make_case
 
-        def check_legibility(self, case):
-            from ragdiag.schema import LegibilityCheck
-            return LegibilityCheck(reasoning="r", quote="", legible=True), Usage()
-
-        def observe(self, case):
-            self.asked.append("observe")
-            return (make_obs(complaint_target="none",
-                             complaint_quote=case.current_query[:14]),
-                    Usage(input_tokens=1, output_tokens=1))
-
-        def judge_sufficiency_from(self, case, obs):
-            self.asked.append("sufficiency")
-            raise AssertionError("불만이 없는데 충족도를 물었다")
-
-    import dataclasses
-
-    # 인용은 최소 길이를 넘겨야 검증을 통과한다. RAW 의 "q2" 로는 짧아서
-    # 검증이 실패하고, 그러면 case0 이 아니라 unclassified 로 간다.
-    # 답변은 온전한 문장으로 둔다 - 예전 잘림 검증기 시절의 흔적이고, 지금은 잘림을
-    # 판정하지 않으므로 어떻게 끝나도 결과는 같다.
-    case = dataclasses.replace(
-        to_case(parse_conversations(RAW)[0], 2),
-        current_query="그럼 반차는 어떻게 되나요?",
-        llm_ans_on_last_q="연차는 입사일 기준으로 매년 15일이 부여됩니다. "
-                          "자세한 내용은 인사규정 제12조를 확인해 주세요.")
-    judge = _Judge()
-    result = judge_cases([case], judge, workers=1)[0]
-
-    assert judge.asked == ["observe"], judge.asked
-    assert result.classification.primary_case == "case0", result.classification
-    assert result.judgment is None and result.citation is None
+    result = judge_cases([make_case("clean|none|sufficient|supported|ok")], ScriptedJudge(),
+                         workers=1, progress=False)[0]
+    assert result.classification.primary_case == "N0", result.classification
+    assert result.sufficiency and result.claim_verdicts, "분기 없이 전부 돌아야 한다"
 
 
 def test_output_is_json_serializable():
     json.dumps(build_output(_pairs()), ensure_ascii=False)
 
 
-def test_summary_reports_case_and_confidence():
+def test_summary_reports_label_group_and_grade():
     text = summarize(_pairs())
-    assert "case20" in text and "medium" in text
+    assert "D1" in text and "검색 근거" in text and "3 근거 확정" in text
+    assert "결정(kev) 호출 5회" in text
 
 
-def test_sufficiency_carries_the_verdict_after_citation_check():
-    """화면이 읽는 것은 강등 후 값이다.
-
-    verdict 만 실으면 인용이 다 폐기되어 case20 으로 간 턴이 대시보드에
-    sufficient 로 떠서, 화면이 라우팅과 다른 말을 한다.
-    """
+def test_sufficiency_carries_the_verified_flag_and_chunk_evidence():
+    """화면이 읽는 것은 청크 단위 근거다 - 인용이 아니라 인덱스와 확률."""
     conv = parse_conversations(RAW)[0]
     case = to_case(conv, 2)
-    demoted = TurnResult(
+    result = TurnResult(
         case=case, observation=obs(), checks=checks(),
-        judgment=judgment("sufficient"), citation=citation(0),
-        classification=route(obs(), checks(), judgment("sufficient"), citation(0)))
-    suf = build_output([(conv, demoted)])["analysis_results"][0]["conversations"][0]["turns"][0][
+        sufficiency={"own": Sufficiency("own", "q", [ChunkSupport(0, 0.93, "retrieved")],
+                                        "sufficient", verified=True)})
+    arbitrate(result)
+    suf = build_output([(conv, result)])["analysis_results"][0]["conversations"][0]["turns"][0][
         "classification"]["evidence"]["sufficiency"]
-    assert (suf["verdict"], suf["final_verdict"]) == ("sufficient", "insufficient")
-
-    kept = TurnResult(
-        case=case, observation=obs(), checks=checks(),
-        judgment=judgment("sufficient"), citation=citation(1),
-        classification=route(obs(), checks(), judgment("sufficient"), citation(1)))
-    suf = build_output([(conv, kept)])["analysis_results"][0]["conversations"][0]["turns"][0][
-        "classification"]["evidence"]["sufficiency"]
-    assert suf["final_verdict"] == "sufficient"
+    assert suf["verdict"] == suf["final_verdict"] == "sufficient"
+    assert suf["verified"] is True
+    assert suf["evidence"] == [{"chunk_index": 0, "p": 0.93, "source": "retrieved", "scope": "own"}]

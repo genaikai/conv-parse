@@ -1,28 +1,39 @@
-"""Step 2 — 충족도. **문서가 사용자의 요구를 담고 있었나.** 답변의 품질이 아니다.
+"""③ 충족도 — **근거가 요구를 담고 있었나.** 청크마다 kev 가 yes/no 로 답한다.
 
-도메인 질문의 내용 불만일 때만 돈다. 형식 · 언어 · 길이 불만에 문서 충족도를 따지는
-건 무의미하고 호출만 쓴다.
+v2 는 LLM 한 번에 verdict 와 인용을 받고 인용을 코드가 원문과 대조했다. v3 는 청크 하나씩
+"이 청크가 질문에 답하는 내용을 담고 있나" 를 묻는다. yes 인 청크의 인덱스가 곧 근거라
+인용 대조가 필요 없고, 입력이 청크 하나라 작은 모델로도 들어간다.
 
-챗봇 답변은 주지 않는다. 보여주면 판정자가 답변을 문서의 대리물로 착각한다 - "답변이
-부실하니 문서도 부실했겠지". 그러면 "문서에 답이 없었다"(문서를 고친다)와 "문서엔
-있는데 답변이 안 썼다"(프롬프트를 고친다)의 갈림길이 사라진다.
+답변은 주지 않는다. 보여주면 판정자가 답변을 문서의 대리물로 착각한다.
+
+세 가지를 따로 돈다.
+  own / carried   이 턴이 가져온 근거와 history_input 으로 넘어온 과거 근거. 가르면 "이번
+                  검색이 실패"(D1)와 "들고 있던 과거 근거에 답이 있었는데 안 씀"(G5[과거근거])
+                  이 갈린다.
+  질문 / 요구     1차는 resolved_question 으로 (불만 종류와 무관하게 언제나 정의된다).
+                  내용 불만이면 unmet_need 로 좁혀 한 번 더 (`:need`).
+
+**분기하지 않는다.** 형식 불만 턴에도 돈다 — 관측 하나가 틀려도 내용 결함이 태그로 남고,
+관측 오류가 교차 검증된다 (정확성 우선). 문서 질문이 아니면(일상 · 계산 · 코드) 묻지 않는다 —
+대조할 근거의 개념이 없다.
+
+⑦ 2차 검증은 다른 문항으로 되묻는다. 불충분이면 "어디에도 없나", 충분이면 근거 청크마다
+"이것만으로 답할 수 있나". 일치하면 D1 · G5 가 등급 3 으로 올라간다.
 """
 
 import re
 
-from ragdiag.schema import SufficiencyJudgment
+from ragdiag import questions, settings
+from ragdiag.results import ChunkSupport, Sufficiency
 
-from .._shared import call_llm, each_turn
+from .._shared import call_kev, each_turn
 
 NAME = "sufficiency"
 
-# 내용에 대한 불만일 때만 문서 충족도를 따진다. 형식 불만에 그걸 묻는 건 무의미하다.
 CONTENT_COMPLAINTS = {"content_missing", "content_wrong"}
 
-# unmet_need 의 항목 경계. 쉼표 · 가운뎃점 · 빗금 · "및" · "그리고" · "또는". "과/와" 는 경계로 치지
-# 않는다 - "담당 부서의 이름과 내선 번호" 처럼 하나의 요구를 묶는 일이 더 많다(messy eng02 실측).
+# --- v2 에서 온 헬퍼. 대시보드의 "요구" 열과 골든셋 러너가 아직 쓴다 -------------------
 _ITEM_SPLIT = re.compile(r"\s*(?:,|·|/|、|\b및\b|\b그리고\b|\b또는\b)\s*")
-# 질문이 여러 가지를 물었다는 표시. 관측(question_multi_intent)이 없을 때만 쓴다(골든셋).
 _MULTI_QUESTION = re.compile(r"각각|,|및|그리고|(?<=[가-힣])(?:과|와)\s+[가-힣]")
 
 
@@ -32,43 +43,94 @@ def first_item(need: str) -> str:
 
 
 def narrow_need(unmet_need: str, multi_intent: bool) -> str:
-    """Step 2 에 넘길 요구. 질문이 한 가지를 물었으면 unmet_need 의 첫 항목만.
-
-    Step 1 은 "정확한 금액이요" 에 절차 · 서류 · 기한을 덧붙이는 버릇이 있고, Step 2 프롬프트의
-    "질문에 없는 항목은 빼라" 는 지시는 생각(thinking)을 끈 약한 모델에서 전혀 안 먹혔다
-    (부풀림 케이스 18회 중 8회, 지시를 단순하게 바꾸면 0회). 첫 항목만 남기는 코드 한 줄이
-    17/18 이고 좁힘 · 반대 상황 14/14 를 그대로 지킨다 - 후속 발화로 좁혀진 요구는 언제나 첫
-    항목이었다. 질문이 여러 가지를 물었으면(question_multi_intent) 항목을 전부 남긴다.
-    출력 파일과 빈 청크의 missing 에는 원래 unmet_need 가 그대로 간다
-    (docs/design/sufficiency_step.md 4차).
-    """
+    """질문이 한 가지를 물었으면 unmet_need 의 첫 항목만 (docs/design/sufficiency_step.md 4차)."""
     return unmet_need if multi_intent else first_item(unmet_need)
 
 
 def question_looks_multi(question: str) -> bool:
-    """관측 없이 질문 문장만으로 복합 여부를 어림한다 - 골든셋 채점용."""
     return bool(_MULTI_QUESTION.search(question))
 
 
+def split_scopes(case) -> dict[str, list[int]]:
+    """청크 인덱스를 own · carried 로 가른다. 훅이 만든 풀은 n_fetched 로 가른다."""
+    own, carried = [], []
+    for i, source in enumerate(case.chunk_sources or ["retrieved"] * len(case.rag_chunks)):
+        if source == "hook":
+            (own if case.n_fetched is None or i < case.n_fetched else carried).append(i)
+        elif source.startswith("history_"):
+            carried.append(i)
+        else:
+            own.append(i)
+    return {"own": own, "carried": carried}
+
+
+def aggregate(scope: str, need: str, supports: list[ChunkSupport]) -> Sufficiency:
+    result = Sufficiency(scope=scope, need=need, supports=supports)
+    if any(s.p >= settings.CHUNK_EVIDENCE_P for s in supports):
+        result.verdict = "sufficient"
+    elif any(s.p >= settings.CHUNK_PARTIAL_P for s in supports):
+        result.verdict = "partial"
+    else:
+        result.verdict = "insufficient"
+    return result
+
+
 def applies(turn) -> bool:
-    obs = turn.observation
-    return obs.question_domain == "domain" and obs.complaint_target in CONTENT_COMPLAINTS
+    return turn.doc_question()
 
 
 def process_data(ctx) -> tuple[list, list]:
     def judge(turn):
-        if not turn.case.rag_chunks:
-            # 판정할 문서가 하나도 없다. verdict 는 물어볼 것 없이 insufficient 이고
-            # 인용할 대상도 없다. LLM 을 부르면 호출만 쓰는 게 아니라 없는 문서에서
-            # 인용을 지어낼 표면이 생긴다 - citation 이 잡아내지만 잡을 일을 안 만든다.
-            turn.judgment = SufficiencyJudgment(
-                reasoning="rag_data 가 비어 있어 대조할 문서가 없다.",
-                evidence=[], verdict="insufficient", missing=turn.observation.unmet_need)
+        case, obs = turn.case, turn.observation
+        if not case.rag_chunks:
+            # 대조할 근거가 없다. 묻지 않고 insufficient 다 - T1 · T3 가 그 사실을 본다.
+            turn.sufficiency["own"] = Sufficiency("own", obs.resolved_question, [],
+                                                  "insufficient", verified=True)
             return
-        obs = turn.observation
-        narrowed = obs.model_copy(update={
-            "unmet_need": narrow_need(obs.unmet_need, obs.question_multi_intent)})
-        turn.judgment = call_llm(turn, ctx.judge.judge_sufficiency_from(turn.case, narrowed))
+        scopes = split_scopes(case)
+        needs = [("", obs.resolved_question)]
+        if obs.complaint_target in CONTENT_COMPLAINTS and obs.unmet_need.strip() \
+                and obs.unmet_need.strip() != obs.resolved_question.strip():
+            needs.append((":need", obs.unmet_need))
+        for scope, indices in scopes.items():
+            if not indices:
+                continue
+            for suffix, need in needs:
+                label = "질문" if suffix == "" else "요구"
+                supports = []
+                for i in indices:
+                    answers = call_kev(turn, ctx, "sufficiency",
+                                       {label: need, "청크": case.rag_chunks[i]},
+                                       questions.sufficiency_question(label))
+                    supports.append(ChunkSupport(i, answers["answers"].p,
+                                                 case.chunk_sources[i] if case.chunk_sources else ""))
+                turn.sufficiency[scope + suffix] = aggregate(scope + suffix, need, supports)
+        _verify(turn, ctx)
 
     each_turn(ctx, NAME, judge, where=applies, parallel=True)
     return [], []
+
+
+def _verify(turn, ctx) -> None:
+    """⑦ 2차 검증. 종합 verdict 에 따라 다른 문항으로 되묻고 결과를 모든 scope 에 적는다."""
+    case = turn.case
+    overall = turn.overall_verdict()
+    best = turn.best_sufficiency()
+    if best is None or overall is None:
+        return
+    need = best.need
+    if overall == "sufficient":
+        evidence = sorted({i for s in turn.sufficiency.values() for i in s.evidence})
+        agree = False
+        for i in evidence:
+            answers = call_kev(turn, ctx, "verify", {"요구": need, "청크": case.rag_chunks[i]},
+                               questions.VERIFY_PRESENT)
+            if answers["present"].yes:
+                agree = True
+                break
+    else:
+        answers = call_kev(turn, ctx, "verify",
+                           {"요구": need, "청크들": list(case.rag_chunks)}, questions.VERIFY_ABSENT)
+        agree = answers["absent"].yes
+    for s in turn.sufficiency.values():
+        s.verified = agree

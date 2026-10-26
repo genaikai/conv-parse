@@ -26,39 +26,45 @@ from ragdiag.progress import Progress
 from ._context import RunContext
 from ._shared import straggler_limit
 from . import (
+    arbitrate,
     arithmetic,
     carried,
-    citation,
+    claims,
     classification,
-    complaint_quote,
+    consistency,
     dates,
     failures,
     filter_fp,
     format,
-    grounding,
     history_quote,
     injection,
+    integrity,
     language,
     legibility,
     length,
     llm_fallback,
+    memory_check,
     observe,
     pii,
     python_syntax,
     quoted_spans,
+    quotes,
     request_quote,
-    route,
     short_circuit,
     sql_shape,
     sufficiency,
+    tool_numbers,
 )
 
-__all__ = ["CHECKS", "FEATURES", "RunContext", "collect"]
+__all__ = ["CHECKS", "CHECKS_EARLY", "CHECKS_LATE", "FEATURES", "JUDGES", "REPORTS",
+           "RunContext", "collect"]
 
-# 코드 검증기. LLM 없이 문자열만 본다 - 언어가 맞는지, 답변이 끊겼는지, 등식이 맞는지는
-# 문자열만 보면 안다. LLM 에 맡기면 비용도 들지만 무엇보다 같은 입력에 다른 답이 나온다.
+# 코드 검증기. LLM 없이 문자열만 본다 - 언어가 맞는지, 등식이 맞는지는 문자열만 보면 안다.
 # 서로의 결과를 읽지 않으므로 이 안의 순서는 판정에 영향이 없다 (출력에 실리는 순서다).
-CHECKS = (
+#
+# 둘로 가른 이유: 앞 묶음은 입력만 보므로 **일찍 닫히는 턴(I · S2 · S3)에도 돈다** — 태그는
+# 주 라벨이 무엇이든 전부 남아야 한다. 뒤 묶음은 관측이 뽑은 요구값을 읽어 observe 뒤여야 한다.
+CHECKS_EARLY = (
     pii,
     quoted_spans,
     python_syntax,
@@ -66,28 +72,34 @@ CHECKS = (
     arithmetic,
     dates,
     injection,
-    language,          # 이 셋은 관측이 뽑은 요구값을 읽는다 - observe 뒤여야 한다
+    tool_numbers,
+)
+CHECKS_LATE = (
+    language,
     format,
     length,
 )
+CHECKS = CHECKS_EARLY + CHECKS_LATE
 
+# 판정 순서. docs/design/taxonomy_v3.md "판정 — 단계와 호출".
 JUDGES = (
-    short_circuit,     # LLM 전에 case 를 확정하는 규칙들 (규칙끼리의 순서는 그 안의 RULES)
-    legibility,        # ④′ 읽을 수 있는 글인가 · LLM (답변만 본다) — 아니면 case30 으로 끝
-    observe,           # Step 1 관측 · LLM
-    complaint_quote,   # "불만 아님" 의 근거를 후속 발화와 대조
-    request_quote,     # 요구의 인용을 이전 질문들과 대조 — 없으면 요구를 지운다
-    history_quote,     # "이전 조건을 어겼다" 의 인용을 앞 질문들과 대조 — 없으면 무효
-    *CHECKS,           # 코드 검증기
-    sufficiency,       # Step 2 충족도 · LLM
-    citation,          # 판정자의 인용을 원문과 대조
-    grounding,         # Step 3 근거 활용 · LLM
-    route,             # 진리표 → case
+    integrity,         # ③ C1 · C2 플래그 · U2 이벤트 — 멈추지 않음
+    *CHECKS_EARLY,
+    short_circuit,     # ④ I1 · I2 · S2 · S3 — 코드 확정, 걸리면 끝
+    legibility,        # ④ I2 읽을 수 없음 — kev ①, 걸리면 끝
+    observe,           # ⑤ 관측 — kev ②a 12문항 + LLM ②b 텍스트
+    request_quote,     #    요구 확인 (코드) — 이전 질문들에 그 어휘가 있나
+    history_quote,     #    조건 인용 대조 (코드)
+    *CHECKS_LATE,
+    sufficiency,       # ⑥ ③ 충족도 (청크 단위 kev) + ⑦ 2차 검증
+    claims,            #    ④a 주장 추출 (LLM) + ④b 주장별 판정 (kev)
+    memory_check,      #    ⑤ memory 반영 (kev)
+    consistency,       #    ⑥ 답변 일관성 (kev)
+    quotes,            #    조건부 인용 (LLM) — 전달본용
+    arbitrate,         # ⑦ 후보 → 주 라벨 · 태그 · 등급
 )
 
 # 집계. 화면에 뜨는 순서다 — 사람이 사이클 사이에 눈으로 대조하므로 순서를 바꾸지 않는다.
-# 판정 기능과 갈라 둔 이유는 실행 방식이다 - 판정은 턴 단위로 돌 수 있지만 집계는 전부
-# 끝난 뒤 한 번이다.
 REPORTS = (
     classification,
     carried,

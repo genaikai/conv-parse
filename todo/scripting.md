@@ -141,10 +141,11 @@ LATEST=$(ls -1 output/[0-9]*_*.json | tail -1)
 ```json
 {"analysis_results": [{"user_id": "...", "conversations": [{"turns": [
   {"turn": 3, "classification": {
-      "case_id": "case20", "case_name": "Retrieve 실패",
-      "type_id": "TYPE5", "category": "category_2",
-      "confidence": "medium", "reason": "...", "secondary_cases": [...],
-      "evidence": {...}, "llm_calls": 2, "answered_turn": 2}}]}]}]}
+      "case_id": "D1", "case_name": "검색 근거에 답 없음",
+      "type_id": "D", "type_name": "검색 근거", "owner": "검색기 · 문서",
+      "confidence": "high", "grade": 3, "reason": "...", "tags": [...],
+      "secondary_cases": [...], "flags": [], "events": [],
+      "evidence": {...}, "llm_calls": 1, "kev_calls": 7, "answered_turn": 2}}]}]}]}
 ```
 
 판정에 실패한 턴은 `classification` 에 `error` 만 들어간다. 앞에 `[observe]` 같은

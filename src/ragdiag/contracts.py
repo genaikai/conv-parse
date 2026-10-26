@@ -34,11 +34,16 @@ class Field:
     # 세지 않는다 - 계약 위반 줄은 "판정이 틀렸을 수 있다"는 뜻이어야 하고,
     # 거기 잡음이 섞이면 실행 환경에서 그 줄을 안 보게 된다.
     unused: bool = False
+    # 아직 모든 배포가 주지는 않는 필드. 키가 통째로 없어도 MISMATCH 가 아니라 노트다 -
+    # 있으면 쓰고 없으면 그 기능(T 묶음의 호출 기록)만 비는 것이라 판정이 틀리지는 않는다.
+    optional_key: bool = False
 
     def describe(self) -> str:
         bits = [self.dtype]
         if self.unused:
             bits.append("파이프라인 미사용")
+        if self.optional_key:
+            bits.append("없어도 됨")
         if self.nullable:
             bits.append("nullable")
         if self.allowed:
@@ -77,7 +82,7 @@ TURN_SCHEMA = (
                "턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
     Field("user_question", "str", False),
     Field("llm_response", "str", True,
-          note="자원 부족 시 서비스가 정해진 안내 문구를 여기 넣는다 (case9)"),
+          note="자원 부족 시 서비스가 정해진 안내 문구를 여기 넣는다 (I1)"),
     Field("retrieved_data", "str|list", True,
           note="청크가 \\n\\n 또는 \\n 으로 연결된 문자열로 오는 배포가 있다. "
                "파서가 쪼갠다. 비어 있으면 검색 결과 0건이고, 서비스가 "
@@ -94,8 +99,14 @@ TURN_SCHEMA = (
                "tool_output[{turn_no, tool_calls[{name, arguments}], outputs[]}]. "
                "history_chat 의 role=='user' 가 pre_queries 를 대신하고 (없으면 "
                "prev_question, 그것도 없으면 턴 순서 추정), 안쪽 retrieved_data 와 "
-               "tool_output 은 청크 풀로 간다. **tool_calls 는 안 쓴다** — outputs 와 "
-               "인덱스로 짝이 맞는지 확인되지 않았다"),
+               "tool_output 은 청크 풀로 간다. tool_calls(name · arguments · 순서)는 v3 의 "
+               "T 묶음(호출 없음 · 결과 무관 · 빈 결과에 단정)과 청크 출처에 쓴다 — outputs 와 "
+               "인덱스로 짝짓지는 않는다 (엔트리 단위로만 묶는다)"),
+    Field("tool_calls", "list", True, optional_key=True,
+          note="**이 턴의** 도구 호출 기록 [{name, arguments}] 또는 history_input.tool_output 과 "
+               "같은 구조체. 로그가 아직 주지 않으면 비어 있고, 그때 이 턴의 tool_output 은 "
+               "이름 없는 도구 출처가 된다. 검색이 도구로 찍히는 배포에서는 tools.search_names "
+               "에 그 이름을 적어야 D1/T2 가 갈린다"),
     Field("carried_turn_nos", "str|list", True,
           note="서비스가 이 턴을 답할 때 실제로 끌고 들어간 앞 턴 번호들 ([1,2]). "
                "자기 턴은 포함하지 않는다. 끌려오는 것은 그 턴들의 질문 · 답변 · "
@@ -127,7 +138,7 @@ TURN_SCHEMA = (
                "의도로 가를 수 있다"),
     Field("fallback", "str", True, unused=True,
           note="모델이 스스로 '다른 서비스가 더 잘 답하겠다'고 판단해 그쪽에서 시도했다가 "
-               "적절치 않아 ask_on 으로 돌아와 답했는지. **자원 부족(case9)과 무관하다** — "
+               "적절치 않아 ask_on 으로 돌아와 답했는지. **자원 부족(I1)과 무관하다** — "
                "서비스 장애가 아니라 모델의 자체 판단이다. 쓸 자리가 아직 안 보인다"),
     Field("llm_eval_result", "str", True,
           note="직전 턴과의 관계 분류. turn 1 에서는 비어 있다. "
@@ -228,6 +239,8 @@ def validate(rows: list[dict], schema: tuple[Field, ...], layer: str) -> list[Mi
 
     for field in schema:
         present = [r for r in rows if field.name in r]
+        if rows and not present and field.optional_key:
+            continue                       # 없어도 되는 키. check_log 가 노트로 남긴다
         if rows and not present:
             alias = next((a for a in ALIASES.get(field.name, ()) if any(a in r for r in rows)),
                          None)
@@ -343,6 +356,11 @@ def check_log(payload: dict) -> ContractReport:
     skip = {f.name for schema in SCHEMAS.values() for f in schema if f.unused}
     report.mismatches = [m for m in found if m.field not in skip]
     report.notes = [m for m in found if m.field in skip]
+    # 없어도 되는 키가 실제로 없으면 노트로만 남긴다 - 그 기능이 비는 것은 알아야 한다.
+    for field in TURN_SCHEMA:
+        if field.optional_key and turns and not any(field.name in t for t in turns):
+            report.notes.append(Mismatch("turn", field.name, "absent",
+                                         "로그에 이 키가 없다 (없어도 됨) — 이 턴의 도구 호출 기록 없이 판정한다"))
     return report
 
 

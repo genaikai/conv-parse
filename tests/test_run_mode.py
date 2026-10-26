@@ -18,7 +18,8 @@ from ragdiag.pipeline import judge_cases
 from ragdiag.results import TurnResult
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_snapshot import ScriptedJudge, digest, make_case, scenarios  # noqa: E402
+from stub_judge import ScriptedJudge, digest, make_case  # noqa: E402
+from test_snapshot import scenarios  # noqa: E402
 
 
 def _digests(mode, monkeypatch):
@@ -37,20 +38,21 @@ def test_registry_is_split_into_judges_and_reports():
     names = [f.NAME for f in features.FEATURES]
     assert names == [f.NAME for f in features.JUDGES] + [f.NAME for f in features.REPORTS]
     assert len(features.REPORTS) == 5, "집계 다섯 - 판정이 끝난 뒤 한 번 돈다"
-    assert names[-len(features.REPORTS) - 1] == "route", \
-        "라우팅이 판정의 마지막이어야 집계가 case 를 읽는다"
+    assert names[-len(features.REPORTS) - 1] == "arbitrate", \
+        "중재가 판정의 마지막이어야 집계가 라벨을 읽는다"
 
 
 class _SlowJudge(ScriptedJudge):
-    """한 턴만 관측에서 오래 걸린다."""
+    """한 턴만 관측(텍스트)에서 오래 걸린다."""
 
     def __init__(self, slow_id, seconds):
+        super().__init__()
         self.slow_id, self.seconds = slow_id, seconds
 
-    def observe(self, case):
+    def observe_text(self, case):
         if case.case_id == self.slow_id:
             time.sleep(self.seconds)
-        return super().observe(case)
+        return super().observe_text(case)
 
 
 @pytest.fixture
@@ -61,7 +63,7 @@ def quick_cutoff(monkeypatch):
 
 
 def test_a_slow_turn_does_not_block_the_others_and_is_abandoned_in_its_stage(quick_cutoff):
-    cases = [make_case(f"rich|missing|sufficient|used|ok{i}") for i in range(12)]
+    cases = [make_case(f"rich|missing|sufficient|supported|ok{i}") for i in range(12)]
     slow = cases[4].case_id
 
     t0 = time.monotonic()
@@ -76,7 +78,7 @@ def test_a_slow_turn_does_not_block_the_others_and_is_abandoned_in_its_stage(qui
 
 def test_finished_turns_are_handed_over_as_they_complete(monkeypatch):
     monkeypatch.setattr(settings, "RUN_MODE", "turn")
-    cases = [make_case(f"rich|missing|sufficient|used|ok{i}") for i in range(5)]
+    cases = [make_case(f"rich|missing|sufficient|supported|ok{i}") for i in range(5)]
     seen = []
     ctx = features.RunContext(turns=[TurnResult(case=c) for c in cases], judge=ScriptedJudge(),
                               workers=2, progress=False, on_turn_done=seen.append)
@@ -89,7 +91,7 @@ def test_checkpoint_writes_only_finished_turns(tmp_path):
 
     owners = [SimpleNamespace(conversation_id=f"c{i}", user=SimpleNamespace(
         job_grade="", dept="", job_name="")) for i in range(3)]
-    turns = [TurnResult(case=make_case(f"rich|missing|sufficient|used|ok{i}")) for i in range(3)]
+    turns = [TurnResult(case=make_case(f"rich|missing|sufficient|supported|ok{i}")) for i in range(3)]
     out = tmp_path / "out.json"
     save = _checkpointer(owners, turns, out, every_sec=0)
 
@@ -103,23 +105,36 @@ def test_checkpoint_writes_only_finished_turns(tmp_path):
 
 
 class _AnyJudge(ScriptedJudge):
-    """어떤 case 든 같은 시나리오(문서에 답 없음 → case20)로 답한다. 합성 로그용."""
+    """어떤 case 든 같은 시나리오(문서에 답 없음 → D1)로 답한다. 합성 로그용 - case_id 가 시나리오가 아니다."""
 
-    def check_legibility(self, case):
-        from ragdiag.schema import LegibilityCheck
-        return LegibilityCheck(reasoning="r", quote="", legible=True), self._usage("ok")
+    def __init__(self):
+        from ragdiag.backends import Usage
+        from ragdiag.decide import ScriptedBackend
+        from ragdiag.judge import Judge
 
-    def observe(self, case):
-        from test_snapshot import observation
-        return observation("missing", case), self._usage("ok")
+        def script(state, questions):
+            if "complaint_target" in questions:
+                return dict(complaint_target="content_missing", question_domain="domain",
+                            question_clarity="clear")
+            if "answers" in questions:
+                return {"answers": 0.05}
+            if "absent" in questions:
+                return {"absent": True}
+            return {}
+        Judge.__init__(self, backend=None, cache_dir=None, decision=ScriptedBackend(script))
+        self._usage = lambda: Usage(input_tokens=1, output_tokens=1)
 
-    def check_grounding(self, case, question=""):
-        from ragdiag.schema import GroundingCheck
-        return GroundingCheck(reasoning="r", answer_used_rag="used"), self._usage("ok")
+    def decide(self, stage, state, questions):
+        return self.decision.decide(state, questions)
 
-    def judge_sufficiency_from(self, case, obs):
-        from test_snapshot import JUDGMENTS
-        return JUDGMENTS["insufficient"](case), self._usage("ok")
+    def observe_text(self, case):
+        from ragdiag.schema import ObservationText
+        return ObservationText(reasoning="r", resolved_question=case.pre_queries[-1],
+                               unmet_need="금액"), self._usage()
+
+    def extract_claims(self, case):
+        from ragdiag.schema import Claims
+        return Claims(reasoning="r", claims=[]), self._usage()
 
 
 def _four_turn_log() -> dict:
@@ -165,5 +180,5 @@ def test_turn_mode_writes_the_same_user_conversation_turn_tree(tmp_path, monkeyp
     (user,) = turn_mode["analysis_results"]
     by_conv = {c["conversation_id"]: [t["turn"] for t in c["turns"]] for c in user["conversations"]}
     assert by_conv == {"E1_conv_1": [2, 3, 4], "E1_conv_2": [2]}
-    assert all(t["classification"]["case_id"] == "case20"
+    assert all(t["classification"]["case_id"] == "D1"
                for c in user["conversations"] for t in c["turns"])

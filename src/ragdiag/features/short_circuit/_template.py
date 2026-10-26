@@ -14,7 +14,7 @@
 from ragdiag.results import Check
 
 NAME = "template"           # 파일 이름과 같게 둔다. checks 의 키가 된다
-CASE = "case0"              # 걸리면 확정할 case
+CASE = "I2"                 # 걸리면 확정할 라벨 (taxonomy.LABELS)
 REASON = "무엇에 걸렸는지 한 구절"
 NOTES = ()                  # 분류에 함께 실을 주의 사항
 

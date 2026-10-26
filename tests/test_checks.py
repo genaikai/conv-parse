@@ -733,7 +733,7 @@ def test_degenerate_answer_ends_the_turn_before_any_llm_call():
                 current_query="이게 뭐예요", rag_chunks=["출장비는 5영업일 이내 정산"])
     turn = TurnResult(case=case)
     short_circuit.process_data(SimpleNamespace(turns=[turn], open_turns=lambda: [turn]))
-    assert turn.classification.primary_case == "case30"
+    assert turn.classification.primary_case == "I2"
     assert turn.classification.confidence == "high"
     assert turn.checks["degenerate"].violated and not turn.checks["service_error"].violated
 
@@ -752,3 +752,75 @@ def test_interleaved_repetition_is_structure_not_collapse(answer):
 
 def test_the_same_phrase_back_to_back_is_collapse():
     assert check_degenerate("다음 내용도 시도해보세요: AAAAAAA. " * 5).violated
+
+
+# ---------------------------------------------------------------------------
+# v3 — 도구 수치 대조 · 답변 정보 유출 · 무결성
+# ---------------------------------------------------------------------------
+
+def test_tool_numbers_flags_asserted_numbers_when_the_tool_returned_nothing():
+    from ragdiag.features.tool_numbers import check_tool_numbers
+
+    calls = [{"name": "lookup", "arguments": "{}", "order": 0, "turn_no": 2, "outputs": []}]
+    check = check_tool_numbers("WSPED01 라인에는 장비 12대가 있습니다.", calls,
+                               ['{"count": 0, "equipment": []}'], ["WSPED01 라인 장비 몇 대야?"])
+    assert check.violated and check.detail.startswith("빈결과")
+
+
+def test_tool_numbers_lets_numbers_the_user_gave_pass_but_not_the_complaint():
+    """앞 질문에 적힌 숫자는 도구 결과에 없어도 당연하다. 후속 발화의 숫자는 제외 대상이 아니다
+    (호출부가 앞 질문들만 넘긴다)."""
+    from ragdiag.features.tool_numbers import check_tool_numbers
+
+    calls = [{"name": "lookup", "arguments": "{}", "order": 0, "turn_no": 2, "outputs": ["x"]}]
+    outputs = ['{"line": "WSPED01", "count": 7}']
+    assert check_tool_numbers("요청하신 3개 라인 중 WSPED01 은 7대입니다.", calls, outputs,
+                              ["3개 라인 장비 수 알려줘"]).verdict == "ok"
+    bad = check_tool_numbers("WSPED01 은 12대입니다.", calls, outputs, ["장비 수 알려줘"])
+    assert bad.violated and "12" in bad.evidence
+
+
+def test_tool_numbers_ignores_small_numbers_and_no_tool_turns():
+    from ragdiag.features.tool_numbers import check_tool_numbers
+
+    assert check_tool_numbers("1. 반차 2. 연차", [], [], ["q"]).verdict == "not_applicable"
+    calls = [{"name": "t", "arguments": "{}", "order": 0, "turn_no": 2, "outputs": ["x"]}]
+    assert check_tool_numbers("3가지 방법이 있습니다.", calls, ['{"a": 1}'], ["q"]).verdict == "not_applicable"
+
+
+def test_leak_is_only_pii_the_user_did_not_type():
+    from ragdiag.features.short_circuit.leak import check_leak
+
+    assert check_leak("연락처는 010-5555-6666 입니다.", ["담당자 누구예요?"]).violated
+    echo = check_leak("말씀하신 010-5555-6666 으로 안내드립니다.", ["제 번호 010-5555-6666 이에요"])
+    assert not echo.violated
+    assert check_leak("담당 부서에 문의하세요.", ["q"]).verdict == "ok"
+
+
+def test_integrity_C1_fires_only_with_history_input_and_a_gap():
+    from ragdiag.features.integrity import check_missing_turns
+    from tests.helpers import case
+
+    assert check_missing_turns(case(history_present=False)).verdict == "not_applicable"
+    assert check_missing_turns(case(history_present=True, history_turn_count=0,
+                                    prior_turn_nos=[1, 2])).violated
+    assert check_missing_turns(case(history_present=True, history_turn_count=1,
+                                    prior_turn_nos=[1, 2])).verdict == "ok"
+    # 첫 턴을 답한 레코드는 앞 턴이 없어 history_chat 이 비어 있는 게 정상이다
+    assert check_missing_turns(case(history_present=True, history_turn_count=0,
+                                    prior_turn_nos=[1])).verdict == "ok"
+
+
+def test_integrity_C2_is_conservative():
+    """memory 는 요약이라 표현이 다르다. 내용어가 하나도 안 겹칠 때만 플래그."""
+    from ragdiag.features.integrity import check_memory
+    from tests.helpers import case
+
+    own = case(pre_queries=["연차 신청은 어떻게 하나요?"], prior_answers=["그룹웨어에서 신청합니다."],
+               memory="사용자는 신입이고 연차 제도를 처음 묻는다.")
+    assert check_memory(own).verdict == "ok"
+    foreign = case(pre_queries=["연차 신청은 어떻게 하나요?"],
+                   memory="사용자는 해외 영업 담당이며 미주 출장 숙박비 상한을 반복해서 물었다.")
+    assert check_memory(foreign).violated
+    assert check_memory(case(memory="")).verdict == "not_applicable"
+    assert check_memory(case(memory="신입")).verdict == "not_applicable"      # 너무 짧다

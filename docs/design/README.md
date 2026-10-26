@@ -33,6 +33,9 @@
 | [features_pipeline.md](features_pipeline.md) | 판정 순서를 코드에서 빼내 `features/` 등록부로 옮긴 설계 |
 | [features_pipeline_plan.md](features_pipeline_plan.md) | 그 구현 계획 (완료) |
 | [per_stage_model.md](per_stage_model.md) | 단계마다 다른 모델. ⑨ 만 작은 모델을 받을 수 있는 이유 — **아직 안 쟀다** |
+| [taxonomy_v3.md](taxonomy_v3.md) | **분류 체계 v3** — 묶음 라벨 · 태그 · 플래그 · 증거 등급 중재 · kev. 지금 코드의 설계 출처 |
+| [taxonomy_v3_plan.md](taxonomy_v3_plan.md) | v3 구현 순서와 완료 조건 (2026-10-24 완료) |
+| [chunk_pool_hook.md](chunk_pool_hook.md) | 청크 풀(`rag_chunks` · `n_fetched`)을 사내 파서 함수로 갈아끼우는 훅. 설정 `hooks.chunk_pool` 로 구현됨 |
 
 두 문서는 **그 변경 시점의 기록**이다. 지금의 기능 목록과 순서는
 `src/ragdiag/features/__init__.py` 의 `FEATURES` 가 유일한 출처다 — 그 뒤로

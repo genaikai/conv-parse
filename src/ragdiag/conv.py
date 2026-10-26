@@ -170,6 +170,46 @@ def parse_tool_output(value: Any) -> list[str]:
     return parse_retrieved(value)
 
 
+def parse_tool_entries(value: Any) -> list[dict]:
+    """도구 호출 기록을 호출 단위로 편다. v3 가 T1 · T2 · T3 와 태그에 쓴다.
+
+        [{"turn_no": 1, "tool_calls": [{"name", "arguments"}], "outputs": [...]}]
+
+    반환: [{"turn_no", "order", "name", "arguments", "outputs": [...]}] — 호출 하나가 원소다.
+    `order` 는 로그에 적힌 순서(0부터)다. outputs 는 호출과 인덱스로 짝이 맞는지 확인되지
+    않았으므로 **엔트리의 outputs 전부**를 그 엔트리의 호출마다 붙인다 - 짝을 가정하지 않는다.
+    """
+    if not isinstance(value, list):
+        return []
+    out = []
+    order = 0
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        calls = entry.get("tool_calls")
+        outputs = []
+        for o in entry.get("outputs") or []:
+            text = o if isinstance(o, str) else json.dumps(o, ensure_ascii=False)
+            if text.strip():
+                outputs.append(text)
+        if not isinstance(calls, list) or not calls:
+            if "name" in entry:                  # 호출 하나가 바로 엔트리인 모양
+                calls = [entry]
+            else:
+                continue
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            args = call.get("arguments")
+            if not isinstance(args, str):
+                args = json.dumps(args, ensure_ascii=False) if args is not None else ""
+            out.append({"turn_no": _as_int(entry.get("turn_no")), "order": order,
+                        "name": str(call.get("name") or ""), "arguments": args,
+                        "outputs": list(outputs)})
+            order += 1
+    return out
+
+
 @dataclass(frozen=True)
 class HistoryInput:
     """서비스가 이 턴을 답할 때 모델에 **실제로 넣은 입력**. 직전 턴까지다.
@@ -187,8 +227,12 @@ class HistoryInput:
 
     present: bool = False
     queries: list[str] = field(default_factory=list)
+    # assistant 메시지. v3 의 ⑥ 일관성 · G2[약속] 이 읽는다.
+    answers: list[str] = field(default_factory=list)
     retrieved: list[str] = field(default_factory=list)
     tool_output: list[str] = field(default_factory=list)
+    # 호출 단위 기록 (parse_tool_entries). 청크 출처와 T 묶음이 쓴다.
+    tool_calls: list[dict] = field(default_factory=list)
     memory: str = ""
 
 
@@ -202,19 +246,25 @@ def parse_history_input(value: Any) -> HistoryInput:
     if not isinstance(value, dict):
         return HistoryInput()
     queries = []
+    answers = []
     for message in value.get("history_chat") or []:
         if not isinstance(message, dict):
             continue
-        if str(message.get("role", "")).strip().lower() != "user":
-            continue
+        role = str(message.get("role", "")).strip().lower()
         content = message.get("content")
-        if isinstance(content, str) and content.strip():
+        if not (isinstance(content, str) and content.strip()):
+            continue
+        if role == "user":
             queries.append(content)
+        elif role == "assistant":
+            answers.append(content)
     return HistoryInput(
         present=True,
         queries=queries,
+        answers=answers,
         retrieved=parse_retrieved(value.get("retrieved_data")),
         tool_output=parse_tool_output(value.get("tool_output")),
+        tool_calls=parse_tool_entries(value.get("tool_output")),
         memory=value.get("memory") or "",
     )
 
@@ -308,10 +358,15 @@ class Turn:
     emotion_alternatives: list[dict] = field(default_factory=list)
     # 모델에 실제로 들어간 ~N-1 턴의 입력. pre_queries 재구성과 청크 풀이 여기 기댄다.
     history: HistoryInput = field(default_factory=HistoryInput)
+    # **이 턴의** 도구 호출 기록 (턴 레벨 `tool_calls` 가 있는 로그만). 없으면 빈 목록이고
+    # 이 턴의 tool_output 은 이름 없는 "tool" 출처가 된다.
+    tool_calls: list[dict] = field(default_factory=list)
+    # 로그 레코드 그대로. 사내 청크 풀 훅에 넘긴다 (docs/design/chunk_pool_hook.md).
+    raw: dict = field(default_factory=dict, repr=False, compare=False)
     # 라우팅 계열 넷. **판정에는 안 쓴다** - 어느 플랫폼에서 묻고 어디가 답했는지는
     # 실패의 원인이 아니라 실패가 일어난 자리다. 값의 모양을 회수하려고 받아만 둔다.
     # answered_by 가 집계 축이 될 수 있는데, 실제 값을 보고 정할 일이다. fallback 은
-    # 모델이 스스로 다른 서비스로 넘겼다 돌아온 것이라 자원 부족(case9)과 무관하다.
+    # 모델이 스스로 다른 서비스로 넘겼다 돌아온 것이라 자원 부족(I1)과 무관하다.
     ask_on: str = ""
     answered_by: str = ""
     route_intent: str = ""
@@ -383,6 +438,8 @@ def _parse_turn(raw: dict) -> Turn:
         prev_questions=_as_questions(raw.get("prev_question")),
         trace_matched=_as_bool(raw.get("trace_matched")),
         history=parse_history_input(raw.get("history_input")),
+        tool_calls=parse_tool_entries(raw.get("tool_calls")),
+        raw=raw,
         ask_on=raw.get("ask_on") or "",
         answered_by=raw.get("answered_by") or "",
         route_intent=raw.get("route_intent") or "",
@@ -467,8 +524,21 @@ def to_case(
     else:
         scope = prior[-history_turns:] if history_turns > 0 else prior
 
+    case_id = f"{conv.conversation_id}:{followup_turn}"
+    hook = settings.CHUNK_POOL_HOOK
+    if hook is None:
+        sourced = chunk_pool_with_sources(answered, scope)
+        n_fetched = len(answered.retrieved) + len(answered.tool_output)
+    else:
+        own, carried = _call_hook(hook, answered, prior, case_id)
+        sourced = [(c, "hook") for c in own + carried]
+        n_fetched = len(own)
+
+    tool_calls = [*answered.tool_calls,
+                  *[c for c in answered.history.tool_calls]]
+    tool_outputs = list(answered.tool_output) + list(answered.history.tool_output)
     return Case(
-        case_id=f"{conv.conversation_id}:{followup_turn}",
+        case_id=case_id,
         dept=conv.user.dept,
         job_grade=conv.user.job_grade,
         job_name=conv.user.job_name,
@@ -478,12 +548,45 @@ def to_case(
         pre_queries=pre_queries(answered, scope),
         llm_ans_on_last_q=answered.llm_response,
         current_query=followup.user_question,
-        rag_chunks=chunk_pool(answered, scope),
-        n_fetched=len(answered.retrieved) + len(answered.tool_output),
+        rag_chunks=[c for c, _ in sourced],
+        chunk_sources=[s for _, s in sourced],
+        n_fetched=n_fetched,
         # history_quote 대조 대상. 앞에서 정한 조건이 원문 턴 대신 요약에만
         # 남아 있을 수 있는데, 그래도 챗봇은 그 조건을 본 것이다.
         memory=memory_pool(answered),
+        prior_answers=prior_answers(answered, scope),
+        tool_calls=tool_calls,
+        tool_outputs=tool_outputs,
+        prior_turn_nos=[t.turn for t in prior],
+        history_present=answered.history.present,
+        history_turn_count=len(answered.history.queries),
     )
+
+
+def _call_hook(hook, answered: Turn, prior: list[Turn], case_id: str) -> tuple[list[str], list[str]]:
+    """사내 청크 풀 훅. 계약은 docs/design/chunk_pool_hook.md — (own, carried) 두 list[str].
+
+    틀린 모양이면 턴을 건너뛰지 않고 그 자리에서 죽는다. 조용히 빈 풀을 쓰면 그 턴이
+    T1(호출 없음) 로 집계된다 - 파싱 실패가 "검색을 안 했다" 로 둔갑하는 것이 최악이다.
+    """
+    name = getattr(hook, "__name__", repr(hook))
+    result = hook(answered.raw, [t.raw for t in prior])
+    if not (isinstance(result, (tuple, list)) and len(result) == 2):
+        raise ValueError(f"청크 풀 훅 {name} 이 {case_id} 에서 (own, carried) 가 아닌 것을 돌려줬다: "
+                         f"{type(result).__name__}")
+    own, carried = result
+    for label, part in (("own", own), ("carried", carried)):
+        if not isinstance(part, list) or not all(isinstance(c, str) for c in part):
+            raise ValueError(f"청크 풀 훅 {name} 의 {label} 이 {case_id} 에서 list[str] 이 아니다")
+    return [c for c in own if c.strip()], [c for c in carried if c.strip()]
+
+
+def prior_answers(answered: Turn, scope: list[Turn]) -> list[str]:
+    """비판받은 답변보다 앞의 챗봇 답변들. history_chat 의 assistant 가 사실이고, 없으면
+    scope 의 턴 레코드에서 재구성한다 (옛 로그 · 골든셋)."""
+    if answered.history.present:
+        return list(answered.history.answers)
+    return [t.llm_response for t in scope if t is not answered and t.llm_response]
 
 
 def pre_queries(answered: Turn, scope: list[Turn]) -> list[str]:
@@ -554,11 +657,46 @@ def chunk_pool(answered: Turn, scope: list[Turn]) -> list[str]:
     모른다.** 첫 실행의 `carried` 지표가 평균·최대를 찍으므로 그 숫자를 보고
     필요하면 그때 넣는다.
     """
-    pool = list(answered.retrieved) + list(answered.tool_output)
+    return [c for c, _ in chunk_pool_with_sources(answered, scope)]
+
+
+def _tool_source(prefix: str, calls: list[dict], outputs: list[str]) -> list[str]:
+    """도구 결과마다 출처 이름. 호출 기록이 하나의 이름뿐이면 그 이름, 아니면 이름 없이."""
+    names = sorted({c.get("name", "") for c in calls if c.get("name")})
+    tag = f"{prefix}:{names[0]}" if len(names) == 1 else prefix
+    return [tag] * len(outputs)
+
+
+def chunk_pool_with_sources(answered: Turn, scope: list[Turn]) -> list[tuple[str, str]]:
+    """청크와 출처의 쌍. 순서는 chunk_pool 과 같다 - 이 턴 것이 먼저.
+
+    출처: retrieved · tool[:name] · history_retrieved · history_tool[:name]. v3 가 D1 과 T2 를
+    가르고(검색 도구 결과인가 업무 도구 결과인가) G5[과거근거] 를 붙이는 데 쓴다.
+    history_input.tool_output 은 엔트리 단위로 outputs 가 묶여 있어 엔트리마다 이름을 붙인다.
+    """
+    out: list[tuple[str, str]] = [(c, "retrieved") for c in answered.retrieved]
+    out += zip(answered.tool_output,
+               _tool_source("tool", answered.tool_calls, answered.tool_output))
     if answered.history.present:
-        return pool + answered.history.retrieved + answered.history.tool_output
+        out += [(c, "history_retrieved") for c in answered.history.retrieved]
+        # 엔트리 단위로 이름을 붙인다. parse_tool_entries 가 엔트리의 outputs 를 호출마다
+        # 복제해 두었으므로 여기서는 호출 기록을 엔트리로 되묶는다.
+        seen: set[int] = set()
+        sourced_outputs: list[tuple[str, str]] = []
+        for call in answered.history.tool_calls:
+            key = id(call["outputs"]) if call.get("outputs") else None
+            if key is None or key in seen:
+                continue
+            seen.add(key)
+            same = [c for c in answered.history.tool_calls if c.get("outputs") is call["outputs"]]
+            sourced_outputs += zip(call["outputs"],
+                                   _tool_source("history_tool", same, call["outputs"]))
+        named = {text for text, _ in sourced_outputs}
+        out += sourced_outputs
+        out += [(c, "history_tool") for c in answered.history.tool_output if c not in named]
+        return out
     for turn in scope:
         if turn is answered:
             continue
-        pool += turn.tool_output
-    return pool
+        out += zip(turn.tool_output, _tool_source("history_tool", turn.tool_calls, turn.tool_output))
+    return out

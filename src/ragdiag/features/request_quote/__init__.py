@@ -30,7 +30,7 @@ from ragdiag.requests import (
     language_was_requested,
     length_was_requested,
 )
-from ragdiag.verify import verify_request_quote
+from ragdiag.verify import QuoteCheck
 
 from .._shared import each_turn
 
@@ -57,15 +57,20 @@ def unsupported(obs, questions: list[str]) -> dict:
 
 
 def corrected(obs, questions: list[str]):
-    """(확인을 거친 관측, 인용 대조 결과). 요구가 없었으면 대조 결과는 None.
+    """(확인을 거친 관측, 확인 결과). 요구가 없었으면 확인 결과는 None.
 
-    인용 대조 결과는 기록용이다 - 판정은 위 `unsupported` 가 한다.
+    v3 에는 판정자의 인용이 없다 (범주는 kev 가 답한다). 확인 결과는 "요구가 이전 질문들의
+    어휘로 받쳐졌는가" 다 - 받쳐진 요구가 하나라도 남으면 verified, 전부 지워졌으면 아니다.
     """
     if not asked(obs):
         return obs, None
-    check = verify_request_quote(obs.requested_quote, questions)
     wipe = unsupported(obs, questions)
-    return (obs.model_copy(update=wipe) if wipe else obs), check
+    fixed = obs.model_copy(update=wipe) if wipe else obs
+    kept = [k for k in ("requested_format", "requested_language", "requested_length_kind")
+            if getattr(fixed, k) not in ("none", "")]
+    check = QuoteCheck(quote=",".join(kept) or ",".join(sorted(wipe)),
+                       ratio=1.0 if kept else 0.0, verified=bool(kept))
+    return fixed, check
 
 
 def process_data(ctx) -> tuple[list, list]:

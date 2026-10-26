@@ -88,9 +88,10 @@ def render(result_file, *extra, monkeypatch=None):
     return at
 
 
-# 스텁 판정은 모든 턴을 같은 case 로 만든다. 분포를 재려면 섞어야 한다.
-SPREAD = ["case20", "case20", "case12", "case9", "case0", "case0",
-          "unclassified", "case25"]
+# 스텁 판정은 모든 턴을 같은 라벨로 만든다. 분포를 재려면 섞어야 한다.
+# v3 라벨이다 — 검색 근거 없음(D1) · 명시 요구 불이행(G1) · 자원 부족(I1) · 정상(N0) ·
+# 분류 실패 · 일반 지식 오류(G6).
+SPREAD = ["D1", "D1", "G1", "I1", "N0", "N0", "unclassified", "G6"]
 
 
 def _with_cases(result_file, tmp_path, cases):
@@ -160,7 +161,7 @@ def test_dashboard_shows_the_health_metrics_first(result_file):
     """라벨 분포보다 판정 건강이 먼저다. 여기가 나쁘면 아래 집계를 믿을 수 없다."""
     at = render(result_file)
     labels = [m.label for m in at.metric]
-    for expected in ("분류된 턴", "지어낸 인용", "신뢰도 낮음", "미분류", "서비스 오류"):
+    for expected in ("분류된 턴", "지어낸 인용", "등급 ≤1", "미분류", "서비스 오류"):
         assert expected in labels, f"{expected} 지표가 없다. 있는 것: {labels}"
 
 
@@ -272,8 +273,8 @@ def test_corpus_gaps_group_by_need_not_department(result_file):
 def test_detail_panel_does_not_claim_zero_llm_involvement(result_file):
     """llm_calls 는 이번 실행의 호출 수다. 캐시가 맞으면 0 이 된다.
 
-    그대로 "LLM 호출 0" 이라 적으면 case22 처럼 LLM 이 세 번 필요한 판정도
-    LLM 이 관여 안 한 것처럼 읽힌다.
+    그대로 "LLM 호출 0" 이라 적으면 G5 처럼 판정이 여러 번 필요한 라벨도
+    모델이 관여 안 한 것처럼 읽힌다.
     """
     at = render(result_file)
     labels = [m.label for m in at.metric]
@@ -528,19 +529,19 @@ def test_broken_config_does_not_stop_the_screen(result_file, tmp_path):
 
 
 def test_case_columns_carry_their_meaning_as_a_tooltip():
-    """표 머리글이 case3 뿐이면 무슨 문제인지 알 수 없다.
+    """표 머리글이 G4 뿐이면 무슨 문제인지 알 수 없다.
 
     이름을 다 적으면 열이 넓어져 한 화면에 안 들어온다 - 머리글은 짧게 두고
     마우스를 올렸을 때 펼친다.
     """
     from ragdiag.taxonomy import tooltip
 
-    text = tooltip("case3")
-    assert text.startswith("case3 · 복합 질문을 함")
-    # "무엇이 아닌가"까지 담아야 헷갈리는 쌍에서 갈린다.
-    assert "case15" in text, text
+    text = tooltip("G4")
+    assert text.startswith("G4 · 복합 일부만 답")
+    # "무엇이 아닌가"까지 담아야 옆 라벨 · 태그와 갈린다.
+    assert "복합질문" in text, text
 
-    assert tooltip("case20").startswith("case20 · Retrieve 실패")
+    assert tooltip("D1").startswith("D1 · 검색 근거에 답 없음")
     assert tooltip("unclassified"), "분류 실패에도 무언가는 나와야 한다"
 
 
@@ -566,16 +567,15 @@ def test_heatmap_headers_get_the_tooltip(result_file, tmp_path):
             if spec.get("help"):
                 tips[name] = spec["help"]
 
-    # "case명" 도 case 로 시작한다. 실제 판정 라벨만 본다.
+    # 머리글은 `묶음/라벨` (G/G5) 꼴이다. 실제 판정 라벨 열만 본다.
     import re
 
     labelled = [c for c in tips
-                if re.fullmatch(r"TYPE\d+/case\d+", c)
-                or c in ("unclassified", "out_of_taxonomy")]
+                if re.fullmatch(r"[A-Z]/[A-Z]\d+", c) or c == "unclassified"]
     assert labelled, f"판정 라벨 열에 툴팁이 없다. 붙은 것: {sorted(tips)}"
     for name in labelled:
         cid = name.rsplit("/", 1)[-1]
-        # 머리글에는 TYPE5 까지만 보인다. 번호가 무엇을 뜻하는지는 툴팁이 말한다.
+        # 머리글에는 묶음 글자(G)까지만 보인다. 무엇을 뜻하는지는 툴팁이 말한다.
         if name != cid:
             assert tips[name].startswith(name.split("/")[0] + " "), tips[name]
         assert f"{cid} ·" in tips[name], tips[name]
@@ -702,7 +702,7 @@ def test_detail_shows_what_was_judged_without_a_click(result_file):
     assert "판정 근거" in joined
 
     # 세 스텝이 다 자기 자리를 갖는다. Step 3 만 지표 하나로 끝나면
-    # case22 와 case18 이 왜 갈렸는지 알 수 없다.
+    # G5:안씀 과 G5:어긋남 이 왜 갈렸는지 알 수 없다.
     for step in ("Step 1 · 관측", "Step 2 · 충족도", "Step 3 · 근거 활용"):
         assert step in joined, f"{step} 이 없다"
 
@@ -710,7 +710,7 @@ def test_detail_shows_what_was_judged_without_a_click(result_file):
 def test_retrieved_chunks_are_visible_without_scrolling(result_file):
     """문서가 있었는지를 맨 아래까지 스크롤해서 알아내야 했다.
 
-    개수 · 인용 여부는 표로 위에 두고, 부피가 큰 전문은 고른 하나만 펼친다 -
+    개수 · 근거 여부 · p 는 표로 위에 두고, 부피가 큰 전문은 고른 하나만 펼친다 -
     500자짜리 열 개를 늘어놓으면 그 아래 Step 1 · 2 · 3 이 화면 밖으로 밀린다.
     """
     tab = render(result_file).tabs[2]
@@ -718,7 +718,8 @@ def test_retrieved_chunks_are_visible_without_scrolling(result_file):
     assert any("그때 검색된 문서" in h for h in heads), heads
 
     frames = [f.value for f in tab.get("dataframe")]
-    chunk_table = [f for f in frames if list(getattr(f, "columns", [])) == ["번호", "인용", "길이", "첫 줄"]]
+    chunk_table = [f for f in frames
+                   if list(getattr(f, "columns", [])) == ["번호", "근거", "p", "길이", "첫 줄"]]
     assert chunk_table, [list(getattr(f, "columns", [])) for f in frames]
     assert len(chunk_table[0]) >= 1, "청크가 표에 한 줄씩 있어야 한다"
 
@@ -728,7 +729,7 @@ def test_retrieved_chunks_are_visible_without_scrolling(result_file):
 
 
 def test_the_case_list_shows_how_many_chunks_were_retrieved(result_file, tmp_path):
-    """검색 0건 턴은 열어보지 않고도 훑을 수 있어야 한다 - case21 의 갈림길이다."""
+    """검색 0건 턴은 열어보지 않고도 훑을 수 있어야 한다 - T1 의 갈림길이다."""
     at = render(result_file)
     frame = next(f.value for f in at.tabs[2].get("dataframe")
                  if "보기" in getattr(f.value, "columns", []))
@@ -923,22 +924,22 @@ def test_only_one_row_is_checked(result_file):
 
 
 def test_org_counts_only_failures(result_file, tmp_path):
-    """case0 과 판정 실패의 비중은 **부서마다 다르다.**
+    """N0 과 판정 실패의 비중은 **부서마다 다르다.**
 
     분모에 남겨 두면 부서마다 다르게 왜곡되어 부서 간 비교 자체가 흔들린다 -
     이 탭의 존재 이유가 그 비교다. 실데이터에서 부서별로 9.9%p 까지 갈렸다.
     """
     log = _org_payload(result_file, tmp_path, [
-        ("A팀", "case20", 6), ("A팀", "case0", 6),
-        ("B팀", "case20", 6), ("B팀", "unclassified", 2)])
+        ("A팀", "D1", 6), ("A팀", "N0", 6),
+        ("B팀", "D1", 6), ("B팀", "unclassified", 2)])
     tab = render(log).tabs[1]
 
     counts = tab.get("dataframe")[0].value
-    assert "case0" not in counts.columns, list(counts.columns)
+    assert "N/N0" not in counts.columns, list(counts.columns)
     assert "unclassified" not in counts.columns, list(counts.columns)
     assert int(counts.loc["■ 전체", "계"]) == 12, counts
 
-    # 분모가 실패면 두 부서 다 case20 100% 다. 전체 분모면 50% 와 75% 로 갈린다.
+    # 분모가 실패면 두 부서 다 D1 100% 다. 전체 분모면 50% 와 75% 로 갈린다.
     assert int(counts.loc["A팀", "계"]) == 6, counts
     assert int(counts.loc["B팀", "계"]) == 6, counts
 
@@ -946,78 +947,85 @@ def test_org_counts_only_failures(result_file, tmp_path):
 def test_org_table_carries_a_baseline_row(result_file, tmp_path):
     """61% 가 높은지 낮은지 판단하려면 나머지 열네 행을 눈으로 평균 내야 했다."""
     log = _org_payload(result_file, tmp_path, [
-        ("A팀", "case20", 6), ("B팀", "case12", 6)])
+        ("A팀", "D1", 6), ("B팀", "G1", 6)])
     tab = render(log).tabs[1]
 
     counts = tab.get("dataframe")[0].value
     assert counts.index[0] == "■ 전체", list(counts.index)
-    # 머리글이 type/case 다 - 열 열일곱 개에서 지금 어느 묶음인지 놓치지 않게.
-    assert "TYPE5/case20" in counts.columns, list(counts.columns)
-    assert int(counts.loc["■ 전체", "TYPE5/case20"]) == 6, counts
+    # 머리글이 묶음/라벨 다 - 열 열일곱 개에서 지금 어느 묶음인지 놓치지 않게.
+    assert "D/D1" in counts.columns, list(counts.columns)
+    assert int(counts.loc["■ 전체", "D/D1"]) == 6, counts
 
     # 관측÷기대에서 기준선은 정의상 1.0× 다. 그게 맨 위에 있어야 아래 숫자가
     # 무엇에 대한 배수인지 설명 없이 읽힌다.
     lift = tab.get("dataframe")[1].value
-    assert lift.loc["■ 전체", "TYPE5/case20"].startswith("1.0×"), lift.loc["■ 전체"]
+    assert lift.loc["■ 전체", "D/D1"].startswith("1.0×"), lift.loc["■ 전체"]
 
 
 def test_org_surfaces_what_is_unusual_not_what_is_common(result_file, tmp_path):
-    """색을 비율로 칠하면 상위가 전부 case20 이 된다.
+    """색을 비율로 칠하면 상위가 전부 D1 이 된다.
 
     전사 실패의 4분의 1이라 어느 부서를 봐도 크게 나오기 때문이다. 그건 분포
     탭에서 이미 아는 사실이고, 여기서 알고 싶은 것은 "이 부서에서 유독 많은가"다.
-    실데이터에서 비율 상위 8칸 중 5칸이 case20 이었다.
+    실데이터에서 비율 상위 8칸 중 5칸이 D1 이었다.
     """
     log = _org_payload(result_file, tmp_path, [
-        ("흔한팀", "case20", 20), ("흔한팀", "case8", 1),
-        ("특이팀", "case20", 5), ("특이팀", "case8", 6)])
+        ("흔한팀", "D1", 20), ("흔한팀", "S1", 1),
+        ("특이팀", "D1", 5), ("특이팀", "S1", 6)])
     tab = render(log).tabs[1]
 
     outliers = tab.get("dataframe")[2].value
     top = outliers.iloc[0]
     assert top["부서"] == "특이팀", outliers
-    assert "case8" in top["무엇이"], outliers
+    assert "S1" in top["무엇이"], outliers
     assert top["배수"] > 1.5, outliers
 
-    # case20 은 어느 부서에서도 흔하므로 이상치가 아니다.
-    assert not [r for _, r in outliers.iterrows() if "case20" in r["무엇이"]], outliers
+    # D1 은 어느 부서에서도 흔하므로 이상치가 아니다.
+    assert not [r for _, r in outliers.iterrows() if "D1" in r["무엇이"]], outliers
 
 
 def test_org_can_group_by_type(result_file, tmp_path):
-    """case 는 열이 열일곱 개라 한 화면에 안 들어오고, 옆 칸과 한 건씩 나뉘어
-    편중이 흐려진다. type 으로 묶으면 일곱 열이라 다 보이고 표본도 커진다.
+    """라벨은 열이 열일곱 개라 한 화면에 안 들어오고, 옆 칸과 한 건씩 나뉘어
+    편중이 흐려진다. 묶음으로 묶으면 여덟 열이라 다 보이고 표본도 커진다.
 
-    "TYPE5 가 통째로 많다" 는 case 단위로는 잘 안 보이는 신호다.
+    "G(생성) 가 통째로 많다" 는 라벨 단위로는 잘 안 보이는 신호다.
     """
+    import re
+
     log = _org_payload(result_file, tmp_path, [
-        ("A팀", "case20", 6), ("A팀", "case22", 6),      # 둘 다 TYPE5
-        ("B팀", "case12", 6), ("B팀", "case13", 6)])     # 둘 다 TYPE3
+        ("A팀", "G5", 6), ("A팀", "G1", 6),      # 둘 다 G(생성)
+        ("B팀", "T1", 6), ("B팀", "T2", 6)])     # 둘 다 T(도구 호출)
     at = render(log)
 
     columns = list(at.tabs[1].get("dataframe")[0].value.columns)
-    assert "TYPE5/case20" in columns and "TYPE5/case22" in columns, columns
+    assert "G/G5" in columns and "G/G1" in columns, columns
 
     next(x for x in at.tabs[1].selectbox if "type별" in x.options).set_value("type별")
     at.run()
 
     tab = at.tabs[1]
     grouped = list(tab.get("dataframe")[0].value.columns)
-    assert not [c for c in grouped if "case" in c], grouped
-    assert any("TYPE5" in c for c in grouped), grouped
+    assert not [c for c in grouped if re.fullmatch(r"[A-Z]/[A-Z]\d+", c)], grouped
+    assert any(c.startswith("G ·") for c in grouped), grouped
 
-    # 열 순서는 묶기를 바꿔도 같은 규칙을 따른다 - TYPE3 이 TYPE5 앞이다.
-    types = [c for c in grouped if c.startswith("TYPE")]
-    assert types == sorted(types, key=lambda c: int(c.split(" ")[0][4:])), types
+    # 열 순서는 묶기를 바꿔도 같은 규칙(묶음 순서 N U C T D G S I)을 따른다 -
+    # T 가 G 앞이다. 문자열 정렬이면 G 가 먼저 와서 어긋난다.
+    from ragdiag import taxonomy as tx
+
+    types = [c for c in grouped if c.split(" · ")[0] in tx.GROUPS]
+    rank = list(tx.GROUPS)
+    assert types == sorted(types, key=lambda c: rank.index(c.split(" · ")[0])), types
+    assert types[0].startswith("T ·"), types
 
     counts = tab.get("dataframe")[0].value
-    a_type5 = [c for c in grouped if c.startswith("TYPE5")][0]
-    assert int(counts.loc["A팀", a_type5]) == 12, counts
+    a_gen = [c for c in grouped if c.startswith("G ·")][0]
+    assert int(counts.loc["A팀", a_gen]) == 12, counts
 
 
 def test_org_can_cross_two_organisation_axes(result_file, tmp_path):
     """"특정 직급이 특정 부서에서" 는 한 축씩 봐서는 안 보인다."""
     log = _org_payload(result_file, tmp_path, [
-        ("A팀", "case20", 6), ("B팀", "case12", 6)])
+        ("A팀", "D1", 6), ("B팀", "G1", 6)])
     payload = json.loads(Path(log).read_text(encoding="utf-8"))
     for i, user in enumerate(payload["analysis_results"]):
         user["job_grade"] = ["과장", "사원"][i % 2]
@@ -1037,8 +1045,8 @@ def test_org_can_cross_two_organisation_axes(result_file, tmp_path):
 def test_org_outliers_need_enough_turns(result_file, tmp_path):
     """기대가 0.2인데 3건 나오면 15배가 되지만, 그건 표본이 아니라 우연이다."""
     log = _org_payload(result_file, tmp_path, [
-        ("A팀", "case20", 20), ("A팀", "case8", 1),
-        ("B팀", "case8", 2), ("B팀", "case20", 1)])
+        ("A팀", "D1", 20), ("A팀", "S1", 1),
+        ("B팀", "S1", 2), ("B팀", "D1", 1)])
     tab = render(log).tabs[1]
 
     assert len(tab.get("dataframe")) == 2, "표본이 작은 조합이 목록에 올랐다"
@@ -1106,7 +1114,7 @@ def test_distribution_charts_get_a_full_row_each(result_file, tmp_path):
 
     # 종 수는 필터에 따라 매번 달라진다. 고정 높이를 주면 3종일 때 막대가
     # 통통해지고 20종일 때 라벨이 겹친다.
-    failures = {c for c in SPREAD if c not in ("case0", "unclassified")}
+    failures = {c for c in SPREAD if c not in ("N0", "unclassified")}
     assert specs[0]["height"] == 26 * len(failures) + 60, specs[0]["height"]
 
     # 정렬 기준이 서로 다르면 같은 데이터가 다른 이야기로 읽힌다.
@@ -1115,31 +1123,31 @@ def test_distribution_charts_get_a_full_row_each(result_file, tmp_path):
 
 
 def test_distribution_drops_non_failures_from_the_denominator(result_file, tmp_path):
-    """case0 은 실패가 아니고 unclassified 는 어느 유형인지 모르는 턴이다.
+    """N0 은 실패가 아니고 unclassified 는 어느 유형인지 모르는 턴이다.
 
-    섞어 두면 "case20 22%" 가 "실패 중 22%" 로 읽히는데 실제로는 "판정된 턴 중
+    섞어 두면 "D1 22%" 가 "실패 중 22%" 로 읽히는데 실제로는 "판정된 턴 중
     22%" 다. 다른 숫자를 같은 말로 읽게 만드는 것이라, 보기 좋고 나쁘고가 아니다.
     """
     tab = render(_with_cases(result_file, tmp_path, SPREAD)).tabs[0]
 
     counted = {c: SPREAD.count(c) for c in set(SPREAD)}
     shown = {m.label: m.value for m in tab.metric}
-    assert shown["필터 오탐"] == f"{counted['case0']}건", shown
+    assert shown["필터 오탐"] == f"{counted['N0']}건", shown
     assert shown["판정 실패"] == f"{counted['unclassified']}건", shown
-    assert shown["실패"] == f"{len(SPREAD) - counted['case0'] - counted['unclassified']}건", shown
+    assert shown["실패"] == f"{len(SPREAD) - counted['N0'] - counted['unclassified']}건", shown
 
     # 지표만 맞고 차트는 그대로일 수 있다. 막대 수로 확인한다 - 높이가 종 수에
     # 비례하므로, 뺀 둘이 막대로 남아 있으면 높이가 어긋난다.
-    failures = {c for c in SPREAD if c not in ("case0", "unclassified")}
+    failures = {c for c in SPREAD if c not in ("N0", "unclassified")}
     height = json.loads(tab.get("vega_lite_chart")[0].proto.spec)["height"]
     assert height == 26 * len(failures) + 60, f"막대 {len(failures)}개가 아니다: {height}"
 
 
 def test_distribution_colors_carry_confidence_and_composition(result_file, tmp_path):
-    """case25(상식 오답)는 판정자의 사전지식에 기대고 case8(출력 잘림)은 코드가
-    판정한다. 같은 길이의 막대로 나란히 있으면 같은 무게로 읽힌다.
+    """G3(의도와 다른 답)은 확률만 기울어진 등급 1 이고 I1(자원 부족)은 코드가
+    확정한 등급 4 다. 같은 길이의 막대로 나란히 있으면 같은 무게로 읽힌다.
 
-    type 차트는 case 차트의 롤업이라, 그냥 막대면 같은 말을 한 번 더 한다.
+    묶음 차트는 라벨 차트의 롤업이라, 그냥 막대면 같은 말을 한 번 더 한다.
     """
     tab = render(_with_cases(result_file, tmp_path, SPREAD)).tabs[0]
     specs = [json.loads(c.proto.spec) for c in tab.get("vega_lite_chart")]
@@ -1154,7 +1162,7 @@ def test_distribution_colors_carry_confidence_and_composition(result_file, tmp_p
 def test_the_case_tab_can_narrow_to_one_case(result_file, tmp_path):
     """한 유형만 훑는 것과 섞어 훑는 것은 다른 일이다.
 
-    "case20 이 왜 이렇게 많지"는 case20 만 연달아 봐야 답이 나오고, "이 데이터가
+    "D1 이 왜 이렇게 많지"는 D1 만 연달아 봐야 답이 나오고, "이 데이터가
     대체로 어떤가"는 섞어 봐야 한다. 사이드바 case 필터로도 좁힐 수 있지만
     그건 모든 탭에 걸려서 분포·조직 탭까지 한 유형이 된다 - 비교 대상이 사라진다.
     """
@@ -1172,10 +1180,10 @@ def test_the_case_tab_can_narrow_to_one_case(result_file, tmp_path):
     assert position(at).endswith(f"/ {len(SPREAD)}**"), position(at)
 
     # 유형별 건수가 고르는 자리에 있어야 한다 - 없으면 골라 보고서야 안다.
-    assert any("case20" in str(o) for o in pick.options), pick.options
+    assert any("D1" in str(o) for o in pick.options), pick.options
 
-    pick.set_value("case20"); at.run()
-    assert position(at).endswith(f"/ {SPREAD.count('case20')}**"), position(at)
+    pick.set_value("D1"); at.run()
+    assert position(at).endswith(f"/ {SPREAD.count('D1')}**"), position(at)
 
     # 자리를 그대로 두면 엉뚱한 케이스를 보고 있게 된다.
     assert position(at).startswith("**1 /"), position(at)
@@ -1220,26 +1228,31 @@ def test_the_case_tab_can_sort_suspect_first(result_file, tmp_path):
     """이 화면을 여는 이유의 절반이 "라벨이 맞나" 다.
 
     파일 순서는 사실상 무작위라, 의심스러운 것부터 훑으면 같은 시간에 더 잡는다.
-    폐기된 인용은 판정자가 문서에 없는 문장을 지어냈다는 뜻이라 제일 앞이다.
+    지어낸 인용(태그 G5:지어낸인용)은 답변이 근거에 없는 문장을 인용부호로 냈다는
+    뜻이라 제일 앞이다.
     """
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     turns = [t for u in payload["analysis_results"]
              for c in u["conversations"] for t in c["turns"]]
     suspect = turns[-1]
-    suspect["classification"]["evidence"]["sufficiency"] = {
-        "verdict": "sufficient", "missing": "", "evidence": [],
-        "dropped_evidence": [{"reason": "not_found", "quote": "지어낸 문장"}]}
+    suspect["classification"]["case_id"] = "G5"
+    suspect["classification"]["tags"] = ["G5:지어낸인용"]
+    suspect["pre_queries"] = ["의심스러운 턴의 질문"]
     log = tmp_path / "sort.json"
     log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     at = render(log)
     order = next(x for x in at.tabs[2].selectbox if x.label == "정렬")
     assert order.value == "로그 순서", order.value
+    assert not any("의심스러운 턴의 질문" in str(m.value) for m in at.tabs[2].markdown), \
+        "로그 순서인데 마지막 턴이 먼저 펼쳐졌다"
 
     order.set_value("의심스러운 순"); at.run()
-    # 맨 앞으로 왔으면 상세에 그 폐기 인용이 보인다.
-    assert any("지어낸 문장" in str(e.value) for e in at.tabs[2].error), \
-        [e.value for e in at.tabs[2].error]
+    # 맨 앞으로 왔으면 상세에 그 턴의 질문과 태그가 보인다.
+    assert any("의심스러운 턴의 질문" in str(m.value) for m in at.tabs[2].markdown), \
+        [m.value for m in at.tabs[2].markdown][:5]
+    assert any("G5:지어낸인용" in str(c.value) for c in at.tabs[2].caption), \
+        [c.value for c in at.tabs[2].caption]
 
 
 def test_distribution_lets_you_see_the_false_positives(result_file, tmp_path):
@@ -1248,31 +1261,35 @@ def test_distribution_lets_you_see_the_false_positives(result_file, tmp_path):
     frames = [f.value for f in at.tabs[0].get("dataframe")]
     fp = [f for f in frames if "후속 발화" in getattr(f, "columns", [])]
     assert fp, [list(getattr(f, "columns", [])) for f in frames]
-    assert len(fp[0]) == SPREAD.count("case0"), fp[0]
+    assert len(fp[0]) == SPREAD.count("N0"), fp[0]
 
 
 def test_the_case_filter_lists_cases_in_number_order(result_file, tmp_path):
-    """표는 번호순인데 고르는 자리가 아니면, 표에서 본 케이스를 못 찾는다.
+    """표는 묶음순인데 고르는 자리가 아니면, 표에서 본 라벨을 못 찾는다.
 
-    sorted() 는 문자열로 정렬해서 case10 을 case2 앞에 놓는다. 두 자리가 같은
-    키를 쓰게 해서 맞춘다.
+    sorted() 는 문자열로 정렬해서 G1 을 U1 앞에 놓는다. 표(crosstab)는 묶음 순서
+    (N U C T D G S I)라 어긋난다. 두 자리가 같은 키(tx.sort_key)를 쓰게 해서 맞춘다.
     """
-    # fixture 는 스텁 판정이라 case 가 한 종류뿐이다. 그대로 재면 문자열 정렬로
-    # 되돌려도 통과한다 - 어긋나려면 case2 와 case10 이 같이 있어야 한다.
+    from ragdiag import taxonomy as tx
+
+    # fixture 는 스텁 판정이라 라벨이 한 종류뿐이다. 그대로 재면 문자열 정렬로
+    # 되돌려도 통과한다 - 어긋나려면 U1 과 G1 처럼 글자순과 묶음순이 다른 쌍이 있어야 한다.
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     turns = [t for u in payload["analysis_results"]
              for c in u["conversations"] for t in c["turns"]]
-    for turn, case in zip(turns, ["case10", "case2", "case21", "case9"] * 4):
+    mixed_ids = ["G5", "U1", "T1", "I1"]
+    for turn, case in zip(turns, mixed_ids * 4):
         turn["classification"]["case_id"] = case
     mixed = tmp_path / "mixed_cases.json"
     mixed.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     picker = next(m for m in render(mixed).sidebar.multiselect if m.label == "case")
-    # options 는 format_func 을 거친 뒤라 "case2 · 지원하지 않는 포맷 요구" 로 온다.
-    numbers = [int(m.group(1)) for m in
-               (re.match(r"case(\d+)", str(o)) for o in picker.options) if m]
-    assert len(numbers) >= 4, f"섞인 case 가 안 들어갔다: {picker.options}"
-    assert numbers == sorted(numbers), f"번호순이 아니다: {picker.options}"
+    # options 는 format_func 을 거친 뒤라 "U1 · 낼 수 없는 형태 요구" 로 온다.
+    ids = [m.group(1) for m in
+           (re.match(r"([A-Z]\d+) ·", str(o)) for o in picker.options) if m]
+    assert len(ids) >= 4, f"섞인 라벨이 안 들어갔다: {picker.options}"
+    assert ids == tx.ordered(ids), f"묶음순이 아니다: {picker.options}"
+    assert ids != sorted(ids), "문자열 정렬과 묶음순이 같아서 이 테스트가 아무것도 재지 않는다"
 
 
 def test_narrow_columns_box_sooner_than_the_wide_one(result_file, tmp_path):
@@ -1348,22 +1365,37 @@ def test_the_judged_answer_gets_the_widest_column(result_file):
         f"1:3:1 인 줄이 없다: {weights}")
 
 
-def test_detail_shows_the_demoted_sufficiency_not_the_raw_one(result_file, tmp_path):
-    """인용이 다 폐기되어 case20 으로 간 턴이 sufficient 로 뜨면 화면이 라우팅과
-    다른 말을 한다. 강등된 값을 보이고, 원판정은 그 옆에 적는다."""
+def test_detail_shows_the_sufficiency_and_its_evidence_chunks(result_file, tmp_path):
+    """D1 으로 간 턴이 sufficient 로 뜨면 화면이 중재와 다른 말을 한다.
+
+    v3 의 근거는 인용문이 아니라 청크 인덱스와 확률이다 - 상세와 청크 표가 그
+    청크를 가리켜야 "왜 sufficient 인가" 가 읽힌다.
+    """
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     turns = [t for u in payload["analysis_results"]
              for c in u["conversations"] for t in c["turns"]]
+    turns[0]["classification"]["case_id"] = "G5"
     turns[0]["classification"]["evidence"]["sufficiency"] = {
-        "verdict": "sufficient", "final_verdict": "insufficient", "missing": "금액",
-        "evidence": [], "dropped_evidence": [{"reason": "not_found", "quote": "지어낸 문장"}]}
-    log = tmp_path / "demoted.json"
+        "verdict": "sufficient", "final_verdict": "sufficient", "missing": "",
+        "evidence": [{"chunk_index": 0, "p": 0.93, "source": "retrieved", "scope": "own"}]}
+    log = tmp_path / "evidence.json"
     log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     at = render(log)
     metric = next(m for m in at.tabs[2].metric if m.label == "충족도")
-    assert metric.value == "insufficient", metric.value
-    assert "sufficient" in str(metric.delta), metric.delta
+    assert metric.value == "sufficient", metric.value
+    assert metric.delta is None or "sufficient" not in str(metric.delta), (
+        "v3 에는 강등이 없다 - 원판정 delta 가 남아 있으면 옛 화면이다")
+
+    docs = next(m for m in at.tabs[2].metric if m.label == "검색 문서")
+    assert "근거 1" in str(docs.delta), docs.delta
+
+    lines = [str(s.value) for s in at.tabs[2].success]
+    assert any("청크 0" in l and "p=0.93" in l and "retrieved" in l for l in lines), lines
+
+    table = next(f.value for f in at.tabs[2].dataframe
+                 if "근거" in getattr(f.value, "columns", []))
+    assert table.loc[0, "근거"] == "✓" and abs(table.loc[0, "p"] - 0.93) < 1e-9, table
 
 
 def test_old_result_files_without_final_verdict_still_render(result_file, tmp_path):
@@ -1399,33 +1431,57 @@ def _rewrite(result_file, tmp_path, name, edit):
     return out
 
 
-def test_short_dropped_quotes_are_not_counted_as_fabricated(result_file, tmp_path):
-    """폐기 12건 중 지어낸 것이 0건이던 실측이 있다. 합쳐 세면 경고가 거짓이 된다."""
+def test_fabricated_quotes_are_counted_from_the_tag(result_file, tmp_path):
+    """지어낸 인용은 코드 검증기가 잡아 태그(G5:지어낸인용)로 남는다.
+
+    인용 대조 폐기 목록은 없어졌다. 다른 G5 태그(안씀 · 어긋남)를 같이 세면
+    경고가 실제보다 크게 뜬다 - 지어낸 것만 센다.
+    """
     def edit(turns):
-        turns[0]["classification"]["evidence"]["sufficiency"] = {
-            "verdict": "sufficient", "final_verdict": "insufficient", "missing": "",
-            "evidence": [], "dropped_evidence": [
-                {"reason": "too_short", "quote": "짧다"},
-                {"reason": "too_short", "quote": "이것도"},
-                {"reason": "not_found", "quote": "지어낸 문장"}]}
-    at = render(_rewrite(result_file, tmp_path, "drops", edit))
+        turns[0]["classification"]["tags"] = ["G5:지어낸인용", "복합질문"]
+        turns[1]["classification"]["tags"] = ["G5:안씀"]
+        turns[2]["classification"]["tags"] = ["G5:어긋남"]
+    at = render(_rewrite(result_file, tmp_path, "fabricated", edit))
     metric = next(m for m in at.main.metric if m.label == "지어낸 인용")
     assert metric.value == "1", metric.value
-    assert any("짧아서 버린 인용 2건" in str(c.value) for c in at.main.caption)
+    assert any("지어낸 인용이 1건" in str(w.value) for w in at.main.warning), \
+        [w.value for w in at.main.warning]
+
+
+def test_flags_and_events_are_shown_outside_the_denominator(result_file, tmp_path):
+    """C1(앞 턴 누락)은 기록을 믿을 수 없다는 플래그고 U2 는 사용자 쪽 사건이다.
+
+    라벨이 아니라 셀을 만들지 않지만, 몇 건인지는 건강 지표 옆에 있어야 하고
+    상세에서는 그 턴에 G2 를 묻지 않았다는 것이 보여야 한다.
+    """
+    def edit(turns):
+        turns[0]["classification"]["flags"] = ["C1"]
+        turns[0]["classification"]["events"] = ["U2"]
+    at = render(_rewrite(result_file, tmp_path, "flags", edit))
+    captions = [str(c.value) for c in at.main.caption]
+    assert any("C1" in c and "1건" in c for c in captions), captions
+    assert any("G2" in c and "보류" in c for c in captions), captions
+
+    # 첫 행이 그 턴이다. 상세에 플래그 경고와 이벤트가 보인다.
+    warnings = [str(w.value) for w in at.tabs[2].warning]
+    assert any("C1" in w for w in warnings), warnings
+    assert any("U2" in str(c.value) for c in at.tabs[2].caption), \
+        [c.value for c in at.tabs[2].caption]
 
 
 def test_corpus_gaps_merge_needs_that_step1_inflated(result_file, tmp_path):
-    """"금액" 하나를 물었는데 Step 1 이 절차 · 서류를 덧붙이면 같은 구멍이 여러 줄로
-    흩어진다. Step 2 가 실제로 본(코드로 좁힌) 요구로 묶어야 문서팀 목록이 합쳐진다."""
+    """"금액" 하나를 물었는데 관측이 절차 · 서류를 덧붙이면 같은 구멍이 여러 줄로
+    흩어진다. 충족도가 실제로 본(코드로 좁힌) 요구로 묶어야 문서팀 목록이 합쳐진다."""
     def edit(turns):
         for turn, tail in zip(turns[:3], ["그 지급 절차", "신청 서류", "정산 기한"]):
             cls = turn["classification"]
-            cls["case_id"] = "case20"
-            cls["evidence"]["observation"].update({
+            cls["case_id"] = "D1"
+            # 스텁 판정은 확정 사건에서 멈춰 관측이 없을 수 있다. 없으면 만든다.
+            cls["evidence"].setdefault("observation", {}).update({
                 "unmet_need": f"유럽 지역 숙박비 상한, {tail}", "question_multi_intent": False})
             cls["evidence"]["sufficiency"] = {
                 "verdict": "insufficient", "final_verdict": "insufficient",
-                "missing": f"유럽 숙박비 상한 ({tail})", "evidence": [], "dropped_evidence": []}
+                "missing": f"유럽 숙박비 상한 ({tail})", "evidence": []}
     at = render(_rewrite(result_file, tmp_path, "gaps", edit))
     frames = [f.value for f in at.tabs[3].get("dataframe")]
     assert frames, "코퍼스 보강 표가 없다"
@@ -1441,16 +1497,16 @@ def test_handoff_tables_can_be_downloaded(result_file, tmp_path):
 
     def edit(turns):
         cls = turns[0]["classification"]
-        cls["case_id"] = "case20"
+        cls["case_id"] = "D1"
         cls["evidence"]["sufficiency"] = {
             "verdict": "insufficient", "final_verdict": "insufficient",
-            "missing": "유럽 숙박비 상한", "evidence": [], "dropped_evidence": []}
+            "missing": "유럽 숙박비 상한", "evidence": []}
     at = render(_rewrite(result_file, tmp_path, "one_gap", edit))
     assert at.tabs[3].get("download_button"), "코퍼스 보강 표에 내려받기가 없다"
 
 
 def test_bar_chart_labels_are_not_truncated(result_file, tmp_path):
-    """19종 case 이름이 전부 "case20 · Retrieve …" 로 끝났다 - 무엇이 제일 많은지
+    """라벨 이름이 전부 "D1 · 검색 근거에 …" 로 잘렸다 - 무엇이 제일 많은지
     보려고 그린 차트에서 무엇인지가 안 보였다. 축 라벨 한도를 넉넉히 준다."""
     tab = render(_with_cases(result_file, tmp_path, SPREAD)).tabs[0]
     specs = [json.loads(c.proto.spec) for c in tab.get("vega_lite_chart")]
@@ -1461,8 +1517,8 @@ def test_bar_chart_labels_are_not_truncated(result_file, tmp_path):
 
 
 def test_all_prior_questions_are_in_the_box_with_the_last_one_marked(result_file, tmp_path):
-    """직전 질문만 보이면 요구가 좁혀진 것(미주 → 유럽)이나 앞 조건을 잊은 것(case14)을
-    화면에서 확인할 수 없다 - Step 1 은 앞 질문을 전부 보고 판정했다."""
+    """직전 질문만 보이면 요구가 좁혀진 것(미주 → 유럽)이나 앞 조건을 잊은 것(G2:조건)을
+    화면에서 확인할 수 없다 - 관측은 앞 질문을 전부 보고 판정했다."""
     def edit(turns):
         turns[0]["pre_queries"] = ["미주 출장 숙박비 상한이요", "유럽은요?", "1박에 얼마까지요"]
     at = render(_rewrite(result_file, tmp_path, "history", edit))

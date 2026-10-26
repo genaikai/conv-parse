@@ -465,17 +465,19 @@ def run_golden(args, backend=None) -> int:
 
     from types import SimpleNamespace
 
-    from ragdiag.features import history_quote, request_quote
-    from ragdiag.verify import verify_complaint_quote
+    from ragdiag.features import request_quote
+    from ragdiag.verify import verify_complaint_quote, verify_history_quote
 
     def observe(entry):
         case, meta = entry
         try:
             obs, _ = judge.observe(case)
-            # 파이프라인과 같은 값을 채점한다 - 인용 대조에 떨어진 주장은 지운다.
-            # 대조 결과도 필드처럼 채점한다 (expect 에 *_quote_verified 를 적을 수 있다).
+            # 파이프라인과 같은 값을 채점한다 - 요구는 이전 질문들의 어휘로 확인하고, 조건 인용은
+            # 앞 질문들(과 memory)과 대조한다 (expect 에 *_quote_verified 를 적을 수 있다).
             obs, request = request_quote.corrected(obs, case.pre_queries)
-            obs, history = history_quote.corrected(obs, case.pre_queries)
+            history = (verify_history_quote(obs.history_quote,
+                                            case.pre_queries[:-1] + ([case.memory] if case.memory else []))
+                       if obs.history_quote else None)
             complaint = (verify_complaint_quote(obs.complaint_quote, case.current_query)
                          if obs.complaint_target == "none" else None)
             graded = SimpleNamespace(
@@ -522,15 +524,25 @@ def run_routing_golden(cases, judge, workers) -> None:
     """
     from ragdiag.pipeline import judge_cases
 
+    from ragdiag import taxonomy
+
+    def to_v3(ids) -> set:
+        """골든셋의 기대값은 v2 번호로 적혀 있다. 라벨로 옮기고, 태그로만 남는 것은 뺀다."""
+        out = set()
+        for cid in ids:
+            label, _ = taxonomy.from_v2(cid)
+            out.add(label or cid)
+        return out - {None}
+
     results = judge_cases([case for case, _ in cases], judge, workers=workers)
     rows, hits = [], 0
     for (case, meta), result in zip(cases, results):
-        want = meta["expect_case"]
+        want = to_v3(meta["expect_case"])
         got = (result.classification.primary_case if result.classification
                else f"ERROR:{result.error}")
         secondary = set(result.classification.secondary_cases) if result.classification else set()
         # 부가 case 는 코드 검증기가 잡는 것(개인정보 · 인용 표기 · 계산 · 코드)을 확인하는 자리다.
-        ok = got in want and meta.get("expect_secondary", set()) <= secondary
+        ok = got in want and to_v3(meta.get("expect_secondary", set())) <= secondary
         hits += ok
         rows.append((ok, meta["id"], want, got, result))
 
@@ -1035,8 +1047,20 @@ def main(argv=None, backend=None) -> int:
     models = judge.models()
     summary.metrics.append(("model", f"{backend.model}"))
     for stage, name in models.items():
-        if name != backend.model:
+        if name != backend.model and stage != "decision":
             summary.metrics.append((f"model · {stage}", name))
+    # 결정 백엔드(kev). 에뮬레이션이면 확률이 보정돼 있지 않다 - 요약에 그 사실이 남아야
+    # 등급 2 · 1 을 읽는 사람이 그만큼 깎아 읽는다.
+    kind = judge.decision_kind
+    decision_note = {"kev": "", "emulated": "kev 에뮬레이션 — 확률 미보정",
+                     "scripted": "테스트 대본"}.get(kind, kind)
+    conditions.add("판정(kev)", models.get("decision", "(없음)"),
+                   "설정 kev.url" if kind == "kev" else "kev.url 비어 있음", decision_note)
+    summary.metrics.append(("decision", models.get("decision", "(없음)")
+                            + (" (에뮬레이션)" if kind == "emulated" else "")))
+    if kind == "emulated":
+        summary.notes.append("kev 서버 없이 일반 LLM 으로 범주 판정을 에뮬레이션했다. "
+                             "확률이 보정돼 있지 않으므로 등급 2 · 1 은 참고치다 (kev.url 을 채울 것).")
     summary.setup = conditions.compact()
 
     # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도

@@ -1,4 +1,4 @@
-"""개인정보 — case6. 질문에 개인 · 민감정보가 들어 있나."""
+"""개인정보 — U2 이벤트 · S3 의 재료. 질문에 개인 · 민감정보가 들어 있나."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def find_pii(text: str) -> list[dict]:
 
 
 def check_pii(text: str) -> Check:
-    """case6 — 질문에 개인·민감정보가 포함됨."""
+    """U2 — 질문에 개인·민감정보가 포함됨 (이벤트)."""
     hits = find_pii(text)
     if not hits:
         return Check("pii", "ok", "검출 없음")
@@ -40,5 +40,5 @@ def check_pii(text: str) -> Check:
 
 
 def process_data(ctx) -> tuple[list, list]:
-    # 답변이 아니라 그 답변을 부른 질문을 본다 - case6 은 "질문에" 개인정보가 있는 경우다.
+    # 답변이 아니라 그 답변을 부른 질문을 본다 - U2 는 "질문에" 개인정보가 있는 경우다. 답변 쪽은 short_circuit/leak(S3).
     return run_check(ctx, NAME, lambda t: check_pii(t.case.last_query))

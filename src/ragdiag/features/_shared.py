@@ -4,6 +4,7 @@
 폴더 안에 둔다 — 여기 올려두면 고칠 때 누가 영향받는지 알 수 없다.
 """
 
+import contextvars
 import queue
 import statistics
 import threading
@@ -12,6 +13,15 @@ from collections import Counter
 
 from ragdiag import settings
 from ragdiag.progress import Progress
+
+# 지금 판정 중인 턴. each_turn 이 fn(turn) 을 부르기 전에 넣는다. 백엔드 쪽에서 "어느 턴의
+# 호출인가" 를 알아야 할 때(로그 · 테스트의 시나리오 판정자) 읽는다. 스레드마다 따로다.
+_CURRENT_TURN: contextvars.ContextVar = contextvars.ContextVar("ragdiag_current_turn", default=None)
+
+
+def current_turn():
+    """지금 이 스레드가 판정 중인 TurnResult. 판정 밖에서는 None."""
+    return _CURRENT_TURN.get()
 
 
 def top_cases(turns, limit: int = 5):
@@ -46,6 +56,7 @@ def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
                    enabled=parallel and getattr(ctx, "progress", True))
 
     def run(turn):
+        token = _CURRENT_TURN.set(turn)
         try:
             fn(turn)
         except Exception as e:
@@ -53,6 +64,8 @@ def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
             # 닫힌 턴이면 그 사유를 지우지 않는다 - 늦게 온 응답의 예외는 뒷이야기다.
             if turn.error is None:
                 turn.error = f"[{name}] {type(e).__name__}: {e}"
+        finally:
+            _CURRENT_TURN.reset(token)
         bar.done(ok=turn.error is None)
 
     if parallel and len(turns) > 1:
@@ -144,3 +157,20 @@ def run_check(ctx, name, check) -> tuple[list, list]:
     """코드 검증기 하나를 열린 턴마다 돌려 turn.checks[name] 에 남긴다."""
     each_turn(ctx, name, lambda t: t.checks.__setitem__(name, check(t)))
     return [], []
+
+
+def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
+    """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다."""
+    answers, used = ctx.judge.decide(stage, state, questions)
+    turn.usage.add(used)
+    turn.n_kev_calls += bool(used.input_tokens or used.output_tokens)
+    return answers
+
+
+def grade_from_p(p: float) -> int:
+    """확률 → 증거 등급. 2 = 확신, 1 = 기울어짐, 0 = 후보 아님 (taxonomy_v3.md)."""
+    if p >= settings.KEV_CONFIDENT:
+        return 2
+    if p >= settings.KEV_LEAN:
+        return 1
+    return 0

@@ -24,7 +24,7 @@ import re
 from ragdiag.results import Check
 
 NAME = "degenerate"             # 결과가 checks["degenerate"] 로 남는다
-CASE = "case30"
+CASE = "I2"
 REASON = "답변이 같은 글자 · 기호의 반복뿐 (생성 붕괴)"
 NOTES = (
     "모델이 답을 만들다 무너졌다. 검색·생성 품질이 아니라 모델·서빙 쪽 문제다.",

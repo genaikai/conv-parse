@@ -69,3 +69,4 @@ tools/backend_cli.py
 # 갱신은 scripts/fetch-eval-data.sh 로 한다. 둘 다 Apache-2.0.
 !tests/data/
 !tests/data/*.json
+.superpowers/

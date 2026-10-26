@@ -117,6 +117,20 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 
     "org.candidate_fields": (list, False),
     "filter.any_values": (list, False),
+
+    # v3 — 결정 백엔드(kev). url 이 비면 일반 LLM 에뮬레이션.
+    "kev.url": (str, False),
+    "kev.key": (str, False),
+    "kev.model": (str, False),
+    "kev.timeout_sec": (int, False),
+    # v3 — 확률 → 등급, 청크 근거 임계값
+    "thresholds.kev_confident": ((int, float), False),
+    "thresholds.kev_lean": ((int, float), False),
+    "thresholds.chunk_evidence": ((int, float), False),
+    "thresholds.chunk_partial": ((int, float), False),
+    # v3 — 검색 도구 이름 (D1/T2 가름) · 사내 청크 풀 훅
+    "tools.search_names": (list, False),
+    "hooks.chunk_pool": (str, False),
 }
 
 # 없어진 키 → 왜 없어졌나. 판정에 더 이상 쓰지 않는다.
@@ -155,6 +169,15 @@ TO_SETTINGS = {
     "service_error.templates": "SERVICE_ERROR_TEMPLATES",
     "org.candidate_fields": "ORG_CANDIDATE_FIELDS",
     "filter.any_values": "FILTER_ANY_VALUES",
+    "kev.url": "KEV_URL",
+    "kev.key": "KEV_KEY",
+    "kev.model": "KEV_MODEL",
+    "kev.timeout_sec": "KEV_TIMEOUT_SEC",
+    "thresholds.kev_confident": "KEV_CONFIDENT",
+    "thresholds.kev_lean": "KEV_LEAN",
+    "thresholds.chunk_evidence": "CHUNK_EVIDENCE_P",
+    "thresholds.chunk_partial": "CHUNK_PARTIAL_P",
+    "tools.search_names": "SEARCH_TOOL_NAMES",
 }
 
 
@@ -245,10 +268,18 @@ def validate(values: dict[str, Any]) -> list[str]:
         threshold = values.get(key)
         if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
             problems.append(f"{key}: 0 과 1 사이여야 한다 (연속 일치 비율이다)")
+    for key in ("thresholds.kev_confident", "thresholds.kev_lean",
+                "thresholds.chunk_evidence", "thresholds.chunk_partial"):
+        threshold = values.get(key)
+        if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
+            problems.append(f"{key}: 0 과 1 사이여야 한다 (확률이다)")
+    hook = values.get("hooks.chunk_pool")
+    if isinstance(hook, str) and hook and ":" not in hook:
+        problems.append("hooks.chunk_pool: '모듈:함수' 꼴이어야 한다 (예: inhouse.parse:chunk_pool)")
     templates = values.get("service_error.templates")
     if isinstance(templates, list) and any(not str(t).strip() for t in templates):
         problems.append("service_error.templates: 빈 문자열이 있다. "
-                        "빈 문자열은 모든 답변에 일치해 전부 case9 가 된다")
+                        "빈 문자열은 모든 답변에 일치해 전부 I1 이 된다")
     return problems
 
 
@@ -509,6 +540,36 @@ def _install_labels(config: "Config") -> list[str]:
     return label_mod.install(**tables)
 
 
+def _install_hook(config: "Config") -> list[str]:
+    """hooks.chunk_pool 을 import 해 settings.CHUNK_POOL_HOOK 에 넣는다.
+
+    설정 적용 시점에 import 한다 - 함수를 못 찾으면 계산을 시작하기 전에 죽는다. 30분 돌고
+    첫 턴에서 죽는 것도, 조용히 내장으로 떨어지는 것도 피한다 (docs/design/chunk_pool_hook.md).
+    """
+    spec = config.get("hooks.chunk_pool")
+    if not spec:
+        if settings.CHUNK_POOL_HOOK is not None:
+            settings.CHUNK_POOL_HOOK = None
+            return ["CHUNK_POOL_HOOK ← (내장)"]
+        return []
+    import importlib
+    import sys
+
+    module_name, _, func_name = spec.partition(":")
+    if "" not in sys.path:
+        sys.path.insert(0, "")              # 작업 폴더의 파일 하나도 모듈로 받는다
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as e:
+        raise ConfigError(f"hooks.chunk_pool: 모듈을 찾을 수 없습니다: {module_name} ({e})\n"
+                          f"  공용 venv 에 설치됐거나 작업 폴더에 파일이 있어야 합니다.") from e
+    func = getattr(module, func_name, None)
+    if not callable(func):
+        raise ConfigError(f"hooks.chunk_pool: {module_name} 에 {func_name} 함수가 없습니다.")
+    settings.CHUNK_POOL_HOOK = func
+    return [f"CHUNK_POOL_HOOK ← hooks.chunk_pool ({spec})"]
+
+
 def apply(config: Config) -> list[str]:
     """설정을 settings 모듈에 반영한다. 바꾼 것들을 돌려준다.
 
@@ -516,7 +577,7 @@ def apply(config: Config) -> list[str]:
     실어 나르는 것이다. 설정은 실행 시작 시 한 번만 적용되고 그 뒤로 바뀌지
     않으므로 이쪽이 얕게 끝난다.
     """
-    changed = _install_labels(config)
+    changed = _install_labels(config) + _install_hook(config)
     for key, name in TO_SETTINGS.items():
         if key not in config:
             continue

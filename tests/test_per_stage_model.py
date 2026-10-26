@@ -16,7 +16,7 @@ import pytest
 
 from ragdiag.judge import STAGES, Judge
 from ragdiag.schema import GroundingCheck
-from tests.test_route import obs
+from tests.helpers import obs
 
 
 class _Backend:
@@ -136,6 +136,9 @@ def test_models_names_every_stage():
     assert judge.models() == {
         "observe": "큰모델", "sufficiency": "큰모델",
         "legibility": "큰모델", "grounding": "작은모델",
+        "observe_text": "큰모델", "claims": "큰모델", "quotes": "큰모델",
+        # 결정 백엔드. kev 가 없으면 기본 모델로 에뮬레이션한다.
+        "decision": "emulated:큰모델",
     }
 
 

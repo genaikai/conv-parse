@@ -1,16 +1,18 @@
-"""taxonomy 케이스 메타데이터.
+"""분류 체계 v3 — 묶음 라벨 · 플래그 · 이벤트 · 태그 · 증거 등급.
 
-case1~case29 는 taxonomy_v2.txt 와 일치해야 한다. case0 만 우리가 더한 것으로,
-"실패가 아님"을 낼 자리가 없으면 정상 후속 질문이 실패로 집계되기 때문이다.
+설계는 docs/design/taxonomy_v3.md. 여기는 그 표를 코드로 옮긴 것이다.
 
-case → 이름 · type · category 매핑. **category 는 case 에서 자동으로 결정된다** —
-각 case 는 정확히 하나의 type 에, 각 type 은 정확히 하나의 category 에 속하기 때문이다.
-그래서 분류를 category → case 순으로 두 번 하지 않는다. case 하나만 정하면 나머지는 계산이다.
+라벨은 `묶음글자 + 번호` 다 (`G5`). 묶음은 **고치는 사람**이다 — 같은 증상도 문서팀이
+고칠 일과 프롬프트 담당이 고칠 일은 다르고, 증상으로 묶으면 집계가 아무도 지목하지
+못한다. 같은 묶음 안의 "무엇을 어겼나" 는 라벨이 아니라 태그다 — 라벨이 많으면 셀이
+비어 표가 안 읽힌다.
 
-confidence 는 무엇이 판정을 결정하는지에 따른다:
-  high    코드로 검증 가능 (길이·언어·문법·인용 대조)
-  medium  LLM 판정 + 인용 강제
-  low     판정자의 사전지식에 의존 — 다른 라벨과 같은 무게로 집계하면 안 된다
+세 종류를 가른다.
+  failure  실패 라벨. 실패율 분모에 들어간다
+  flag     무결성 플래그 (C). 그 턴의 기록을 믿을 수 없다. 분모 밖
+  event    이벤트 (U2). 챗봇 실패가 아닌 사건. 분모 밖, 카운트만
+
+신뢰도는 고정값이 아니라 **주 라벨의 증거 등급**에서 나온다 (features/arbitrate).
 """
 
 from __future__ import annotations
@@ -20,322 +22,295 @@ from typing import Optional
 
 
 @dataclass(frozen=True)
-class TaxonomyCase:
-    case_id: str
+class Group:
+    group_id: str      # "G"
+    name: str          # "생성"
+    word: str          # "generation" — 문서 표기 G(generation)
+    owner: str         # 고칠 곳
+
+
+GROUPS: dict[str, Group] = {
+    g.group_id: g for g in [
+        Group("N", "실패 아님", "none", "필터"),
+        Group("U", "입력", "user", "질문 유도 · UI"),
+        Group("C", "맥락 기록", "context", "로그 · 적재 · 맥락 관리"),
+        Group("T", "도구 호출", "tool", "오케스트레이션 · 도구 연동"),
+        Group("D", "검색 근거", "document", "검색기 · 문서"),
+        Group("G", "생성", "generation", "생성 프롬프트 · 모델"),
+        Group("S", "정책 · 보안", "safety", "권한 정책 · 입력 방어 · 출력 필터"),
+        Group("I", "서빙", "infra", "인프라 · 모델 서빙"),
+    ]
+}
+
+
+@dataclass(frozen=True)
+class Label:
+    label_id: str
     name: str
-    type_id: str
-    type_name: str
-    category: str
-    confidence: str = "medium"
-    # 이 로그로는 판정할 수 없는 케이스. 라우팅이 절대 여기로 보내지 않는다.
-    diagnosable: bool = True
-    # 한 줄 설명. 이름만으로는 옆 케이스와 구분되지 않는 것들이 있어
-    # (case3/case15, case4/case14, case13/case17, case20/case22) 가르는 기준을 함께 적는다.
+    kind: str                  # failure · flag · event
     desc: str = ""
+
+    @property
+    def group_id(self) -> str:
+        return self.label_id[0]
+
+    @property
+    def group(self) -> Group:
+        return GROUPS[self.group_id]
+
+    # ---- 옛 이름과의 호환. 대시보드 · 전달본이 case_id · type_id 로 읽는다 ----
+    @property
+    def case_id(self) -> str:
+        return self.label_id
+
+    @property
+    def type_id(self) -> str:
+        return self.group_id
+
+    @property
+    def type_name(self) -> str:
+        return self.group.name
+
+    @property
+    def category(self) -> str:
+        return self.group.word
+
+    @property
+    def diagnosable(self) -> bool:
+        return True
 
 
 _ROWS = [
-    # category_0 · TYPE0 실패가 아님
-    #
-    # taxonomy_v2.txt 에는 없다. 필터가 재현율 쪽으로 넓게 잡기 때문에 생기는
-    # 라벨이고, 챗봇이 아니라 필터를 가리킨다. 없으면 정상 후속 질문이
-    # content_missing 으로 읽혀 case20 을 부풀린다 - 그 숫자가 코퍼스 보강
-    # 목록이 되어 문서팀에게 "쓸 필요 없는 문서"를 쓰게 만든다.
-    ("case0", "정상 — 불만 아님", "TYPE0", "실패가 아님", "category_0", "medium", True),
+    # (라벨, 이름, 종류, 설명)
+    ("N0", "정상 후속", "failure",
+     "후속 발화가 앞 답변을 문제 삼지 않는다. 새 질문이거나 수긍이다. 실패율 분모에서 빼고, "
+     "쌓이면 필터를 좁힐 신호로 읽는다. unclassified(판정이 안 섬)와 다르다."),
 
-    # category_1 · TYPE1 적절하지 않은 질문/요청
-    ("case1", "이해하기 어려운 질문", "TYPE1", "적절하지 않은 질문/요청", "category_1", "medium", True),
-    ("case2", "지원하지 않는 포맷 요구", "TYPE1", "적절하지 않은 질문/요청", "category_1", "medium", True),
-    ("case3", "복합 질문을 함", "TYPE1", "적절하지 않은 질문/요청", "category_1", "medium", True),
-    ("case4", "참조가 모호한 질문", "TYPE1", "적절하지 않은 질문/요청", "category_1", "medium", True),
-    ("case5", "컨텍스트 길이 초과", "TYPE1", "적절하지 않은 질문/요청", "category_1", "medium", False),
-    ("case6", "질문에 개인정보 포함", "TYPE1", "적절하지 않은 질문/요청", "category_1", "high", True),
+    ("U1", "낼 수 없는 형태 요구", "failure",
+     "링크 · 이미지 · 파일 첨부처럼 이 서비스가 낼 수 없는 형태를 요구했다. "
+     "낼 수 있는 형식인데 안 지킨 것은 G1."),
+    ("U2", "질문에 개인정보", "event",
+     "사용자가 질문에 주민번호 · 연락처 등 개인정보를 넣었다. 챗봇 실패가 아니라 입력 "
+     "사건이다 — 그 턴의 답변은 따로 끝까지 판정한다."),
 
-    # category_2 · TYPE2 서비스 안정성
-    ("case7", "응답 지연으로 이탈", "TYPE2", "서비스 안정성 문제", "category_2", "medium", False),
-    # 텍스트만으로 잘림을 짚던 검증기를 뺐다 - 온전한 답변이 기호 · 답변 형식 때문에
-    # 잘림으로 오분류되는 일이 너무 많았다. finish_reason 이 로그에 생기면 되살린다.
-    ("case8", "출력 잘림", "TYPE2", "서비스 안정성 문제", "category_2", "high", False),
-    ("case9", "서비스 자원 부족 응답", "TYPE2", "서비스 안정성 문제", "category_2", "high", True),
-    # 원본에 없다. 같은 글자 · 기호의 반복뿐인 답변이 실제 로그에 있었고, 관측에 넣으면
-    # 거절이나 무응답으로 읽혀 엉뚱한 case 로 갔다. 고칠 곳이 모델 · 서빙이라 TYPE2 다.
-    # 번호는 taxonomy 뒤에 붙였지만 **자리는 여기다** - 목록 순서는 type 이 먼저다.
-    ("case30", "생성 붕괴", "TYPE2", "서비스 안정성 문제", "category_2", "high", True),
+    ("C1", "앞 턴 누락", "flag",
+     "대화에 앞 턴이 있는데 history_chat 에 빠져 있다. 모델이 못 본 것인지 로그/적재가 "
+     "떨어뜨린 것인지 로그만으로 못 가른다. 이 턴의 G2(맥락) 는 판정하지 않는다."),
+    ("C2", "memory 어긋남", "flag",
+     "memory 가 있는데 그 내용이 대화 어디에도 없다. memory 모듈이나 적재의 결함이다. "
+     "이 턴의 G2[memory] 는 판정하지 않는다."),
 
-    # category_2 · TYPE3 의도 파악 실패
-    ("case10", "요구 언어 불이행", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "high", True),
-    # medium 이다. 길이만은 코드가 판정하지 않는다 - 기준이 사용자 머릿속에
-    # 있어 가릴 수 없다. case10(언어)·case12(포맷)와 같은 무게로 집계하면 안 된다.
-    ("case11", "요구 길이 불이행", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
-    ("case12", "요구 포맷 불이행", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "high", True),
-    ("case13", "의도와 다른 답변", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
-    ("case14", "이전 턴 맥락 상실", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
-    ("case15", "복합 질문 일부만 답변", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
-    ("case16", "말투·어조 불이행", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
-    ("case17", "두루뭉술한 답변", "TYPE3", "사용자의 의도를 파악하지 못함", "category_2", "medium", True),
+    ("T1", "호출 없음", "failure",
+     "업무 질문인데 도구(검색 포함)를 하나도 부르지 않고 답했다. tool_calls 와 "
+     "retrieved_data 가 모두 비어 있다. 가져왔는데 빗나간 D1 · T2 와 고칠 곳이 다르다."),
+    ("T2", "결과가 질문과 무관", "failure",
+     "업무 도구를 불렀고 결과도 왔는데 그 내용이 질문에 답하지 못한다. 도구 선택 · 인자의 "
+     "문제다. 검색 도구 결과에 답이 없는 것은 D1."),
+    ("T3", "빈 결과에 단정", "failure",
+     "도구 결과가 비었는데(0건 · 빈 값) 답변이 수치 · 사실을 단정했다. 도구로 증명되는 "
+     "유일한 할루시네이션이다."),
 
-    # category_2 · TYPE4 할루시네이션
-    ("case18", "문서와 어긋나는 주장", "TYPE4", "할루시네이션 답변", "category_2", "medium", True),
-    ("case19", "응답 일관성 문제", "TYPE4", "할루시네이션 답변", "category_2", "medium", False),
+    ("D1", "검색 근거에 답 없음", "failure",
+     "검색이 가져온 청크 어디에도 요구에 답하는 내용이 없다. 검색기가 못 찾은 것인지 "
+     "문서가 애초에 없는 것인지는 코퍼스 전체를 봐야 갈린다 — 부서 편중으로만 추정."),
 
-    # category_2 · TYPE5 Retrieve Context
-    ("case20", "Retrieve 실패", "TYPE5", "도메인 관련 Retrieve Context 문제", "category_2", "medium", True),
-    ("case21", "Retrieve 미수행", "TYPE5", "도메인 관련 Retrieve Context 문제", "category_2", "high", True),
-    ("case22", "Retrieve 성공, 생성 실패", "TYPE5", "도메인 관련 Retrieve Context 문제", "category_2", "medium", True),
-    ("case23", "구 문서 Retrieve", "TYPE5", "도메인 관련 Retrieve Context 문제", "category_2", "medium", False),
-    ("case24", "출처/인용 표기 오류", "TYPE5", "도메인 관련 Retrieve Context 문제", "category_2", "high", True),
+    ("G1", "명시 요구 불이행", "failure",
+     "언어 · 길이 · 포맷 · 어조 요구를 지키지 않았다. 어느 요구인지는 태그(G1:언어 …)."),
+    ("G2", "맥락 불이행", "failure",
+     "앞에서 정한 조건 · 앞 답변의 약속 · memory 의 사용자 정보를 어겼거나 앞 답변과 "
+     "모순된다. 어느 맥락인지는 태그(G2:조건 …). C1 플래그가 선 턴에서는 내지 않는다."),
+    ("G3", "의도와 다른 답", "failure",
+     "물은 것과 다른 것을 답했다. 다른 라벨에 걸리지 않은 내용 불만의 잔여다 — "
+     "구조적으로 다른 원인을 삼키지 못하게 맨 뒤에 둔다."),
+    ("G4", "복합 일부만 답", "failure",
+     "복합 질문의 일부만 답했다. 사용자가 복합 질문을 한 것 자체는 태그(복합질문)."),
+    ("G5", "근거 활용 실패", "failure",
+     "근거가 충분했는데 안 썼거나, 어긋나는 주장을 했거나, 인용을 지어냈다. "
+     "어느 쪽인지는 태그(G5:안씀 · G5:어긋남 · G5:지어낸인용 · G5:과거근거)."),
+    ("G6", "일반 지식 · 계산 · 코드 오류", "failure",
+     "문서와 무관한 질문의 오답. 등식 · 날짜 · 코드 문법처럼 코드가 확인한 것만 센다."),
 
-    # category_2 · TYPE6 일반 질문
-    ("case25", "상식 질문 오답", "TYPE6", "일반 질문", "category_2", "low", True),
-    ("case26", "계산 오답", "TYPE6", "일반 질문", "category_2", "high", True),
-    ("case27", "코드/도구 사용법 오답", "TYPE6", "일반 질문", "category_2", "medium", True),
+    ("S1", "정책 거절", "failure",
+     "정책 · 권한을 이유로 거절했고 사용자가 불만을 표했다. 불만 없는 거절은 정당한 "
+     "거절이라 N0 다. 권한 부족 거절과 로그상 구분되지 않는다."),
+    ("S2", "인젝션 수행", "failure",
+     "문서 안에 숨은 지시를 모델이 그대로 수행했다. 지시문이 있기만 한 것은 아니다."),
+    ("S3", "답변 정보 유출", "failure",
+     "질문에 없던 개인정보 패턴이 답변에 나왔다."),
 
-    # category_2 · TYPE7 보안/정책
-    ("case28", "보안 정책상 답변 불가", "TYPE7", "보안/정책 제한", "category_2", "medium", True),
-    ("case29", "간접 프롬프트 인젝션", "TYPE7", "보안/정책 제한", "category_2", "medium", True),
-
+    ("I1", "자원 부족 문구", "failure",
+     "모델 자원을 확보하지 못해 서비스가 정해진 안내 문구를 대신 내보냈다. 모델이 답을 "
+     "만든 적이 없다."),
+    ("I2", "붕괴 · 읽을 수 없음", "failure",
+     "같은 글자의 반복, 토큰 잡탕, 내부 유출처럼 사람이 읽을 수 없는 답변이다. "
+     "코드 규칙이 잡으면 high, 읽기 판정이 잡으면 medium."),
 ]
 
+LABELS: dict[str, Label] = {row[0]: Label(*row) for row in _ROWS}
+CASES = LABELS                   # 옛 이름
 
-# 케이스별 한 줄 설명. taxonomy_v2.txt 의 정의를 옮겨 왔다.
-#
-# 원문을 그대로 두지 않고 여기에 둔 이유: taxonomy_v2.txt 는 저장소에 올리지 않는
-# 파일이라 대상 장비에 없을 수 있다. 대시보드가 그 파일을 읽게 만들면 없을 때
-# 라벨이 case20 같은 번호로만 남고, 번호만 보고 무엇인지 아는 사람은 없다.
-#
-# 이름만으로 구분되지 않는 쌍이 있어 "무엇이 아닌가"를 함께 적는다. 필터에서 case 를
-# 고를 때 실제로 막히는 지점이 그쪽이다.
-_DESC = {
-    "case0":  "후속 발화가 앞 답변을 문제 삼지 않는다. 새 질문이거나 수긍이다. "
-              "실패율 분모에서 빼고, 쌓이면 필터를 좁힐 신호로 읽는다. "
-              "판정이 안 서는 것(unclassified)과 다르다 — 이건 '문제 없음'이 확인된 것이다.",
-    "case1":  "질문이 모호해 무엇을 묻는지 특정되지 않는다. 되묻기를 유도해야 할 자리다.",
-    "case2":  "그림·개발 환경 링크처럼 이 서비스가 낼 수 없는 형태를 요구했다. "
-              "낼 수 있는 형식인데 안 지킨 것은 case12.",
-    "case3":  "한 번에 여러 의도를 섞어 물었다 — 사용자 쪽 문제다. "
-              "모델이 그중 일부만 답한 것은 case15.",
-    "case4":  "'그거 다시 알려줘'처럼 앞 턴을 전제로 지시 대상이 불명확하다. "
-              "질문이 불완전한 것이고, 답변이 맥락을 잃은 것은 case14.",
-    "case5":  "입력이 모델 컨텍스트 상한을 넘겨 품질이 떨어졌다. "
-              "상한값 필드가 없어 이 로그로는 판정하지 않는다.",
-    "case6":  "질문에 주민번호·연락처 등 개인정보가 실려 들어왔다.",
-    "case7":  "답변은 왔으나 지연이 심해 사용자가 이탈했다. "
-              "서버 응답 시간 필드가 없어 판정하지 않는다 — 턴 시각 차이로는 대체되지 않는다.",
-    "case8":  "답변이 문장 중간에서 끊겼다. 토큰 상한 등 출력 잘림. "
-              "텍스트만으로는 '끊김' 과 '그렇게 끝맺음' 이 갈리지 않아 판정하지 않는다 — "
-              "finish_reason 필드가 로그에 생기면 되살린다.",
-    "case9":  "모델 자원을 확보하지 못해 서비스가 정해진 안내 문구를 대신 내보냈다. "
-              "모델이 답을 만든 적이 없으므로 검색·생성 품질과 무관하다 — "
-              "고칠 곳은 인프라이지 프롬프트가 아니다.",
-    "case30": "답변이 같은 글자 · 기호의 반복뿐이다 (5555…, !!!!…, 같은 문장 되풀이). "
-              "모델이 답을 만들다 무너진 것이라 검색·생성 품질과 무관하다 — 고칠 곳은 "
-              "모델·서빙이다. 정해진 안내 문구가 나온 것은 case9.",
-    "case10":  "특정 언어로 답해 달라고 했는데 다른 언어로 답했다.",
-    "case11": "짧게/길게 등 분량 요구를 지키지 않았다.",
-    "case12": "표·불릿 등 요구한 형식으로 내지 않았다. "
-              "애초에 낼 수 없는 형식을 요구한 것은 case2.",
-    "case13": "물은 것과 다른 것을 답했다. 의도 파악 실패. "
-              "맞게 답했는데 두루뭉술해서 다음 행동을 알 수 없는 것은 case17.",
-    "case14": "답변이 앞 턴의 맥락을 잊거나 잘못 이었다. "
-              "검색이 실패해도 이렇게 보이므로, 문서 증거가 있는 case20·case22 을 먼저 가른다.",
-    "case15": "여러 의도 중 일부만 답했다 — 고칠 곳은 모델이다. "
-              "사용자가 복합 질문을 한 것 자체는 case3.",
-    "case16": "말투·어조·용어 사용에 대한 요구를 지키지 않았다.",
-    "case17": "내용은 맞으나 사용자가 다음에 무엇을 할지 알 수 없다. "
-              "아예 다른 것을 답한 것은 case13. "
-              "문서에 답이 없어서 두루뭉술한 것은 case20 — 증상은 같고 고칠 곳이 반대다.",
-    "case18": "검색된 문서와 어긋나는 주장을 했다. "
-              "문서 밖의 허구는 대조할 것이 없어 판정 대상이 아니다.",
-    "case19": "같은 질문에 매번 다르게 답하거나 이전 답변과 상충한다. "
-              "턴 하나가 아니라 로그 전체를 훑어야 해 이 파이프라인에서는 판정하지 않는다.",
-    "case21": "rag_data 가 빈 리스트다 — 검색 결과가 0건이라 대조할 문서 자체가 없었다. "
-              "서비스가 '검색 없이 답할 수 있다'고 판단했을 수 있고, 그 판단이 틀린 것이라면 "
-              "고칠 곳은 검색 트리거다. 가져왔는데 빗나간 case20 과 고칠 곳이 다르다.",
-    "case20": "가져온 청크에 답이 없다. 검색기가 못 찾은 것인지 문서가 애초에 없는 것인지는 "
-              "코퍼스 전체를 봐야 갈린다 — 특정 부서에 몰리면 문서 부재 쪽이다. 검색 결과가 0건인 것은 case21 이다. "
-              "답변이 두루뭉술한 것은 case17 과 같지만, 이쪽은 문서에 답이 없어서다.",
-    "case22": "청크에 답이 있는데 답변이 쓰지 않았다. "
-              "'인사팀에 문의하세요' 같은 회피성 안내도 거절이 아니라 여기다.",
-    "case23": "최신 문서 대신 구 문서를 가져왔다. "
-              "청크에 문서 ID·개정일이 없어 판정하지 않는다.",
-    "case24": "답변이 인용부호로 제시한 문장이 문서와 대조되지 않는다. "
-              "문서명·조항번호는 청크에 메타데이터가 없어 검증 범위 밖이다.",
-    "case25": "상식 질문에 틀리게 답했다. 판정 근거가 판정자의 사전지식뿐이라 "
-              "다른 케이스와 같은 무게로 집계하면 안 된다.",
-    "case26": "답변 안의 등식을 다시 계산해 보니 틀렸다. "
-              "'5영업일 뒤면 3월 13일' 같은 자연어 계산은 판정 범위 밖이다.",
-    "case27": "SQL·Python·Excel 등의 사용법이나 코드가 부정확하다. "
-              "문법까지만 검증되고 실행 결과는 보지 않는다.",
-    "case28": "보안 정책상 답할 수 없는 정보를 요청해 거절했다. "
-              "권한 부족으로 거절한 경우와 로그상 구분되지 않는다.",
-    "case29": "문서 안에 숨은 지시를 모델이 그대로 수행했다. "
-              "지시문이 있기만 한 것은 해당하지 않는다 — 사규의 '~한다'가 대량 오탐된다.",
-}
+FAILURES = [l for l in LABELS.values() if l.kind == "failure"]
+FLAGS = [l for l in LABELS.values() if l.kind == "flag"]
+EVENTS = [l for l in LABELS.values() if l.kind == "event"]
 
-# 라벨은 붙었는데 taxonomy 밖인 경우. 화면에서 번호만 남지 않도록 같이 설명한다.
-FALLBACK_DESC = {
-    "unclassified": "어느 case 에도 넣지 못했다. '문제 없음'이 아니라 수동 검토 대상이다.",
-    "out_of_taxonomy": "taxonomy 에 자리가 없는 유형. 쌓이면 케이스를 추가하라는 신호다.",
-}
+# 중재의 동률 깨기. 같은 등급이면 앞이 이긴다. 이유는 설계 문서의 "후보와 중재".
+ORDER = ["I1", "I2", "S2", "S3", "N0", "S1", "U1", "T1", "T3", "D1", "T2",
+         "G1", "G5", "G6", "G4", "G2", "G3"]
+assert set(ORDER) == {l.label_id for l in FAILURES}
 
-
-CASES: dict[str, TaxonomyCase] = {
-    row[0]: TaxonomyCase(*row, desc=_DESC[row[0]]) for row in _ROWS
-}
-
-# 라우팅이 도달할 수 없는 케이스. 목록에서 지우지 않고 남겨두는 이유는
-# "우리 분류에는 그런 게 없다"가 되지 않게 하기 위해서다.
-UNDIAGNOSABLE = {c.case_id for c in CASES.values() if not c.diagnosable}
-
-# 어느 case 에도 넣을 수 없을 때. "문제 없음"이 아니라 수동 검토 대상이다.
 UNCLASSIFIED = "unclassified"
-# taxonomy 에 해당 항목이 아예 없을 때. 쌓이면 케이스를 추가하라는 신호다.
-OUT_OF_TAXONOMY = "out_of_taxonomy"
+OUT_OF_TAXONOMY = "out_of_taxonomy"     # 옛 이름. v3 에서는 내지 않는다 — unclassified 로 합친다
+UNDIAGNOSABLE: set[str] = set()         # v3 에는 판정 불가 라벨을 두지 않는다
+
+# 태그. 라벨 꼴(`G1:언어`)과 단독 꼴(`복합질문`)이 있다. 코드 검증기 이름도 태그가 된다.
+TAGS: dict[str, str] = {
+    "U3": "질문 불완전 — 모호하거나 지시 대상이 안 풀린다",
+    "되묻기없음": "질문이 불완전했는데 답변이 되묻지 않았다",
+    "G1:언어": "요구한 언어로 답하지 않았다",
+    "G1:길이": "분량 요구를 지키지 않았다",
+    "G1:포맷": "요구한 형식으로 내지 않았다",
+    "G1:어조": "말투 · 어조 · 용어 요구를 지키지 않았다",
+    "G2:조건": "앞 질문에서 정한 조건을 어겼다",
+    "G2:약속": "앞 답변이 약속한 것을 지키지 않았다",
+    "G2:memory": "memory 의 사용자 정보를 반영하지 않았거나 어긋난다",
+    "G2:모순": "앞 답변과 다른 사실을 말한다",
+    "G5:안씀": "근거에 답이 있는데 쓰지 않았다",
+    "G5:어긋남": "근거와 어긋나는 주장을 했다",
+    "G5:지어낸인용": "답변이 인용부호로 제시한 문장이 근거에 없다",
+    "G5:과거근거": "답은 history_input 으로 넘어온 과거 문서에만 있었다",
+    "G6:계산": "등식 · 날짜 계산이 틀렸다",
+    "G6:코드": "코드 문법이 깨졌다",
+    "G6:일반": "일반 지식 질문의 불만 — 코드로 확인할 수 없다",
+    "T:인자불일치": "질문의 고유명사가 도구 인자에 없다",
+    "T:순서": "도구 호출 순서가 의존 관계와 어긋난다",
+    "D:출처미상": "검색 도구 이름 목록이 없어 D1 과 T2 를 가르지 못했다",
+    "복합질문": "질문이 복합이다",
+    "미검증주장": "일반 지식 주장이 있어 근거와 대조하지 못했다",
+    "2차불일치": "충족도 2차 검증이 1차와 어긋났다",
+}
+
+# 증거 등급 → 신뢰도. 등급의 뜻은 설계 문서.
+GRADE_CONFIDENCE = {4: "high", 3: "high", 2: "medium", 1: "low", 0: "low"}
 
 
-def sort_key(case_id: str) -> tuple[int, int, int, str]:
-    """**type 이 먼저, 그 안에서 번호.** 번호는 문자열이 아니라 숫자로 본다.
-
-    문자열로 정렬하면 case10 이 case2 앞에 온다. 30개짜리 목록에서 이걸 만나면
-    "정렬이 안 돼 있다"로 읽고 원하는 번호를 눈으로 훑게 된다.
-
-    **type 을 앞에 두는 이유:** 번호는 원본 taxonomy 의 것이고 우리가 더한 case 는
-    뒤 번호를 받는다 (case30 생성 붕괴는 TYPE2 인데 번호가 맨 뒤다). 번호만으로
-    정렬하면 그 case 가 제 묶음에서 떨어져 목록 끝에 혼자 남고, 조직 탭의 표는
-    type 순으로 열을 놓으므로 **표에서 본 case 를 고르는 자리에서 못 찾는다.**
-    실제로 그 상태였다. case0~29 는 번호순과 type 순이 일치하므로 달라지는 것은
-    우리가 더한 case 뿐이다.
-
-    taxonomy 밖의 값(unclassified 등)은 뒤로 보낸다 - 번호가 없으므로 사이에
-    끼면 그것도 순서가 없어 보인다.
-    """
-    case = CASES.get(case_id)
-    if case is not None and case_id[4:].isdigit():
-        return (0, int(case.type_id[4:]), int(case_id[4:]), "")
-    if case_id.startswith("case") and case_id[4:].isdigit():
-        return (0, 99, int(case_id[4:]), "")      # taxonomy 에 없는 번호
-    return (1, 99, 0, case_id)
+def confidence_of(grade: int) -> str:
+    return GRADE_CONFIDENCE.get(grade, "low")
 
 
-def ordered(case_ids) -> list[str]:
-    """case 목록을 번호순으로. 고르는 자리와 보는 자리가 같은 순서여야 한다."""
-    return sorted(case_ids, key=sort_key)
+# ---------------------------------------------------------------------------
+# 조회
+# ---------------------------------------------------------------------------
+
+def get(label_id: str) -> Optional[Label]:
+    return LABELS.get(label_id)
 
 
-def get(case_id: str) -> Optional[TaxonomyCase]:
-    return CASES.get(case_id)
+def is_failure(label_id: str) -> bool:
+    l = LABELS.get(label_id)
+    return l is not None and l.kind == "failure"
 
 
-def label(case_id: str) -> str:
-    """`case12 · 요구 포맷 불이행` — 번호만으로는 무엇인지 알 수 없다."""
-    case = CASES.get(case_id)
-    if case is not None:
-        return f"{case_id} · {case.name}"
-    return {"unclassified": "unclassified · 분류 실패",
-            "out_of_taxonomy": "out_of_taxonomy · taxonomy 밖"}.get(case_id, case_id)
+def sort_key(label_id: str) -> tuple[int, int, int, str]:
+    """묶음 순서(ORDER 의 묶음 등장 순) → 번호. taxonomy 밖은 뒤로."""
+    group_rank = {g: i for i, g in enumerate("NUCTDGSI")}
+    l = LABELS.get(label_id)
+    if l is not None:
+        return (0, group_rank.get(l.group_id, 50), int(label_id[1:]), "")
+    return (1, 99, 0, label_id)
 
 
-def desc(case_id: str) -> str:
-    case = CASES.get(case_id)
-    return case.desc if case is not None else FALLBACK_DESC.get(case_id, "")
+def ordered(label_ids) -> list[str]:
+    return sorted(label_ids, key=sort_key)
 
 
-def tooltip(case_id: str) -> str:
-    """표 머리글에 마우스를 올렸을 때 펼칠 한 덩어리.
+def label(label_id: str) -> str:
+    """`G5 · 근거 활용 실패`."""
+    l = LABELS.get(label_id)
+    if l is not None:
+        return f"{label_id} · {l.name}"
+    if label_id == UNCLASSIFIED:
+        return "unclassified · 분류 실패"
+    return label_id
 
-    머리글에는 case3 만 들어간다 - 이름을 다 적으면 열이 넓어져 한 화면에 안
-    들어오고, 번호만 있으면 무엇인지 알 수 없다. 이름과 "무엇이 아닌가"까지
-    여기에 담는다. 헷갈리는 쌍(case3/case15, case4/case14)이 실제로 막히는
-    지점이 거기다.
-    """
-    name = label(case_id)
-    detail = desc(case_id)
+
+def desc(label_id: str) -> str:
+    l = LABELS.get(label_id)
+    if l is not None:
+        return l.desc
+    if label_id == UNCLASSIFIED:
+        return "어느 라벨에도 확신이 없다. '문제 없음'이 아니라 수동 검토 대상이다."
+    return TAGS.get(label_id, "")
+
+
+def tooltip(label_id: str) -> str:
+    name = label(label_id)
+    detail = desc(label_id)
     return f"{name}\n\n{detail}" if detail else name
 
 
-def describe(case_id: str) -> dict:
-    """출력에 실을 case 메타데이터."""
-    case = CASES.get(case_id)
-    if case is None:
+def describe(label_id: str) -> dict:
+    """출력에 실을 메타데이터. 키 이름은 옛 결과 파일과 같다 (case_id · type_id …)."""
+    l = LABELS.get(label_id)
+    if l is None:
         return {
-            "case_id": case_id,
-            "case_name": {
-                UNCLASSIFIED: "분류 실패 (수동 검토 대상)",
-                OUT_OF_TAXONOMY: "taxonomy 에 없는 유형",
-            }.get(case_id, case_id),
-            "type_id": "",
-            "type_name": "",
-            "category": "",
+            "case_id": label_id,
+            "case_name": "분류 실패 (수동 검토 대상)" if label_id == UNCLASSIFIED
+                         else TAGS.get(label_id, label_id),
+            "type_id": "", "type_name": "", "category": "", "owner": "", "kind": "",
         }
     return {
-        "case_id": case.case_id,
-        "case_name": case.name,
-        "type_id": case.type_id,
-        "type_name": case.type_name,
-        "category": case.category,
+        "case_id": l.label_id,
+        "case_name": l.name,
+        "type_id": l.group_id,
+        "type_name": l.group.name,
+        "category": l.group.word,
+        "owner": l.group.owner,
+        "kind": l.kind,
     }
 
 
 # ---------------------------------------------------------------------------
-# 구 번호 대응
-#
-# 번호를 두 번 다시 매겼다.
-#   v1 (원본 taxonomy.txt) -> v2 타입 순서대로 재번호
-#                          -> v3 판정 불가 케이스 제거
-#                          -> v4 case9(서비스 자원 부족 응답) 삽입, 이후 한 칸씩 밀림
-#                          -> v5 case21(Retrieve 미수행) 삽입, 이후 한 칸씩 밀림
-#
-# v4 를 왜 넣었나: v2 는 "서비스 끊김은 답변이 없어 로그에 턴 자체가 안 남는다"고
-# 보고 TYPE2 를 사실상 비워 뒀다. 실제 배포에서는 자원을 확보하지 못하면 서비스가
-# 정해진 안내 문구를 답변 자리에 넣어 내보낸다 - 턴은 남고, 코드로 판정된다.
-# 그동안 이 턴들은 판정자가 거절로 읽어 case27(구 case26, 보안 정책)로 갔다.
-#
-# 이미 붙인 라벨이 있으면 migrate() 로 옮긴다.
+# v2 (case0~30) → v3. 옛 결과 파일을 읽을 때만 쓴다.
 # ---------------------------------------------------------------------------
 
-# 키는 v1 번호, 값은 현재 번호다. 재번호할 때 키를 함께 밀지 않도록 주의할 것 -
-# 왼쪽은 과거의 사실이라 바뀌지 않는다.
-V1_TO_CURRENT = {
-    **{f"case{n}": f"case{n}" for n in range(1, 7)},   # case1~6 그대로
-    "case8": "case7",     # 응답 지연
-    "case9": "case8",     # 출력 잘림
-    "case10": "case10",   # 요구 언어   (v3 case9 -> v4 case10)
-    "case11": "case11",   # 요구 길이
-    "case12": "case12",   # 요구 포맷
-    "case13": "case13",   # 의도와 다름
-    "case14": "case14",   # 맥락 상실
-    "case15": "case18",   # 사실 오류 -> 문서와 어긋나는 주장 (범위 축소)
-    "case16": "case19",   # 응답 일관성
-    "case17": "case20",   # Retrieve 실패
-    "case18": "case22",   # Retrieve 성공, 생성 실패
-    "case19": "case23",   # 구 문서
-    "case20": "case24",   # 출처/인용
-    "case21": "case25",   # 상식
-    "case22": "case26",   # 계산
-    "case23": "case27",   # 코드/도구
-    "case24": "case28",   # 보안 정책
-    "case26": "case29",   # 인젝션
+V2_TO_V3: dict[str, Optional[str]] = {
+    "case0": "N0",
+    "case1": None, "case4": None,          # → U3 태그
+    "case2": "U1",
+    "case3": None,                         # → 복합질문 태그
+    "case5": None, "case7": None, "case8": None, "case19": None, "case23": None,   # 제외
+    "case6": "U2",
+    "case9": "I1", "case30": "I2",
+    "case10": "G1", "case11": "G1", "case12": "G1", "case16": "G1",
+    "case13": "G3", "case17": "G3",
+    "case14": "G2",
+    "case15": "G4",
+    "case18": "G5", "case22": "G5", "case24": "G5",
+    "case20": "D1",
+    "case21": "T1",
+    "case25": "G6", "case26": "G6", "case27": "G6",
+    "case28": "S1", "case29": "S2",
 }
 
-# v1 에 있었으나 이 로그로는 판정할 수 없어 뺀 것. 키는 v1 번호다.
-V1_DROPPED = {
-    "case7": "서비스 끊김 - 답변이 없으면 로그에 턴 자체가 안 남음",
-    "case25": "권한 없는 접근 - 권한 조회 결과 필요, 현 case27 과 로그상 구분 불가",
-    "case27": "외부 API 호출 실패 - 툴 호출 로그 필요",
-    "case28": "로그인/인증 실패 - 대화가 시작되지 않음",
-    "case29": "세션 만료 - 위와 같음",
-    "case30": "권한 시스템 오류 - 위와 같음",
+# v2 에 자리가 없던 라벨. 2026-10 로그의 history_input · tool_calls 가 있어야 보인다.
+# V2_TO_V3 의 목적지가 아닌 라벨은 전부 여기 있어야 한다 (tests/test_spec_compliance.py).
+NEW_IN_V3: set[str] = {"C1", "C2", "T2", "T3", "S3"}
+
+V2_TAG: dict[str, str] = {
+    "case1": "U3", "case4": "U3", "case3": "복합질문",
+    "case10": "G1:언어", "case11": "G1:길이", "case12": "G1:포맷", "case16": "G1:어조",
+    "case14": "G2:조건", "case18": "G5:어긋남", "case22": "G5:안씀", "case24": "G5:지어낸인용",
+    "case26": "G6:계산", "case27": "G6:코드", "case25": "G6:일반",
 }
 
-# v1 에 대응이 없는 것. 현재 번호로 적는다.
-# case15~17 은 v3, case9 는 v4, case21 은 v5, case0 은 이 구현에서 생겼다.
-#
-# case0 은 taxonomy_v2.txt 에도 없다. 빠져 있으면 "이 라벨은 어디서 왔나"를
-# 되짚을 때 v1 에 있었다고 잘못 읽는다 - 실제로는 필터가 재현율 쪽으로 넓게
-# 잡아서 우리가 만든 자리다.
-NEW_SINCE_V1 = {"case0", "case9", "case15", "case16", "case17", "case21", "case30"}
+
+def from_v2(case_id: str) -> tuple[Optional[str], Optional[str]]:
+    """옛 case 번호 → (v3 라벨, 태그). 제외된 것은 (None, None), 태그로만 남는 것은 (None, 태그)."""
+    if case_id in LABELS:
+        return case_id, None
+    return V2_TO_V3.get(case_id), V2_TAG.get(case_id)
 
 
-def migrate(v1_case_id: str) -> Optional[str]:
-    """원본 taxonomy.txt 번호를 현재 번호로. 제외됐거나 대응이 없으면 None."""
-    return V1_TO_CURRENT.get(v1_case_id)
+def migrate(case_id: str) -> Optional[str]:
+    """옛 호출부용. 라벨만."""
+    return from_v2(case_id)[0]

@@ -14,10 +14,13 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from ragdiag.schema import (
-    Observation,
     Case,
+    Claims,
     GroundingCheck,
     LegibilityCheck,
+    Observation,
+    ObservationText,
+    QuotePair,
     SufficiencyJudgment,
 )
 
@@ -386,3 +389,82 @@ def observe_user_message(case: Case) -> str:
 
 ## 그 답변에 대한 사용자의 후속 발화
 {case.current_query}"""
+
+
+# ---------------------------------------------------------------------------
+# v3 — 일반 LLM 이 문장을 만드는 세 자리. 범주 판정은 questions.py (kev) 로 갔다.
+# ---------------------------------------------------------------------------
+
+OBSERVE_TEXT_SYSTEM = """\
+너는 업무 지식 챗봇의 대화 로그를 분석하는 감사자다.
+
+주어지는 것: 사용자의 이전 질문들, 마지막 질문에 대한 챗봇 답변, 그 답변에 대한 사용자의
+후속 발화. 검색된 문서는 주어지지 않는다 - 의도된 것이다. 문서를 보면 "사용자가 원한 것"이
+문서에 있는 내용 쪽으로 끌려간다.
+
+할 일: 판정하지 말고 **문장을 정리하는 것.** 무엇이 잘못됐는지는 다른 단계가 정한다.
+
+- resolved_question: 대화 맥락을 반영해 대명사와 생략을 모두 푼, 그 자체로 이해되는 질문.
+  마지막 질문이 무엇을 물었는지를 적는다. 후속 발화로 범위가 좁혀졌으면 좁혀진 쪽을 따른다.
+- unmet_need: 사용자가 원했는데 받지 못한 것. **사용자가 요구하지 않은 항목을 덧붙이지 마라.**
+  "정확한 금액이요"라는 불만에 "직급별 금액표"까지 적으면 문서에 금액이 있어도 부족하다는
+  판정이 나온다. 후속 발화가 앞 답변을 문제 삼지 않으면 빈 문자열.
+- requested_language: "영어로 답해줘" 같은 요구가 **이전 질문들에** 있을 때만 ISO 코드. 없으면 빈 문자열.
+- requested_length_value: "세 줄 이내"는 3, "500자 이내"는 500. 수치가 없으면 0.
+- history_quote: 마지막 질문보다 **앞의** 질문들에 범위를 좁히는 조건("국내만", "올해 기준으로",
+  "신입 기준으로")이 적혀 있으면 그 구절을 글자 그대로. 없으면 빈 문자열. 지어낸 구절은 원문
+  대조에서 걸러진다.
+
+"""
+OBSERVE_TEXT_SYSTEM += output_contract(ObservationText)
+
+
+CLAIMS_SYSTEM = """\
+너는 챗봇 답변에서 **사실 주장**을 뽑는 감사자다.
+
+주어지는 것: 챗봇 답변 하나. 질문도 문서도 주어지지 않는다.
+
+사실 주장이란 맞거나 틀릴 수 있는 문장이다 - 금액 · 기간 · 날짜 · 조건 · 대상 · 절차 · 가능
+여부가 들어간 문장. 인사말, 안내("담당 부서에 문의하세요"), 의견, 일반적인 권고는 주장이 아니다.
+
+주장마다 **어디서 왔어야 하는지**를 적어라.
+- doc      회사 규정 · 절차 · 제도 · 사내 기술 문서에서 와야 하는 것
+- tool     장비 데이터 · 조회 결과 · 수치 집계처럼 도구 결과에서 와야 하는 것
+- general  공개된 일반 지식 (법령 조문 · 상식 · 공식)
+
+text 는 답변에서 **글자 그대로** 따온다. 요약하지 마라. 주장이 없으면 빈 배열.
+
+"""
+CLAIMS_SYSTEM += output_contract(Claims)
+
+
+QUOTES_SYSTEM = """\
+너는 두 글에서 **서로 어긋나는 구절**을 찾아 글자 그대로 따오는 감사자다.
+
+주어지는 것: 챗봇 답변, 그리고 그와 어긋난다고 판정된 근거(문서 · 사용자 정보 · 앞 답변).
+무엇이 어긋나는지는 이미 정해져 있다 - 그 자리를 찾아 두 쪽에서 한 구절씩 따와라.
+
+- answer_quote: 답변에서 글자 그대로. 요약 · 수정 금지.
+- source_quote: 근거에서 글자 그대로.
+지어낸 구절은 원문 대조에서 걸러지고, 걸러지면 이 인용은 버려진다 (판정은 바뀌지 않는다).
+
+"""
+QUOTES_SYSTEM += output_contract(QuotePair)
+
+
+def claims_user_message(case: Case) -> str:
+    return f"""\
+## 챗봇 답변
+{case.llm_ans_on_last_q}"""
+
+
+def quotes_user_message(answer: str, source: str, what: str) -> str:
+    return f"""\
+## 어긋나는 점
+{what}
+
+## 챗봇 답변
+{answer}
+
+## 근거
+{source}"""

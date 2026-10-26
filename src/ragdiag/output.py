@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 
 from typing import Optional
 
+from ragdiag import settings
 from ragdiag.results import TurnResult
-from ragdiag.verify import final_verdict
 if TYPE_CHECKING:                      # 런타임 의존을 만들지 않는다.
     # 쓰는 것은 .user 와 .conversation_id 두 개뿐이다. 실행 환경에서는 그쪽
     # 파서가 만든 객체가 들어올 수 있으므로 런타임에 conv 를 붙들지 않는다.
@@ -32,18 +32,23 @@ def _check_payload(result: TurnResult) -> list[dict]:
     ]
 
 
+def grounding_of(result: TurnResult) -> str:
+    """④ 주장 판정을 v2 의 한 칸(used · ignored · contradicted)으로 요약한다. 대시보드 호환."""
+    verdicts = {v.verdict for v in result.claim_verdicts}
+    if "contradicted" in verdicts or "tool_mismatch" in verdicts:
+        return "contradicted"
+    if "supported" in verdicts or "tool_ok" in verdicts:
+        return "used"
+    if result.claim_verdicts and result.overall_verdict() == "sufficient":
+        return "ignored"
+    return ""
+
+
 def _evidence_payload(result: TurnResult) -> dict:
-    """판정 근거. 왜 그 case 가 나왔는지 사후에 추적할 수 있어야 한다."""
+    """판정 근거. 왜 그 라벨이 나왔는지 사후에 추적할 수 있어야 한다."""
     payload: dict = {}
-    if result.legibility is not None:
-        # ④′ 읽기. 읽을 수 없다고 했는데 인용이 안 맞아 무효가 된 것도 남긴다 -
-        # "판정자가 그렇게 봤지만 근거를 못 댔다" 는 사실이 다음 사이클의 단서다.
-        payload["legibility"] = {
-            "legible": result.legibility.legible,
-            "quote": result.legibility.quote,
-            "quote_verified": (result.legibility_quote.verified
-                               if result.legibility_quote else None),
-        }
+    if result.legibility_p is not None:
+        payload["legibility"] = {"illegible_p": round(result.legibility_p, 3)}
     if result.observation:
         obs = result.observation
         payload["observation"] = {
@@ -54,39 +59,58 @@ def _evidence_payload(result: TurnResult) -> dict:
             "question_clarity": obs.question_clarity,
             "question_multi_intent": obs.question_multi_intent,
             "answer_refused": obs.answer_refused,
-            # complaint_target 을 그렇게 읽은 근거. 어느 값이든 남긴다 - 라벨이
-            # 이상할 때 판정자가 무엇을 보고 그랬는지가 첫 단서다.
-            "complaint_quote": obs.complaint_quote,
+            "answer_covers_all_intents": obs.answer_covers_all_intents,
+            "answer_actionable": obs.answer_actionable,
+            "answer_ignored_history": obs.answer_ignored_history,
+            "answer_asked_back": obs.answer_asked_back,
+            "requests_unsupported_output": obs.requests_unsupported_output,
+            "requested_language": obs.requested_language,
+            "requested_length_kind": obs.requested_length_kind,
+            "requested_length_value": obs.requested_length_value,
+            "requested_format": obs.requested_format,
         }
-        if obs.complaint_target == "none":
-            # 왜 "문제 없음"으로 넘어갔는지(또는 왜 못 넘어갔는지)가 사후에
-            # 확인돼야 한다. 이 라벨은 필터를 고치는 근거로 쓰인다.
-            if result.complaint:
-                payload["observation"]["quote_verified"] = result.complaint.verified
-                payload["observation"]["quote_ratio"] = round(result.complaint.ratio, 3)
-        if result.request is not None:
-            # 요구를 인정했는지(또는 지웠는지)와 그 근거. 검증기 결과를 되짚을 때 첫 단서다.
-            payload["observation"]["requested_quote"] = obs.requested_quote
-            payload["observation"]["request_quote_verified"] = result.request.verified
-        if result.history is not None:
+        if obs.history_quote:
             payload["observation"]["history_quote"] = obs.history_quote
-            payload["observation"]["history_quote_verified"] = result.history.verified
-    if result.judgment:
+            payload["observation"]["history_quote_verified"] = (
+                result.history.verified if result.history else None)
+        if result.request is not None:
+            payload["observation"]["request_quote_verified"] = result.request.verified
+    if result.probabilities:
+        payload["probabilities"] = result.probabilities
+    if result.sufficiency:
+        overall = result.overall_verdict()
+        best = result.best_sufficiency()
+        evidence = []
+        for key, s in result.sufficiency.items():
+            for sup in s.supports:
+                if sup.p >= settings.CHUNK_EVIDENCE_P:
+                    evidence.append({"chunk_index": sup.chunk_index, "p": round(sup.p, 3),
+                                     "source": sup.source, "scope": key})
         payload["sufficiency"] = {
-            "verdict": result.judgment.verdict,
-            # 인용 대조를 거친 값. 라우팅이 보는 것은 이쪽이다 - verdict 만 실으면
-            # 인용이 다 폐기되어 case20 으로 간 턴이 화면에 sufficient 로 뜬다.
-            "final_verdict": final_verdict(result.judgment, result.citation),
-            "missing": result.judgment.missing,
-            "evidence": [
-                {"chunk_index": e.chunk_index, "quote": e.quote,
-                 "ratio": round(e.ratio, 3), "index_corrected": e.index_corrected}
-                for e in (result.citation.kept if result.citation else [])
-            ],
-            "dropped_evidence": result.citation.dropped if result.citation else [],
+            "verdict": overall,
+            "final_verdict": overall,                 # 옛 결과 파일과 같은 자리
+            "missing": (result.observation.unmet_need if result.observation
+                        and overall != "sufficient" else ""),
+            "verified": best.verified if best else None,
+            "evidence": evidence,
+            "scopes": {
+                key: {"need": s.need, "verdict": s.verdict, "verified": s.verified,
+                      "supports": [{"chunk_index": x.chunk_index, "p": round(x.p, 3),
+                                    "source": x.source} for x in s.supports]}
+                for key, s in result.sufficiency.items()
+            },
         }
-    if result.grounding:
-        payload["grounding"] = {"answer_used_rag": result.grounding.answer_used_rag}
+    if result.claim_verdicts:
+        payload["claims"] = [
+            {"text": v.text, "expected_source": v.expected_source, "verdict": v.verdict,
+             "p": round(v.p, 3)} for v in result.claim_verdicts]
+        payload["grounding"] = {"answer_used_rag": grounding_of(result)}
+    if result.memory_use is not None:
+        payload["memory"] = {"use": result.memory_use, "p": round(result.memory_p, 3)}
+    if result.consistency:
+        payload["consistency"] = {str(i): round(p, 3) for i, p in result.consistency.items()}
+    if result.quotes:
+        payload["quotes"] = result.quotes
     checks = _check_payload(result)
     if checks:
         payload["checks"] = checks
@@ -109,6 +133,7 @@ def build_turn(result: TurnResult, source_turn_no: int) -> dict:
     payload = result.classification.as_dict() if result.classification else {}
     payload["evidence"] = _evidence_payload(result)
     payload["llm_calls"] = result.n_calls
+    payload["kev_calls"] = result.n_kev_calls
     # 답변을 만든 원본 턴. 짝짓기를 사후에 확인할 수 있어야 한다.
     payload["answered_turn"] = source_turn_no
     turn["classification"] = payload
@@ -157,6 +182,7 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
     """분류 분포. 어디를 고쳐야 하는지 보이게 하는 게 목적이다."""
     from collections import Counter
 
+    from ragdiag import taxonomy
     from ragdiag.textfmt import pad, text_width
 
     ok = [r for _, r in pairs if r.classification]
@@ -164,50 +190,52 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
     if not ok:
         return f"분류된 턴이 없습니다. (실패 {len(errors)}건)"
 
+    failures = [r for r in ok if r.classification.primary_case != "N0"]
     lines = [
         "=" * 78,
-        f"분류 결과  |  성공 {len(ok)}건 / 실패 {len(errors)}건",
+        f"분류 결과  |  성공 {len(ok)}건 / 실패 {len(errors)}건  |  실패 라벨 {len(failures)}건 (N0 제외)",
         "=" * 78,
         "",
-        "[1] case 분포",
+        "[1] 묶음 분포 (고칠 곳)",
     ]
+    groups = Counter(taxonomy.describe(r.classification.primary_case)["type_id"] or "?" for r in ok)
+    for gid, count in sorted(groups.items(), key=lambda kv: taxonomy.sort_key(kv[0] + "0")):
+        g = taxonomy.GROUPS.get(gid)
+        name = f"{gid}({g.word}) {g.name} — {g.owner}" if g else "(미분류)"
+        lines.append(f"  {pad(name, 48)}{count:>5}  {count / len(ok):>5.1%}")
+
+    lines += ["", "[2] 라벨 분포"]
     counts = Counter(r.classification.primary_case for r in ok)
     width = max(text_width(c) for c in counts) + 2
-    for case_id, count in counts.most_common():
-        from ragdiag import taxonomy
+    for label_id in taxonomy.ordered(counts):
+        count = counts[label_id]
+        meta = taxonomy.describe(label_id)
+        lines.append(f"  {pad(label_id, width)}{pad(meta['case_name'], 26)}"
+                     f"{count:>5}  {count / len(ok):>5.1%}")
 
-        meta = taxonomy.describe(case_id)
-        lines.append(
-            f"  {pad(case_id, width)}{pad(meta['case_name'], 26)}"
-            f"{count:>5}  {count / len(ok):>5.1%}"
-        )
+    lines += ["", "[3] 증거 등급 (신뢰도)"]
+    grades = Counter(r.classification.grade for r in ok)
+    names = {4: "4 코드 확정", 3: "3 근거 확정", 2: "2 확신", 1: "1 기울어짐", 0: "0 불일치"}
+    for g in (4, 3, 2, 1, 0):
+        if grades[g]:
+            lines.append(f"  {pad(names[g], 14)}{grades[g]:>5}  {grades[g] / len(ok):>5.1%}")
+    if grades[1] or grades[0]:
+        lines.append("  └ 등급 1 · 0 은 표본 검토 대상이다. 다른 등급과 같은 무게로 집계하지 말 것.")
 
-    lines += ["", "[2] type 분포"]
-    from ragdiag import taxonomy
+    tags = Counter(t for r in ok for t in r.classification.tags)
+    if tags:
+        lines += ["", "[4] 태그 (주 라벨과 별개로 남는 것)"]
+        for tag, count in tags.most_common(15):
+            lines.append(f"  {pad(tag, 18)}{pad(taxonomy.TAGS.get(tag, ''), 40)}{count:>5}")
 
-    types = Counter(
-        taxonomy.describe(r.classification.primary_case)["type_name"] or "(미분류)"
-        for r in ok
-    )
-    for name, count in types.most_common():
-        lines.append(f"  {pad(name, 34)}{count:>5}  {count / len(ok):>5.1%}")
-
-    lines += ["", "[3] 신뢰도"]
-    conf = Counter(r.classification.confidence for r in ok)
-    for level in ("high", "medium", "low"):
-        if conf[level]:
-            lines.append(f"  {pad(level, 10)}{conf[level]:>5}  {conf[level] / len(ok):>5.1%}")
-    if conf["low"]:
-        lines.append("  └ low 는 판정자의 사전지식에 의존한다. 표본 검토 없이 집계하지 말 것.")
-
-    secondary = Counter(
-        c for r in ok for c in r.classification.secondary_cases
-    )
-    if secondary:
-        lines += ["", "[4] 부가 케이스 (주 라벨과 별개로 성립)"]
-        for case_id, count in secondary.most_common():
-            meta = taxonomy.describe(case_id)
-            lines.append(f"  {pad(case_id, width)}{pad(meta['case_name'], 26)}{count:>5}")
+    flags = Counter(f for r in ok for f in r.classification.flags)
+    events = Counter(e for r in ok for e in r.classification.events)
+    if flags or events:
+        lines += ["", "[5] 무결성 플래그 · 이벤트 (실패율 분모 밖)"]
+        for key, count in [*flags.items(), *events.items()]:
+            lines.append(f"  {pad(key, 6)}{pad(taxonomy.describe(key)['case_name'], 24)}{count:>5}")
+        if flags.get("C1"):
+            lines.append("  └ C1 이 선 턴은 G2(맥락) 를 판정하지 않았다. 많으면 G2 집계를 보류할 것.")
 
     if errors:
         lines += ["", f"[!] 실패 {len(errors)}건"]
@@ -215,7 +243,8 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
             lines.append(f"  {result.case.case_id}: {result.error}")
 
     calls = sum(r.n_calls for _, r in pairs)
+    kev = sum(r.n_kev_calls for _, r in pairs)
     tokens_in = sum(r.usage.input_tokens for _, r in pairs)
     tokens_out = sum(r.usage.output_tokens for _, r in pairs)
-    lines += ["", f"LLM 호출 {calls}회 | 입력 {tokens_in:,} | 출력 {tokens_out:,}"]
+    lines += ["", f"LLM 호출 {calls}회 · 결정(kev) 호출 {kev}회 | 입력 {tokens_in:,} | 출력 {tokens_out:,}"]
     return "\n".join(lines)
