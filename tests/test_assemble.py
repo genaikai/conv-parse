@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope="module")
 def SAMPLE(tmp_path_factory):
-    """합성 네 파일. 저장소에는 코드만 있다 (규격 1.2)."""
+    """합성 네 파일. 저장소에는 코드만 있다 — 데이터 파일은 커밋하지 않는다."""
     folder = tmp_path_factory.mktemp("eval_jsonl")
     sample.write_example(folder)
     return folder

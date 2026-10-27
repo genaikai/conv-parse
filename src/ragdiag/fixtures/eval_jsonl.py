@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """eval.jsonl 경로의 합성 예시 — 네 파일을 코드로 만든다 (docs/assemble.md).
 
-가짜 데이터는 파일이 아니라 코드다 (규격 1.2). `assemble.py example <폴더>` 가 이걸 써서
+가짜 데이터는 파일이 아니라 코드다 — 데이터 파일은 커밋하지 않는다. `assemble.py example <폴더>` 가 이걸 써서
 eval.jsonl · filter.json · selected.jsonl · records.jsonl 을 떨군다. records.jsonl 은 사내
 lookup 이 냈을 모양을 손으로 쓴 것이다 - C-0002 는 앞 턴 1 이 records 에 없고(n_prior=1)
 답변 턴의 history_input 에만 들어 있다.
