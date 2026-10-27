@@ -25,7 +25,7 @@ metrics   : selected 3 turns
 ```
 { "metadata": {...},
   "users": [ { 사용자 필드…,
-               "conversations": [ { "conversation_id": "...",
+               "conversations": [ { "chat_id": "...",
                                     "turns": [ { 턴 필드… } ] } ] } ] }
 ```
 
@@ -175,7 +175,7 @@ current_query      ← turn N+1 의 user_question
 
 | 필드 | 타입 | 필수 | 판정에 쓰나 | 비고 |
 |---|---|---|---|---|
-| `conversation_id` | str | **필수** | 씀 |  |
+| `chat_id` | str | **필수** | 씀 |  |
 | `turns` | list | **필수** | 씀 | 시간순. 2턴 이상이어야 분석 대상이다 |
 
 ### `turns[]`
@@ -183,7 +183,7 @@ current_query      ← turn N+1 의 user_question
 | 필드 | 타입 | 필수 | 판정에 쓰나 | 비고 |
 |---|---|---|---|---|
 | `turn` | int `(1, None)` | **필수** | 씀 | 1부터. 순서가 어긋난 로그를 본 적 있다 |
-| `request_time` | str |  | 씀 | 2026-10 에 timestamp 에서 개명. 지연 판정에는 쓸 수 없다 — 턴 시각 차이에 사용자가 생각한 시간이 섞인다 |
+| `event_time` | str |  | 씀 | 2026-10 에 timestamp 에서 개명. 지연 판정에는 쓸 수 없다 — 턴 시각 차이에 사용자가 생각한 시간이 섞인다 |
 | `user_question` | str | **필수** | 씀 |  |
 | `llm_response` | str |  | 씀 | 자원 부족 시 서비스가 정해진 안내 문구를 여기 넣는다 (case9) |
 | `retrieved_data` | str|list |  | 씀 | 청크가 \n\n 또는 \n 으로 연결된 문자열로 오는 배포가 있다. 파서가 쪼갠다. 비어 있으면 검색 결과 0건이고, 서비스가 '검색 없이 답할 수 있다'고 판단한 경우도 여기 해당한다 (case21). **이 턴의 것이다** — 앞 턴들의 것은 history_input.retrieved_data 로 온다 |
@@ -208,3 +208,19 @@ current_query      ← turn N+1 의 user_question
 | `llm_emotion_score_top1` | float `(0, 100)` |  | 안 씀 | llm_eval_score_top1 과 같다 — 읽는 곳이 없다 |
 | `llm_emotion_alternatives` | list |  | 씀 |  |
 | `llm_emotion_context_summarized` | bool |  | 안 씀 | 감정 라벨 쪽의 같은 표시 |
+
+## eval.jsonl 경로 — `eval_jsonl/` (코드가 만든다, 커밋하지 않는다)
+
+conv-eval.json 대신 eval.jsonl 로 들어올 때의 네 파일. 모양은 [docs/assemble.md](../docs/assemble.md),
+원본은 `src/ragdiag/fixtures/eval_jsonl.py`.
+
+```
+$ python src/assemble.py example pseudo_data/eval_jsonl
+$ python src/assemble.py select --eval-jsonl pseudo_data/eval_jsonl/eval.jsonl \
+      --filter-data pseudo_data/eval_jsonl/filter.json --out pseudo_data/eval_jsonl/selected.jsonl
+$ python src/assemble.py check pseudo_data/eval_jsonl/selected.jsonl pseudo_data/eval_jsonl/records.jsonl
+$ python src/run.py --conv-data pseudo_data/eval_jsonl/records.jsonl --turns pseudo_data/eval_jsonl/selected.jsonl --dry-run
+```
+
+`records.jsonl` 은 사내 lookup 이 냈을 모양을 손으로 쓴 것이다 — C-0002 는 앞 턴 1 이
+records 에 없고(`n_prior: 1`), 답변 턴의 `history_input` 에만 들어 있다.

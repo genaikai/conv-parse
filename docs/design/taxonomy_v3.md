@@ -110,7 +110,7 @@ C 가 많이 나오면 그 사이클의 G2 집계를 보류한다.
 | `llm_ans_on_last_q` | 턴 N `llm_response` | 전부 |
 | `current_query` | 턴 N+1 `user_question` | ② |
 | `rag_chunks` | 청크 풀 (own + carried). **사내 훅**이 있으면 훅 | ③ ④ |
-| `chunk_sources` **신규** | 청크마다 출처: `retrieved` · `tool:<name>` · `history_retrieved` · `history_tool:<name>` · `hook` | D1/T2 가름 · G5[과거근거] |
+| `chunk_sources` **신규** | 청크마다 출처: `retrieved` · `tool:<name>` · `history_retrieved` · `history_tool:<name>` | D1/T2 가름 · G5[과거근거] |
 | `n_fetched` | own 길이 | T1 |
 | `tool_calls` **신규** | `[{turn_no, order, name, arguments}]` — 이 턴 + history_input | T1 · T2 · T3 · 태그 |
 | `tool_outputs` **신규** | 이 턴 + history_input 의 outputs (풀에도 들어 있다) | T3 · 도구 수치 검증기 |
@@ -118,8 +118,8 @@ C 가 많이 나오면 그 사이클의 G2 집계를 보류한다.
 | `prior_turn_nos` **신규** | 대화의 앞 턴 번호 전부 | C1 |
 | `history_turn_count` **신규** | history_chat 의 user 메시지 수 | C1 |
 
-청크 풀 훅은 [chunk_pool_hook.md](chunk_pool_hook.md) 대로다. 훅이 있으면
-`chunk_sources` 는 전부 `hook` 이고 D1/T2 는 `D:출처미상` 태그로 합쳐진다.
+입력은 완결된 형태로 들어온다고 가정한다 — `history_input` 에 과거 청크가 구분되어 있다.
+풀을 사내 파서로 갈아끼우는 훅은 두지 않는다.
 
 ## 판정 — 단계와 호출
 
@@ -283,8 +283,6 @@ thresholds:
   chunk_partial: 0.5
 tools:
   search_names: []     # 검색 도구 이름. 비어 있으면 D1/T2 를 가르지 않는다
-hooks:
-  chunk_pool: null     # 사내 훅. chunk_pool_hook.md
 ```
 
 ## 출력
@@ -341,7 +339,7 @@ case5·7·8·19·23→(제외)
 | `features/tool_numbers` **신규** | 검증기 |
 | `features/arbitrate` **신규** | route 대체 |
 | `output.py` · `summary` · `handover` · `dashboard.py` | v3 값 · 태그 · 플래그 · 이벤트 |
-| `config.py` · `settings.py` · `env.example.yaml` | kev · thresholds · tools · hooks |
+| `config.py` · `settings.py` · `env.example.yaml` | kev · thresholds · tools |
 | 테스트 | 라우팅 → 중재 · 스냅숏 재생성 · v3 합성 테스트셋 |
 
 지우는 것: `features/route` · `features/citation` · `features/grounding` ·

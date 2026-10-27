@@ -11,7 +11,7 @@ from tests.helpers import checks, obs, probs
 RAW = {"users": [{
     "user_id": "EMP-원본", "db_login_id": "login1", "job_grade": "대리",
     "db_dept_name": "인사팀", "db_job_name": "인사운영", "db_position_name": "팀원",
-    "conversations": [{"conversation_id": "c1", "turns": [
+    "conversations": [{"chat_id": "c1", "turns": [
         {"turn": 1, "user_question": "q1", "llm_response": "a1",
          "retrieved_data": json.dumps(["청크 A"])},
         {"turn": 2, "user_question": "q2", "llm_response": "a2",
@@ -52,12 +52,12 @@ def test_no_user_identifier_is_invented():
 
     출력은 원본 로그 옆에 놓여 조인에 쓰인다. 늘 비어 있는 user_id 칸이 있으면
     받는 쪽은 "이 사용자는 식별자가 없는 사용자" 로 읽고 그걸로 조인을 시도한다.
-    되짚는 길은 conversation_id 하나뿐이고, 그 값이 전역 유일이라 그걸로 족하다.
+    되짚는 길은 chat_id 하나뿐이고, 그 값이 전역 유일이라 그걸로 족하다.
     """
     user = build_output(_pairs())["analysis_results"][0]
     assert not {"user_id", "user_id_hashed", "db_login_id",
                 "db_position_name"} & set(user)
-    assert user["conversations"][0]["conversation_id"]
+    assert user["conversations"][0]["chat_id"]
 
 
 def test_classification_is_kept_in_its_own_block():

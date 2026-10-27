@@ -192,7 +192,7 @@ def load(path: str) -> pd.DataFrame:
                     # 되는데 에러는 안 난다.
                     "직급": user.get("job_grade", "-"),
                     "직무": user.get("db_job_name", "-"),
-                    "대화": conv.get("conversation_id", "-"),
+                    "대화": conv.get("chat_id", "-"),
                     "턴": turn.get("turn"),
                     "case": case_id,
                     "case명": case_name,
@@ -802,10 +802,10 @@ def _suspect_first(view: pd.DataFrame) -> pd.DataFrame:
     """판정을 믿기 어려운 순서.
 
     지어낸 인용이 있으면 답변이 근거에 없는 문장을 인용부호로 냈다는 뜻이라 제일
-    먼저 본다. 그 다음이 등급 ≤1(확률만 기울어짐), 무결성 플래그(기록을 믿을 수
+    먼저 본다 — 다른 가중치를 다 더해도 못 넘게 8 이다. 그 다음이 등급 ≤1(확률만 기울어짐), 무결성 플래그(기록을 믿을 수
     없음), 분류 실패, 부가 라벨이 붙은 것.
     """
-    return view.assign(_의심=(view["지어낸인용"].fillna(0) * 4
+    return view.assign(_의심=(view["지어낸인용"].fillna(0) * 8
                              + (view["등급"] <= LOW_GRADE_MAX) * 3
                              + view["플래그"].map(bool) * 2
                              + (view["case"] == tx.UNCLASSIFIED) * 2

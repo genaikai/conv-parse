@@ -312,7 +312,7 @@ def _probe_case():
 
     return Case(
         case_id="probe", user_id="probe", dept="-", job_grade="-", job_name="-",
-        position_name="-", conversation_id="-", turn=0,
+        position_name="-", chat_id="-", turn=0,
         pre_queries=["국내 출장 식비 상한이 얼마인가요?"],
         llm_ans_on_last_q="출장 식비는 회사 규정에 따라 지급되며 부서별로 다를 수 있습니다.",
         current_query="정확한 금액이요.",
@@ -592,7 +592,7 @@ def run_legibility_golden(args, judge) -> int:
 
     def ask(entry):
         case = Case(case_id=entry["id"], dept="-", job_grade="-", job_name="-",
-                    conversation_id="-", turn=2, pre_queries=["-"],
+                    chat_id="-", turn=2, pre_queries=["-"],
                     llm_ans_on_last_q=entry["answer"], current_query="-", rag_chunks=[])
         try:
             check, _ = judge.check_legibility(case)
@@ -687,7 +687,7 @@ def run_judge_golden(args, judge) -> int:
 
     def make_case(chunks, question="", answer=""):
         return Case(case_id="golden", user_id="-", dept="-", job_grade="-",
-                    job_name="-", position_name="-", conversation_id="-", turn=0,
+                    job_name="-", position_name="-", chat_id="-", turn=0,
                     pre_queries=[question] if question else ["-"],
                     llm_ans_on_last_q=answer, current_query="-", rag_chunks=chunks)
 
@@ -747,7 +747,8 @@ def main(argv=None, backend=None) -> int:
                         "(목록 키는 여러 번 쓰면 쌓인다). 이름은 "
                         "configs/env.example.yaml 과 같다")
 
-    p.add_argument("--conv-data", help="conv_eval JSON 경로 (설정을 덮어쓴다)")
+    p.add_argument("--conv-data",
+                   help="conv_eval JSON 경로, 또는 records.jsonl (eval.jsonl 경로 — --turns 와 짝)")
     p.add_argument("--golden", action="store_true",
                    help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
     p.add_argument("--observe-only", action="store_true",
@@ -758,8 +759,8 @@ def main(argv=None, backend=None) -> int:
                    help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다 / "
                         "sufficiency: Step 2·3 판정만 (문서 충족도 · 근거 활용)")
     p.add_argument("--turns", metavar="FILE",
-                   help="운영 필터가 고른 턴 목록 (conversation_id + turn). "
-                        "주면 여기 필터를 걸지 않는다 — 라벨 실값도 필요 없다")
+                   help="고른 턴 목록. conv-eval.json 이면 {chat_id, turn}, records.jsonl 이면 "
+                        "assemble.py select 가 낸 selected.jsonl. 주면 여기 필터를 걸지 않는다")
     p.add_argument("--filter-data", "--filter", dest="filter_data",
                    help="필터 JSON. 없으면 진단 가능한 후속 턴 전부")
     p.add_argument("--output-dir", dest="output_dir",
@@ -853,6 +854,13 @@ def main(argv=None, backend=None) -> int:
 
     filter_path = args.filter_data or config.get("paths.filter_data")
     turns_path = args.turns or config.get("paths.turns")
+    # records.jsonl (eval.jsonl 경로의 사내 lookup 출력) 은 selected.jsonl 과 짝이다.
+    # 필터는 ① select 에서 이미 걸었다 — 여기서는 안 받는다.
+    records_mode = bool(conv_data) and str(conv_data).endswith(".jsonl")
+    if records_mode and not turns_path:
+        print("records.jsonl 에는 --turns <selected.jsonl> 이 필요합니다. 턴 번호와 앞 턴 수가 "
+              "거기에만 있습니다 (docs/assemble.md).", file=sys.stderr)
+        return 2
     if turns_path and filter_path:
         # 둘 다 "어느 턴을 볼지"를 정한다. 같이 주면 어느 쪽이 이겼는지 안 보인다.
         print("--turns 와 --filter-data 는 같이 쓸 수 없습니다. 둘 다 어느 턴을 "
@@ -946,6 +954,16 @@ def main(argv=None, backend=None) -> int:
         payload = generate(n=3, seed=0)
         summary.notes.append("합성 데이터로 돌았다. 실데이터로 확인한 것이 아니다.")
         conv_data = _write_temp(payload)
+    elif records_mode:
+        from ragdiag.assemble import AssembleError, read_jsonl, records_to_payload
+
+        try:
+            payload = records_to_payload(read_jsonl(conv_data), read_jsonl(turns_path))
+        except AssembleError as e:
+            # finish() 는 아래에서 정의된다. 조립 실패는 계약 대조 전이라 요약 없이 끝낸다 -
+            # 문장 자체가 사내에서 옮겨 적을 포맷 정보다.
+            print(str(e), file=sys.stderr)
+            return 2
     else:
         payload = json.loads(Path(conv_data).read_text(encoding="utf-8"))
     summary.input_shape = contracts.shape(payload)
@@ -972,7 +990,12 @@ def main(argv=None, backend=None) -> int:
         return code
 
     try:
-        if turns_path:
+        if records_mode:
+            from ragdiag.pipeline import select_records
+
+            selection = select_records(conv_data, turns_path,
+                                       history_turns=history, limit=limit)
+        elif turns_path:
             selection = select_turns(conv_data, turns_path,
                                      history_turns=history, limit=limit)
         else:

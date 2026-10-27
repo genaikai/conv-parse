@@ -22,7 +22,7 @@ def _conv(carried_by_turn, tool_turns=(), n=5):
     } for i in range(1, n + 1)]
     return parse_conversations({"users": [{
         "db_dept_name": "-", "job_grade": "-", "db_job_name": "-",
-        "conversations": [{"conversation_id": "C", "turns": turns}],
+        "conversations": [{"chat_id": "C", "turns": turns}],
     }]})
 
 

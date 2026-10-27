@@ -49,7 +49,7 @@ def turn(label_id, *, tags=(), flags=(), events=(), evidence=None, secondary=Non
 def result(*turns):
     return {"analysis_results": [{
         "user_id": "u1", "db_dept_name": "해외영업팀",
-        "conversations": [{"conversation_id": "C-1", "turns": list(turns)}],
+        "conversations": [{"chat_id": "C-1", "turns": list(turns)}],
     }]}
 
 
@@ -401,7 +401,7 @@ def test_a_single_turn_carries_no_empty_prior_list():
 def test_the_entry_point_lives_next_to_the_others():
     """실행 파일은 src/ 에 모은다.
 
-    run.py · dashboard.py · handover.py 셋이 실행 파일이다. tools/ 는 실행 환경에서
+    run.py · assemble.py · dashboard.py · handover.py 넷이 실행 파일이다. tools/ 는 실행 환경에서
     호출이 실패하는 것(claude CLI · Anthropic API)을 두는 자리라, LLM 을 부르지 않는
     이 도구는 거기 있을 이유가 없다. 흩어져 있으면 "무엇을 어디서 돌리나" 를 매번
     찾아야 한다.
@@ -410,7 +410,7 @@ def test_the_entry_point_lives_next_to_the_others():
 
     src = Path(__file__).resolve().parents[1] / "src"
     assert sorted(p.name for p in src.glob("*.py")) == [
-        "dashboard.py", "handover.py", "run.py"]
+        "assemble.py", "dashboard.py", "handover.py", "run.py"]
 
 
 def test_it_reuses_the_venv_switch():

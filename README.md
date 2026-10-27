@@ -44,9 +44,9 @@
 users[]
   job_grade · db_dept_name · db_job_name          사용자 식별자는 로그에 없다
   conversations[]
-    conversation_id
+    chat_id
     turns[]
-      turn · request_time · user_question · llm_response
+      turn · event_time · user_question · llm_response
       retrieved_data                        그 질문으로 검색된 청크
       tool_output                           도구 결과. 문서와 같은 성격이고 답변에 들어간다
       carried_turn_nos · carried_turn_count 이 턴을 답할 때 실제로 끌고 간 앞 턴들
@@ -71,9 +71,22 @@ users[]
 | `eval_range` · `emotion_range` | 점수 구간. alternatives 확률과 `query_scores` 로 **다시 계산한** 값에 건다 |
 | `eval_labels` · `emotion_labels` | 라벨. `"I. 매우부정"` 처럼 글자 · 이름 표기를 모두 받는다 |
 
-필터 대신 이미 고른 턴 목록(`conversation_id` + `turn`, JSON 배열 또는 JSONL)을 `--turns` 로
+필터 대신 이미 고른 턴 목록(`chat_id` + `turn`, JSON 배열 또는 JSONL)을 `--turns` 로
 줄 수도 있다. 어느 쪽이든 **로그는 자르지 않고 전체를 넣는다** — 판정 대상이 고른 턴의
 직전 답변이기 때문이다.
+
+**eval.jsonl 경로** — conv-eval.json 이 너무 클 때. 턴마다 점수 · 라벨 · 조직 · 시각만 있는
+가벼운 eval.jsonl 로 **먼저 고르고**, 고른 턴의 본문만 CSV 에서 꺼낸다.
+
+```
+eval.jsonl + filter.json ──① assemble.py select (여기)──▶ selected.jsonl   좌표만: chat_id · event_time · target_event_time · n_prior
+selected.jsonl + csv     ──② lookup (사내 스크립트)   ──▶ records.jsonl    턴 N · N+1 레코드. 기본 보존
+records.jsonl            ──③ run.py --conv-data records.jsonl --turns selected.jsonl ──▶ 결과
+```
+
+② 는 저장소 밖이다 — CSV 를 아는 코드는 CSV 가 있는 곳에 둔다. 저장소는 ② 에게 파일 계약
+([docs/assemble.md](docs/assemble.md))과 `assemble.py check` 를 준다. filter.json 에 eval 조건
+(`eval_range` · `eval_labels`)이 있으면 ① 이 멈춘다 — eval.jsonl 에는 `llm_eval_*` 가 비어 온다.
 
 ## 처리 흐름
 
@@ -237,7 +250,7 @@ export LLM_API_KEY=<키>
 
 | 옵션 | 뜻 |
 |---|---|
-| `--turns <목록>` | 필터 대신 고른 턴 목록 |
+| `--turns <목록>` | 필터 대신 고른 턴 목록. `--conv-data` 가 records.jsonl 이면 `assemble.py select` 가 낸 selected.jsonl (필수) |
 | `--limit N` · `--workers N` | 앞에서 N건만 · 동시 판정 턴 수 |
 | `--no-cache` | `.cache/` 의 판정을 재사용하지 않는다 |
 | `--no-progress` | LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄 — `(실패 N · 포기 M)` 까지) |

@@ -681,7 +681,7 @@ def build() -> tuple[dict, dict]:
             last = i == len(history) - 1
             turns.append({
                 "turn": i + 1,
-                "request_time": f"2026-03-0{(index % 9) + 1} 10:0{i}:00.000",
+                "event_time": f"2026-03-0{(index % 9) + 1} 10:0{i}:00.000",
                 "retrieved_data": _json.dumps(case["chunks"] if last else [],
                                               ensure_ascii=False),
                 "llm_response": case["answer"] if last else f"(이전 답변 {i + 1})",
@@ -702,7 +702,7 @@ def build() -> tuple[dict, dict]:
         complaint_turn = len(history) + 1
         turns.append({
             "turn": complaint_turn,
-            "request_time": f"2026-03-0{(index % 9) + 1} 10:{len(history)}0:00.000",
+            "event_time": f"2026-03-0{(index % 9) + 1} 10:{len(history)}0:00.000",
             "retrieved_data": "[]",
             "llm_response": "(아직 답변 없음)",
             "user_question": case["complaint"],
@@ -720,7 +720,7 @@ def build() -> tuple[dict, dict]:
 
         users.append({
             "job_grade": "대리", "db_dept_name": "관측검증", "db_job_name": "-",
-            "conversations": [{"conversation_id": case["id"], "turns": turns}],
+            "conversations": [{"chat_id": case["id"], "turns": turns}],
         })
 
         # Case.case_id 는 대화 id 와 턴뿐이다 - 사용자 식별자가 로그에서 없어졌다.

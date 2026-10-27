@@ -325,7 +325,7 @@ class UserMeta:
 @dataclass(frozen=True)
 class Turn:
     turn: int
-    request_time: str
+    event_time: str
     user_question: str
     llm_response: str
     retrieved: list[str]
@@ -361,8 +361,6 @@ class Turn:
     # **이 턴의** 도구 호출 기록 (턴 레벨 `tool_calls` 가 있는 로그만). 없으면 빈 목록이고
     # 이 턴의 tool_output 은 이름 없는 "tool" 출처가 된다.
     tool_calls: list[dict] = field(default_factory=list)
-    # 로그 레코드 그대로. 사내 청크 풀 훅에 넘긴다 (docs/design/chunk_pool_hook.md).
-    raw: dict = field(default_factory=dict, repr=False, compare=False)
     # 라우팅 계열 넷. **판정에는 안 쓴다** - 어느 플랫폼에서 묻고 어디가 답했는지는
     # 실패의 원인이 아니라 실패가 일어난 자리다. 값의 모양을 회수하려고 받아만 둔다.
     # answered_by 가 집계 축이 될 수 있는데, 실제 값을 보고 정할 일이다. fallback 은
@@ -374,13 +372,17 @@ class Turn:
 
     @property
     def is_followup(self) -> bool:
-        """직전 턴에 이어진 질문인가. turn 1은 eval_result 가 비어 있다."""
-        return bool(self.eval_result)
+        """직전 턴에 이어진 질문인가 — turn ≥ 2.
+
+        전에는 eval_result 가 있나로 봤다. eval 이 비어서 오는 입력(eval.jsonl)이 생겨
+        턴 번호로 바꿨다. 직전 턴이 실제로 있는지는 쓰는 쪽이 turn_at 으로 따로 본다.
+        """
+        return self.turn >= 2
 
 
 @dataclass(frozen=True)
 class Conversation:
-    conversation_id: str
+    chat_id: str
     user: UserMeta
     turns: list[Turn]
 
@@ -427,7 +429,7 @@ def _as_turn_nos(value: Any) -> list[int]:
 def _parse_turn(raw: dict) -> Turn:
     return Turn(
         turn=int(raw.get("turn", -1)),
-        request_time=raw.get("request_time") or "",
+        event_time=raw.get("event_time") or "",
         user_question=raw.get("user_question") or "",
         llm_response=raw.get("llm_response") or "",
         retrieved=parse_retrieved(raw.get("retrieved_data")),
@@ -439,7 +441,6 @@ def _parse_turn(raw: dict) -> Turn:
         trace_matched=_as_bool(raw.get("trace_matched")),
         history=parse_history_input(raw.get("history_input")),
         tool_calls=parse_tool_entries(raw.get("tool_calls")),
-        raw=raw,
         ask_on=raw.get("ask_on") or "",
         answered_by=raw.get("answered_by") or "",
         route_intent=raw.get("route_intent") or "",
@@ -464,15 +465,15 @@ def parse_conversations(raw: dict) -> list[Conversation]:
             job_name=user_raw.get("db_job_name") or "unknown",
         )
         for index, conv_raw in enumerate(user_raw.get("conversations", [])):
-            # conversation_id 가 빠져 있는 대화가 실제로 있다. 케이스 식별자가
+            # chat_id 가 빠져 있는 대화가 실제로 있다. 케이스 식별자가
             # 겹치지 않도록 배열 위치로 채운다 - 사용자 식별자가 없어진 뒤로는
             # 이것이 두 대화를 가를 유일한 값이다.
-            conv_id = conv_raw.get("conversation_id") or f"u{position}#{index}"
+            chat_id = conv_raw.get("chat_id") or f"u{position}#{index}"
             turns = sorted(
                 (_parse_turn(t) for t in conv_raw.get("turns", [])),
                 key=lambda t: t.turn,
             )
-            conversations.append(Conversation(conv_id, user, turns))
+            conversations.append(Conversation(chat_id, user, turns))
     return conversations
 
 
@@ -524,15 +525,9 @@ def to_case(
     else:
         scope = prior[-history_turns:] if history_turns > 0 else prior
 
-    case_id = f"{conv.conversation_id}:{followup_turn}"
-    hook = settings.CHUNK_POOL_HOOK
-    if hook is None:
-        sourced = chunk_pool_with_sources(answered, scope)
-        n_fetched = len(answered.retrieved) + len(answered.tool_output)
-    else:
-        own, carried = _call_hook(hook, answered, prior, case_id)
-        sourced = [(c, "hook") for c in own + carried]
-        n_fetched = len(own)
+    case_id = f"{conv.chat_id}:{followup_turn}"
+    sourced = chunk_pool_with_sources(answered, scope)
+    n_fetched = len(answered.retrieved) + len(answered.tool_output)
 
     tool_calls = [*answered.tool_calls,
                   *[c for c in answered.history.tool_calls]]
@@ -542,7 +537,7 @@ def to_case(
         dept=conv.user.dept,
         job_grade=conv.user.job_grade,
         job_name=conv.user.job_name,
-        conversation_id=conv.conversation_id,
+        chat_id=conv.chat_id,
         turn=followup_turn,
         # 마지막 항목이 비판받은 답변을 부른 질문이다.
         pre_queries=pre_queries(answered, scope),
@@ -561,24 +556,6 @@ def to_case(
         history_present=answered.history.present,
         history_turn_count=len(answered.history.queries),
     )
-
-
-def _call_hook(hook, answered: Turn, prior: list[Turn], case_id: str) -> tuple[list[str], list[str]]:
-    """사내 청크 풀 훅. 계약은 docs/design/chunk_pool_hook.md — (own, carried) 두 list[str].
-
-    틀린 모양이면 턴을 건너뛰지 않고 그 자리에서 죽는다. 조용히 빈 풀을 쓰면 그 턴이
-    T1(호출 없음) 로 집계된다 - 파싱 실패가 "검색을 안 했다" 로 둔갑하는 것이 최악이다.
-    """
-    name = getattr(hook, "__name__", repr(hook))
-    result = hook(answered.raw, [t.raw for t in prior])
-    if not (isinstance(result, (tuple, list)) and len(result) == 2):
-        raise ValueError(f"청크 풀 훅 {name} 이 {case_id} 에서 (own, carried) 가 아닌 것을 돌려줬다: "
-                         f"{type(result).__name__}")
-    own, carried = result
-    for label, part in (("own", own), ("carried", carried)):
-        if not isinstance(part, list) or not all(isinstance(c, str) for c in part):
-            raise ValueError(f"청크 풀 훅 {name} 의 {label} 이 {case_id} 에서 list[str] 이 아니다")
-    return [c for c in own if c.strip()], [c for c in carried if c.strip()]
 
 
 def prior_answers(answered: Turn, scope: list[Turn]) -> list[str]:

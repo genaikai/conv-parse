@@ -52,12 +52,10 @@ def question_looks_multi(question: str) -> bool:
 
 
 def split_scopes(case) -> dict[str, list[int]]:
-    """청크 인덱스를 own · carried 로 가른다. 훅이 만든 풀은 n_fetched 로 가른다."""
+    """청크 인덱스를 own · carried 로 가른다. 출처가 history_ 로 시작하면 carried."""
     own, carried = [], []
     for i, source in enumerate(case.chunk_sources or ["retrieved"] * len(case.rag_chunks)):
-        if source == "hook":
-            (own if case.n_fetched is None or i < case.n_fetched else carried).append(i)
-        elif source.startswith("history_"):
+        if source.startswith("history_"):
             carried.append(i)
         else:
             own.append(i)

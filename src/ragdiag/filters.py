@@ -250,8 +250,8 @@ def apply_filter(
     narrow(
         f"기간 {spec.start_date}~{spec.end_date}",
         spec.use_date and bool(spec.start_date or spec.end_date),
-        lambda s: (not spec.start_date or s.turn.request_time[:10] >= spec.start_date)
-        and (not spec.end_date or s.turn.request_time[:10] <= spec.end_date),
+        lambda s: (not spec.start_date or s.turn.event_time[:10] >= spec.start_date)
+        and (not spec.end_date or s.turn.event_time[:10] <= spec.end_date),
     )
     narrow(
         f"eval_score {spec.eval_range}", spec.eval_range is not None,

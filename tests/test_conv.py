@@ -22,9 +22,9 @@ RAW = {
         "db_job_name": "해외영업",
         "conversations": [
             {
-                "conversation_id": "asbdsa",
+                "chat_id": "asbdsa",
                 "turns": [{
-                    "turn": 1, "request_time": "2026-03-06 10:49:08.298",
+                    "turn": 1, "event_time": "2026-03-06 10:49:08.298",
                     "prev_question": None, "retrieved_data": "[]",
                     "llm_response": "answer on aaaa", "user_question": "aaaa",
                     "trace_matched": "False",
@@ -35,10 +35,10 @@ RAW = {
                 }],
             },
             {
-                # conversation_id 가 없는 대화가 실제로 있다
+                # chat_id 가 없는 대화가 실제로 있다
                 "turns": [
                     {
-                        "turn": 1, "request_time": "2026-03-07 11:29:04.218",
+                        "turn": 1, "event_time": "2026-03-07 11:29:04.218",
                         "prev_question": None,
                         "retrieved_data": json.dumps(["미주 숙박비 250달러", "정산 절차"]),
                         "llm_response": "숙박비는 실비 정산입니다.", "user_question": "숙박비 정산은?",
@@ -49,7 +49,7 @@ RAW = {
                         "llm_emotion_score_top1": None, "llm_emotion_alternatives": [],
                     },
                     {
-                        "turn": 2, "request_time": "2026-03-07 11:31:04.218",
+                        "turn": 2, "event_time": "2026-03-07 11:31:04.218",
                         "prev_question": "숙박비 정산은?",
                         "retrieved_data": json.dumps(["다른 문서 A", "다른 문서 B"]),
                         "llm_response": "지역별로 다릅니다.", "user_question": "상한 금액을 물었는데요",
@@ -119,9 +119,9 @@ def test_users_and_conversations_are_flattened():
     assert all(c.user.dept == "해외영업팀" for c in convs)
 
 
-def test_missing_conversation_id_is_synthesized_and_unique():
+def test_missing_chat_id_is_synthesized_and_unique():
     convs = _convs()
-    ids = [c.conversation_id for c in convs]
+    ids = [c.chat_id for c in convs]
     assert ids[0] == "asbdsa"
     assert ids[1] and ids[1] != "asbdsa"
     assert len(set(ids)) == len(ids)
@@ -232,7 +232,7 @@ def test_case_id_is_conversation_and_turn():
     """대화 id 가 전역 유일하다는 전제 위에 서 있다 (2026-10 확인)."""
     conv = _convs()[1]
     case = to_case(conv, followup_turn=2)
-    assert case.case_id == f"{conv.conversation_id}:2"
+    assert case.case_id == f"{conv.chat_id}:2"
 
 
 def test_case_carries_user_metadata_for_crosstabs():
@@ -260,7 +260,7 @@ def _long_conv(n=8):
               "llm_eval_result": None if i == 1 else "질의 폭스"}
              for i in range(1, n + 1)]
     return parse_conversations({"users": [{"user_id": "u", "conversations": [
-        {"conversation_id": "c", "turns": turns}]}]})[0]
+        {"chat_id": "c", "turns": turns}]}]})[0]
 
 
 def test_history_is_capped_to_the_most_recent_turns():
@@ -360,7 +360,7 @@ def _conv_with_carried(carried, *, tool=None, memory="", n=5):
         })
     return parse_conversations({"users": [{
         "db_dept_name": "-", "job_grade": "-", "db_job_name": "-",
-        "conversations": [{"conversation_id": "C", "turns": turns}],
+        "conversations": [{"chat_id": "C", "turns": turns}],
     }]})[0]
 
 

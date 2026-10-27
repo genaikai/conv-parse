@@ -89,7 +89,7 @@ def test_finished_turns_are_handed_over_as_they_complete(monkeypatch):
 def test_checkpoint_writes_only_finished_turns(tmp_path):
     from ragdiag.__main__ import _checkpointer
 
-    owners = [SimpleNamespace(conversation_id=f"c{i}", user=SimpleNamespace(
+    owners = [SimpleNamespace(chat_id=f"c{i}", user=SimpleNamespace(
         job_grade="", dept="", job_name="")) for i in range(3)]
     turns = [TurnResult(case=make_case(f"rich|missing|sufficient|supported|ok{i}")) for i in range(3)]
     out = tmp_path / "out.json"
@@ -150,8 +150,8 @@ def _four_turn_log() -> dict:
                 "llm_emotion_alternatives": []}
     user = {"user_id": "E1", "db_login_id": "e1", "db_dept_name": "인사팀", "db_job_name": "-",
             "job_grade": "대리", "db_position_name": "-",
-            "conversations": [{"conversation_id": "E1_conv_1", "turns": [turn(n) for n in range(1, 5)]},
-                              {"conversation_id": "E1_conv_2", "turns": [turn(1), turn(2)]}]}
+            "conversations": [{"chat_id": "E1_conv_1", "turns": [turn(n) for n in range(1, 5)]},
+                              {"chat_id": "E1_conv_2", "turns": [turn(1), turn(2)]}]}
     return {"users": [user]}
 
 
@@ -178,7 +178,7 @@ def test_turn_mode_writes_the_same_user_conversation_turn_tree(tmp_path, monkeyp
     assert turn_mode == stage_mode
 
     (user,) = turn_mode["analysis_results"]
-    by_conv = {c["conversation_id"]: [t["turn"] for t in c["turns"]] for c in user["conversations"]}
+    by_conv = {c["chat_id"]: [t["turn"] for t in c["turns"]] for c in user["conversations"]}
     assert by_conv == {"E1_conv_1": [2, 3, 4], "E1_conv_2": [2]}
     assert all(t["classification"]["case_id"] == "D1"
                for c in user["conversations"] for t in c["turns"])

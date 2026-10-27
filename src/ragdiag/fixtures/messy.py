@@ -903,13 +903,13 @@ def build() -> tuple[dict, dict]:
     users, expected = [], {}
     for index, case in enumerate(CASES):
         history = case["pre_queries"]
-        conv_id = f"messy-{case['id']}_conv_1"
+        chat_id = f"messy-{case['id']}_conv_1"
         turns = []
         for i, question in enumerate(history):
             last = i == len(history) - 1
             turns.append({
                 "turn": i + 1,
-                "request_time": f"2026-04-{(index % 28) + 1:02d} 1{i % 10}:{(index * 7) % 60:02d}:14.000",
+                "event_time": f"2026-04-{(index % 28) + 1:02d} 1{i % 10}:{(index * 7) % 60:02d}:14.000",
                 "user_question": question,
                 "llm_response": case["answer"] if last else f"(이전 답변 {i + 1})",
                 "retrieved_data": json.dumps(case["chunks"] if last else [], ensure_ascii=False),
@@ -931,7 +931,7 @@ def build() -> tuple[dict, dict]:
         complaint_turn = len(history) + 1
         turns.append({
             "turn": complaint_turn,
-            "request_time": f"2026-04-{(index % 28) + 1:02d} 1{complaint_turn % 10}:00:14.000",
+            "event_time": f"2026-04-{(index % 28) + 1:02d} 1{complaint_turn % 10}:00:14.000",
             "user_question": case["complaint"],
             "llm_response": "(아직 답변 없음)",
             "retrieved_data": "[]",
@@ -954,9 +954,9 @@ def build() -> tuple[dict, dict]:
             "job_grade": grades[index % len(grades)],
             "db_dept_name": "DX추진팀" if index % 2 else "경영지원팀",
             "db_job_name": "-",
-            "conversations": [{"conversation_id": conv_id, "turns": turns}],
+            "conversations": [{"chat_id": chat_id, "turns": turns}],
         })
-        expected[f"{conv_id}:{complaint_turn}"] = {
+        expected[f"{chat_id}:{complaint_turn}"] = {
             "id": case["id"], "note": case["note"], "expect": case["expect"],
             "expect_case": case.get("expect_case"),
             "expect_secondary": case.get("expect_secondary", set()),

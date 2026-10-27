@@ -32,7 +32,7 @@ def checks(**kw) -> dict[str, Check]:
 
 
 def case(**kw) -> Case:
-    base = dict(case_id="c:2", dept="d", job_grade="g", job_name="j", conversation_id="c",
+    base = dict(case_id="c:2", dept="d", job_grade="g", job_name="j", chat_id="c",
                 turn=2, pre_queries=["q"], llm_ans_on_last_q="a", current_query="그게 아니고요",
                 rag_chunks=["청크"], chunk_sources=["retrieved"], n_fetched=1)
     base.update(kw)

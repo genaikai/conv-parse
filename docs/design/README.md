@@ -35,7 +35,7 @@
 | [per_stage_model.md](per_stage_model.md) | 단계마다 다른 모델. ⑨ 만 작은 모델을 받을 수 있는 이유 — **아직 안 쟀다** |
 | [taxonomy_v3.md](taxonomy_v3.md) | **분류 체계 v3** — 묶음 라벨 · 태그 · 플래그 · 증거 등급 중재 · kev. 지금 코드의 설계 출처 |
 | [taxonomy_v3_plan.md](taxonomy_v3_plan.md) | v3 구현 순서와 완료 조건 (2026-10-24 완료) |
-| [chunk_pool_hook.md](chunk_pool_hook.md) | 청크 풀(`rag_chunks` · `n_fetched`)을 사내 파서 함수로 갈아끼우는 훅. 설정 `hooks.chunk_pool` 로 구현됨 |
+| [../assemble.md](../assemble.md) | **eval.jsonl 입력 경로** (2026-10-27) — select(저장소) → lookup(사내, 파일 경계) → run. 청크 풀 훅은 이때 뺐다 |
 
 두 문서는 **그 변경 시점의 기록**이다. 지금의 기능 목록과 순서는
 `src/ragdiag/features/__init__.py` 의 `FEATURES` 가 유일한 출처다 — 그 뒤로

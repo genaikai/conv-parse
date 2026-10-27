@@ -21,7 +21,7 @@ from ragdiag.textfmt import pad, text_width
 @dataclass
 class Issue:
     kind: str
-    conversation_id: str
+    chat_id: str
     detail: str
 
 
@@ -37,29 +37,29 @@ def check_integrity(conversations: list[Conversation]) -> list[Issue]:
         declared = conv.declared_multi_turn
         if declared is None and conv.turns:
             issues.append(Issue(
-                "trace_inconsistent", conv.conversation_id,
+                "trace_inconsistent", conv.chat_id,
                 "한 대화 안에서 trace_matched 값이 엇갈림"))
         elif declared is not None and declared != conv.actual_multi_turn:
             issues.append(Issue(
-                "trace_mismatch", conv.conversation_id,
+                "trace_mismatch", conv.chat_id,
                 f"trace_matched={declared} 인데 턴은 {len(conv.turns)}개 "
                 f"— 턴이 누락됐을 수 있음"))
 
         numbers = [t.turn for t in conv.turns]
         if numbers and numbers != list(range(1, len(numbers) + 1)):
             issues.append(Issue(
-                "turn_numbering", conv.conversation_id,
+                "turn_numbering", conv.chat_id,
                 f"턴 번호가 1..n 이 아님: {numbers}"))
 
         for turn in conv.turns:
             # eval 은 직전 턴을 참고해 계산되므로 turn 1에는 있을 수 없다.
-            if turn.turn == 1 and turn.is_followup:
+            if turn.turn == 1 and turn.eval_result:
                 issues.append(Issue(
-                    "eval_on_first_turn", conv.conversation_id,
+                    "eval_on_first_turn", conv.chat_id,
                     f"turn 1에 eval 라벨({turn.eval_result})이 있음"))
-            if turn.turn >= 2 and not turn.is_followup:
+            if turn.turn >= 2 and not turn.eval_result:
                 issues.append(Issue(
-                    "eval_missing", conv.conversation_id,
+                    "eval_missing", conv.chat_id,
                     f"turn {turn.turn}에 eval 라벨이 없음 — 평가 실패 또는 턴 누락"))
     return issues
 
@@ -204,7 +204,7 @@ def survey(conversations: list[Conversation], metadata: Optional[dict] = None) -
         for kind, count in by_kind.most_common():
             out.append(f"  {pad(kind, 24)}{count:>6}건")
             for issue in [i for i in issues if i.kind == kind][:3]:
-                out.append(f"      {issue.conversation_id[:24]:<26} {issue.detail}")
+                out.append(f"      {issue.chat_id[:24]:<26} {issue.detail}")
         out.append("  └ 턴이 누락된 대화가 있으면 진단 결과를 믿을 수 없다.")
 
     out += ["", "[8] 부서 · 직급"]
@@ -268,7 +268,7 @@ def preview_filter(
         for conv, turn in current[:5]:
             question = turn.user_question[:52]
             lines.append(
-                f"    {conv.conversation_id[:16]:<18} turn {turn.turn:<3} "
+                f"    {conv.chat_id[:16]:<18} turn {turn.turn:<3} "
                 f"{turn.eval_result or '-':<10} {question}"
             )
     return "\n".join(lines)

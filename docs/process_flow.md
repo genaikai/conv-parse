@@ -328,7 +328,9 @@ failures 등)는 어느 방식이든 판정이 전부 끝난 뒤 한 번 돈다.
 
 **목적** — 시간순 로그에서 "불만이 표현된 턴"을 찾아, **그 불만이 겨냥한 답변과 그 답변이 볼 수 있었던 것 전부**를 짝지어 `Case` 를 만든다.
 
-**입력** — `conv_eval` JSON (users → conversations → turns). 턴 레코드 하나에 **네 층**이 있다.
+**입력** — `conv_eval` JSON (users → conversations → turns), 또는 **eval.jsonl 경로**의
+`records.jsonl` + `selected.jsonl` (`assemble.records_to_payload` 가 같은 중첩 모양으로 접은 뒤는
+동일하다 — [assemble.md](assemble.md)). 턴 레코드 하나에 **네 층**이 있다.
 
 | 층 | 필드 | 무엇인가 | 짝짓기에서 가는 곳 |
 |---|---|---|---|
@@ -363,7 +365,7 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 | `llm_ans_on_last_q` | **turn 3** 의 `llm_response` | 전부 |
 | `current_query` | turn 4 의 `user_question` | ⑤ 관측 · ③ C2 · ④ `leak` |
 | `rag_chunks` | **turn 3** 이 볼 수 있었던 문서 · 도구 결과 전부 (아래 청크 풀) | ⑥ 충족도 · 주장 · `quoted_spans` · `injection` |
-| `chunk_sources` | 청크마다 출처 — `retrieved` · `tool:<이름>` · `history_retrieved` · `history_tool:<이름>` · `hook` | ⑥ 충족도(own/carried) · ⑦ D1/T2 가름 · `G5:과거근거` |
+| `chunk_sources` | 청크마다 출처 — `retrieved` · `tool:<이름>` · `history_retrieved` · `history_tool:<이름>` | ⑥ 충족도(own/carried) · ⑦ D1/T2 가름 · `G5:과거근거` |
 | `n_fetched` | **turn 3 이 이번에** 가져온 청크 수 (`retrieved_data` + `tool_output`) | ⑦ T1 |
 | `tool_calls` | 이 턴 + `history_input` 의 도구 호출 `[{turn_no, order, name, arguments}]` | ⑥ `tool_numbers` · ⑦ T1 · T3 · `T:인자불일치` |
 | `tool_outputs` | 이 턴 + `history_input` 의 도구 결과 본문 (풀에도 들어 있다) | ⑥ `tool_numbers` · tool 주장 대조 |
@@ -395,9 +397,8 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 - `history_input` 이 없는 옛 로그만 과거 턴 레코드를 돌아 `tool_output` 을 더한다. 둘 다 타면 같은 청크가 두 번 들어간다.
 - 상한이 없다. 풀이 실데이터에서 실제로 커지는지를 결과 파일의 `chunk_data` 길이로 먼저 본다.
 
-> **이 풀을 만드는 로직은 사내 함수로 갈아끼울 수 있게 한다.** `n_fetched` 도 같은 함수가 낸다. 훅이
-> 있으면 `chunk_sources` 는 전부 `hook` 이고 D1/T2 는 가르지 못한다. 계약과 경계는
-> [design/chunk_pool_hook.md](design/chunk_pool_hook.md).
+> 입력은 **완결된 형태로 들어온다고 가정한다** — `history_input` 에 과거 청크가 이미 구분되어 있고,
+> 풀은 그 자리 넷을 더하는 것뿐이다. 사내 파서로 갈아끼우는 훅은 두지 않는다 (v0.87 에서 뺐다).
 
 과거 턴의 문서가 풀에 들어오면 **"문서에 없었다"(D1)가 "있었는데 안 썼다"(G5)로 옮겨 간다.** 고칠 곳이 문서팀에서 생성 쪽으로 바뀐다. 그래서 ⑥ 충족도는 own 과 carried 를 따로 재고, 근거가 carried 에만 있으면 `G5:과거근거` 태그가 붙는다.
 
@@ -407,7 +408,7 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 
 | 필드 | 왜 안 쓰나 |
 |---|---|
-| `request_time` | 지연 판정에 쓸 수 없다. 턴 시각 차이에는 사용자가 생각한 시간이 섞여 있다 |
+| `event_time` | 지연 판정에 쓸 수 없다. 턴 시각 차이에는 사용자가 생각한 시간이 섞여 있다 |
 | `trace_matched` | "2턴 이상"은 실제 턴 수로 판정한다. 선언값과 실제가 어긋난 로그를 본 적이 있다 |
 | `ask_on` `answered_by` `route_intent` `fallback` | 실패의 원인이 아니라 실패가 일어난 자리다. 집계 축이지 판정 입력이 아니다 |
 | `llm_eval_*` `llm_emotion_*` | ②에서만 쓰고 판정에는 넘기지 않는다 (아래) |
@@ -424,7 +425,7 @@ turn 4 의 `retrieved_data` 를 쓰면 "불만에 대한 재검색 결과"를 �
 |---|---|
 | 직급 · 부서 · 직무 | `job_grade` `db_dept_name` `db_job_name` |
 | 턴 구간 | `turn` |
-| 기간 | `request_time` |
+| 기간 | `event_time` |
 | 대화 유형 점수 · 라벨 | `llm_eval_result` `llm_eval_score` `llm_eval_alternatives` |
 | 감정 점수 · 라벨 | `llm_emotion_result` `llm_emotion_score` `llm_emotion_alternatives` |
 
@@ -441,6 +442,11 @@ emotion_score (0.0, 30.0)           37
 
 몇 건이 어디서 빠졌는지 전부 찍는다. 조용히 줄어들면 "이 조건에는 원래 없다"와
 "필터가 잘못 걸렸다"를 구분할 수 없다.
+
+첫 줄의 **후속 턴** 은 `turn ≥ 2` 이고 같은 대화에 `turn − 1` 이 있는 턴이다 (2026-10-27 까지는
+`llm_eval_result` 가 있나로 봤다 — eval 이 비어 오는 eval.jsonl 이 생겨 턴 번호로 바꿨다).
+eval.jsonl 경로에서는 이 필터가 `assemble.py select` 안에서 **같은 코드로** 돌고, `llm_eval_*` 가
+비어 오므로 eval 조건이 있으면 걸지 않고 예외로 멈춘다. `--turns` 로 들어온 뒤에는 다시 안 건다.
 
 ### 필터가 쓴 값을 판정에 넘기지 않는 이유
 
@@ -537,7 +543,7 @@ v3 는 kev 의 보정된 확률이 그 자리다.
 | `pre_queries` — 이전 질문들, 마지막이 이번 답변을 부른 질문 | **`rag_chunks`** ← 이게 핵심 |
 | `llm_ans_on_last_q` — 비판받은 답변 | `memory` · `prior_answers` — 다른 LLM 의 해석이라 끌려간다. 따로 묻는다 |
 | `current_query` — 그 답변에 대한 불만 | `tool_calls` · `tool_outputs` · `dept` · `job_grade` · `job_name` |
-| | `llm_eval_*` · `llm_emotion_*` · `turn` · `request_time` |
+| | `llm_eval_*` · `llm_emotion_*` · `turn` · `event_time` |
 
 **왜 문서를 감추나.** 문서를 먼저 보여주면 판정자가 "이 문서로 답할 수 있었나"를 기준으로
 사용자의 요구를 재구성한다. 문서에 있는 내용 쪽으로 `unmet_need` 가 끌려가고, 그러면

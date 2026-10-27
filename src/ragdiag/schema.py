@@ -35,7 +35,7 @@ class Case:
     dept: str
     job_grade: str
     job_name: str
-    conversation_id: str
+    chat_id: str
     turn: int
     pre_queries: list[str]
     llm_ans_on_last_q: str
@@ -54,7 +54,7 @@ class Case:
     # history_chat 의 assistant 메시지. 순서대로. ⑥ 일관성과 G2[약속] 대조가 읽는다.
     prior_answers: list[str] = field(default_factory=list)
     # rag_chunks 와 길이가 같다. 청크마다 출처: retrieved · tool:<name> · history_retrieved ·
-    # history_tool:<name> · hook. D1/T2 를 가르고 G5[과거근거] 를 붙이는 데 쓴다.
+    # history_tool:<name>. D1/T2 를 가르고 G5[과거근거] 를 붙이는 데 쓴다.
     chunk_sources: list[str] = field(default_factory=list)
     # 이 턴 + history_input 의 도구 호출. [{turn_no, order, name, arguments}]. 순서 보존.
     tool_calls: list[dict] = field(default_factory=list)

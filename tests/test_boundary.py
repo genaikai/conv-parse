@@ -44,6 +44,7 @@ CORE = [
 LOCAL_ONLY = [
     "ragdiag.conv",         # conv_eval → Case
     "ragdiag.filters",      # 필터 적용
+    "ragdiag.assemble",     # eval.jsonl 경로 — select · records 접기 · check
     "ragdiag.labels",       # query · emotion 라벨표
     "ragdiag.org",          # 조직 분류 (대시보드용)
     "ragdiag.survey",       # 로그 훑어보기
@@ -126,7 +127,7 @@ def test_readme_copy_list_matches_this_test():
 def test_core_accepts_a_foreign_conversation_object():
     """실행 환경의 파서가 만든 객체로도 출력이 조립돼야 한다.
 
-    build_output 은 conversation_id 와 user 두 속성만 읽는다. 그 계약이 깨지면
+    build_output 은 chat_id 와 user 두 속성만 읽는다. 그 계약이 깨지면
     복사한 쪽에서 AttributeError 가 나고, 여기서는 conv.Conversation 을 쓰고
     있어서 끝까지 드러나지 않는다. README 의 예제를 그대로 박아 둔다.
     """
@@ -147,13 +148,13 @@ def test_core_accepts_a_foreign_conversation_object():
 
     @dataclass
     class Conv:
-        conversation_id: str
+        chat_id: str
         user: Meta
 
     # 서비스 오류 문구는 코드로 판정되므로 LLM 없이 끝까지 간다.
     cases = [Case(
         case_id="C-9001:3", dept="인사팀", job_grade="사원",
-        job_name="인사", conversation_id="C-9001", turn=3,
+        job_name="인사", chat_id="C-9001", turn=3,
         pre_queries=["연차 이월 예외 조건 알려줘"],
         llm_ans_on_last_q="서비스에 문제가 있거나, 사용자 분들이 많아서 "
                           "서버에 부하가 걸리고 있어요.",

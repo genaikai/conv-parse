@@ -122,7 +122,7 @@ def _raw_turn(no, question, **extra):
 def _conv(*turns):
     return parse_conversations({"users": [{
         "db_dept_name": "부서", "db_job_name": "직무", "job_grade": "직급",
-        "conversations": [{"conversation_id": "c1", "turns": list(turns)}],
+        "conversations": [{"chat_id": "c1", "turns": list(turns)}],
     }]})[0]
 
 
@@ -312,7 +312,7 @@ def test_dry_run_prints_the_pool_size(tmp_path, capsys):
 
     raw = {"users": [{
         "db_dept_name": "부서", "db_job_name": "직무", "job_grade": "직급",
-        "conversations": [{"conversation_id": "c1", "turns": [
+        "conversations": [{"chat_id": "c1", "turns": [
             _raw_turn(1, "질문 1", retrieved_data='["문서 하나"]'),
             _raw_turn(2, "질문 2", retrieved_data='["문서 둘", "문서 셋"]',
                       history_input={"retrieved_data": '["앞 턴 문서"]'}),

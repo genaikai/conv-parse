@@ -17,7 +17,7 @@ from typing import Optional
 from ragdiag import settings
 from ragdiag.results import TurnResult
 if TYPE_CHECKING:                      # 런타임 의존을 만들지 않는다.
-    # 쓰는 것은 .user 와 .conversation_id 두 개뿐이다. 실행 환경에서는 그쪽
+    # 쓰는 것은 .user 와 .chat_id 두 개뿐이다. 실행 환경에서는 그쪽
     # 파서가 만든 객체가 들어올 수 있으므로 런타임에 conv 를 붙들지 않는다.
     from ragdiag.conv import Conversation
 
@@ -153,7 +153,7 @@ def build_output(pairs: list[tuple["Conversation", TurnResult]],
         meta = conv.user
         # 사용자 식별자가 로그에서 없어졌다. 조직 속성 조합으로 묶는다 - 같은
         # 부서 · 직급 · 직무의 다른 사람이 한 노드로 합쳐지지만, 어차피 집계가
-        # 보는 축이 그 셋이고 사례는 conversation_id 로 되짚는다.
+        # 보는 축이 그 셋이고 사례는 chat_id 로 되짚는다.
         key = (meta.dept, meta.job_grade, meta.job_name)
         user = users.setdefault(key, {
             "job_grade": meta.job_grade,
@@ -162,7 +162,7 @@ def build_output(pairs: list[tuple["Conversation", TurnResult]],
             "conversations": {},
         })
         conversation = user["conversations"].setdefault(
-            conv.conversation_id, {"conversation_id": conv.conversation_id, "turns": []}
+            conv.chat_id, {"chat_id": conv.chat_id, "turns": []}
         )
         conversation["turns"].append(build_turn(result, result.case.turn - 1))
 

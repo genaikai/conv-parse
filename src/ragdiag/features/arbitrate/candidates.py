@@ -57,7 +57,7 @@ def _only_business_tools(turn: TurnResult) -> bool:
         return False
     names = set(settings.SEARCH_TOOL_NAMES)
     for s in sources:
-        if s in ("retrieved", "history_retrieved", "hook"):
+        if s in ("retrieved", "history_retrieved"):
             return False
         if ":" in s and s.split(":", 1)[1] in names:
             return False
@@ -146,7 +146,7 @@ def candidates_for(turn: TurnResult) -> list[Candidate]:
             add("T2", g, f"업무 도구 결과가 질문에 답하지 못함 (verdict={overall})", tags=tags)
         else:
             if not _has_search_source(turn) and not settings.SEARCH_TOOL_NAMES \
-                    and any(s.startswith(("tool", "history_tool", "hook")) for s in case.chunk_sources):
+                    and any(s.startswith(("tool", "history_tool")) for s in case.chunk_sources):
                 tags = tags + ["D:출처미상"]
             add("D1", g, f"검색 근거에 요구에 답하는 내용이 없음 (verdict={overall})", tags=tags,
                 notes=["검색 실패와 코퍼스 부재는 구분 불가 — 부서 편중으로만 추정"])

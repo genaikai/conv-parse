@@ -51,7 +51,7 @@ def _case():
 
     return Case(
         case_id="c1:2", dept="인사팀", job_grade="대리", job_name="인사운영",
-        conversation_id="c1", turn=2, pre_queries=["q1"],
+        chat_id="c1", turn=2, pre_queries=["q1"],
         llm_ans_on_last_q="답변", current_query="q2", rag_chunks=["청크"],
     )
 

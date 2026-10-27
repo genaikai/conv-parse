@@ -16,7 +16,7 @@ def _flattened(payload: dict) -> dict:
         turns = []
         for conv in user["conversations"]:
             for turn in conv["turns"]:
-                t = dict(turn, conversation_id=conv["conversation_id"])
+                t = dict(turn, chat_id=conv["chat_id"])
                 turns.append(t)
         out["users"].append({**{k: v for k, v in user.items() if k != "conversations"},
                              "turns": turns})

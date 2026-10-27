@@ -228,7 +228,7 @@ def _turn_with_request(questions, fmt):
     from tests.helpers import obs
 
     case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
-                conversation_id="c", turn=2, pre_queries=questions,
+                chat_id="c", turn=2, pre_queries=questions,
                 llm_ans_on_last_q="답변", current_query="표로 정리해 주세요.", rag_chunks=[])
     return TurnResult(case=case, observation=obs(requested_format=fmt))
 
@@ -277,7 +277,7 @@ def _turn_with_history(questions, quote, memory=""):
     from tests.helpers import obs
 
     case = Case(case_id="c", dept="d", job_grade="g", job_name="j",
-                conversation_id="c", turn=len(questions) + 1,
+                chat_id="c", turn=len(questions) + 1,
                 pre_queries=questions, llm_ans_on_last_q="해외 출장 식비는 1일 80달러입니다.",
                 current_query="국내 기준이라고 했잖아요.", rag_chunks=[], memory=memory)
     return TurnResult(case=case, observation=obs(answer_ignored_history=True, history_quote=quote))

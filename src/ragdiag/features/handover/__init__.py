@@ -388,7 +388,7 @@ def build_example(user: dict, conv: dict, turn: dict, label_id: str,
         tags = label_and_tags(turn)[1]
     # 되짚을 때만 보는 것. 원본 로그로 찾아가는 식별자와 곁다리 관찰.
     meta: dict = {
-        "대화": conv.get("conversation_id"),
+        "대화": conv.get("chat_id"),
         "턴": turn.get("turn"),
         "부서": user.get("db_dept_name"),
         # 사례를 하나만 떼어 티켓에 붙이면 어느 분류였는지가 사라진다.
@@ -462,7 +462,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
                 for marker in list(classification.get("flags") or []) + list(
                         classification.get("events") or []):
                     hits.setdefault(marker, []).append(
-                        {"대화": conv.get("conversation_id"), "턴": turn.get("turn")})
+                        {"대화": conv.get("chat_id"), "턴": turn.get("turn")})
                 if label_id == "N0":
                     skipped += 1
                     continue

@@ -191,7 +191,7 @@ def scenarios():
 def make_case(scenario):
     t = TEXTS[scenario.split("|")[0]]
     return Case(case_id=scenario, user_id="u", dept="d", job_grade="g", job_name="j",
-                position_name="p", conversation_id="c", turn=2,
+                position_name="p", chat_id="c", turn=2,
                 pre_queries=t["pre_queries"], llm_ans_on_last_q=t["answer"],
                 current_query=COMPLAINT, rag_chunks=t["chunks"])
 

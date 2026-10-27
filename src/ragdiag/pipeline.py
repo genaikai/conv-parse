@@ -90,7 +90,7 @@ def build_outcome(owners: list, results: list[TurnResult],
                   models: Optional[dict] = None) -> Outcome:
     """판정 결과를 출력 JSON 모양으로 묶는다.
 
-    owners 는 결과를 되돌릴 대화 객체들이다. conversation_id 와 user 두 속성만
+    owners 는 결과를 되돌릴 대화 객체들이다. chat_id 와 user 두 속성만
     쓰므로 실행 환경의 파서가 만든 객체를 그대로 넣어도 된다.
 
     models 는 Judge.models() - 단계별로 어느 모델이 판정했는지. 생략하면 결과
@@ -160,7 +160,7 @@ def load_and_select(conv_path: str | Path, filter_path: Optional[str | Path] = N
 class TurnRef:
     """운영 필터가 고른 턴 하나. 대화 id 가 전역 유일해서 그것만으로 찾는다."""
 
-    conversation_id: str
+    chat_id: str
     turn: int
 
 
@@ -171,8 +171,8 @@ def read_turn_list(path: str | Path) -> list[TurnRef]:
     JSONL 을 뱉는 경우가 흔하고, 그것 때문에 실행 환경에서 변환 스크립트를 하나 더
     짜게 만들 이유가 없다 (C2 — 거기서는 코드를 못 고친다).
 
-        [{"conversation_id": "C-0001", "turn": 3}, ...]
-        {"conversation_id": "C-0001", "turn": 3}      ← 한 줄에 하나
+        [{"chat_id": "C-0001", "turn": 3}, ...]
+        {"chat_id": "C-0001", "turn": 3}      ← 한 줄에 하나
     """
     text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
@@ -197,11 +197,11 @@ def read_turn_list(path: str | Path) -> list[TurnRef]:
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"{path}[{i}] 가 객체가 아닙니다: {type(row).__name__}")
-        cid = row.get("conversation_id") or row.get("conv_id")
+        cid = row.get("chat_id")
         turn = row.get("turn")
         if not cid or turn is None:
             raise ValueError(
-                f"{path}[{i}] 에 conversation_id 나 turn 이 없습니다. "
+                f"{path}[{i}] 에 chat_id 나 turn 이 없습니다. "
                 f"있는 키: {sorted(row)}")
         refs.append(TurnRef(str(cid), int(turn)))
     return refs
@@ -230,11 +230,11 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
     # 나오면 - 조용히 엉뚱한 대화를 판정하므로 아래에서 세어 막는다.
     by_conv = {}
     for conv in conversations:
-        by_conv.setdefault(conv.conversation_id, []).append(conv)
+        by_conv.setdefault(conv.chat_id, []).append(conv)
 
     selected, missing, ambiguous, no_prior = [], [], [], []
     for ref in refs:
-        found = by_conv.get(ref.conversation_id) or []
+        found = by_conv.get(ref.chat_id) or []
         if len(found) > 1:
             ambiguous.append(ref)
             continue
@@ -255,8 +255,8 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
     if ambiguous:
         raise ValueError(
             f"대화 id 가 로그에 둘 이상 있어 어느 것인지 정할 수 없습니다 "
-            f"({len(ambiguous)}건, 예: {ambiguous[0].conversation_id}).\n"
-            f"  conversation_id 는 전역 유일이어야 합니다 — 로그 생성 쪽을 확인하세요.")
+            f"({len(ambiguous)}건, 예: {ambiguous[0].chat_id}).\n"
+            f"  chat_id 는 전역 유일이어야 합니다 — 로그 생성 쪽을 확인하세요.")
 
     steps = [Step(f"운영 필터가 고른 턴 ({Path(turns_path).name})", len(refs), 0)]
     if missing:
@@ -272,6 +272,39 @@ def select_turns(conv_path: str | Path, turns_path: str | Path,
 
     from ragdiag.filters import render_steps
 
+    return Selection(owners=[s.conversation for s, _ in pairs],
+                     cases=[c for _, c in pairs],
+                     report=render_steps(None, steps),
+                     selected=[s for s, _ in pairs], steps=steps)
+
+
+def select_records(records_path: str | Path, selected_path: str | Path,
+                   history_turns: Optional[int] = None,
+                   limit: Optional[int] = None) -> Selection:
+    """eval.jsonl 경로 — records.jsonl(사내 lookup 출력) + selected.jsonl(① 의 좌표) 로 Case 를 만든다.
+
+    필터는 ① 에서 이미 걸었으니 여기서는 안 건다. 두 파일을 접어 conv-eval 모양으로 만든
+    뒤는 지금 파이프라인 그대로다 (ragdiag.assemble.records_to_payload).
+    """
+    from ragdiag.assemble import read_jsonl, records_to_payload
+    from ragdiag.conv import parse_conversations
+    from ragdiag.filters import Selected, Step, render_steps, to_cases
+
+    selected_rows = read_jsonl(selected_path)
+    payload = records_to_payload(read_jsonl(records_path), selected_rows)
+    by_chat = {c.chat_id: c for c in parse_conversations(payload)}
+
+    selected = []
+    for row in selected_rows:
+        conv = by_chat[str(row["chat_id"])]
+        turn = conv.turn_at(int(row["n_prior"]) + 2)
+        selected.append(Selected(conv, turn, turn.eval_score, turn.emotion_score))
+    steps = [Step(f"selected.jsonl 의 턴 ({Path(selected_path).name})", len(selected), 0)]
+
+    if limit:
+        selected = selected[:limit]
+    cases = to_cases(selected, history_turns=history_turns or settings.MAX_HISTORY_TURNS)
+    pairs = [(sel, case) for sel, case in zip(selected, cases) if case is not None]
     return Selection(owners=[s.conversation for s, _ in pairs],
                      cases=[c for _, c in pairs],
                      report=render_steps(None, steps),

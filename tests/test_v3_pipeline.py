@@ -23,7 +23,7 @@ FIXTURES = v3_cases.by_id()
 def make_case(fx: dict) -> Case:
     chunks = list(fx.get("chunks") or [])
     return Case(case_id=fx["id"], dept="FAB1", job_grade="책임", job_name="공정",
-                conversation_id=fx["id"], turn=len(fx["pre_queries"]) + 1,
+                chat_id=fx["id"], turn=len(fx["pre_queries"]) + 1,
                 pre_queries=list(fx["pre_queries"]), llm_ans_on_last_q=fx["answer"],
                 current_query=fx["complaint"], rag_chunks=chunks,
                 chunk_sources=list(fx.get("sources") or ["retrieved"] * len(chunks)),

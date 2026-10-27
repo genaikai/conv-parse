@@ -132,7 +132,7 @@ def _org_payload(result_file, tmp_path, plan):
                                       if k != "conversations"}))
         user["db_dept_name"] = dept
         user["user_id"] = f"EMP-{n:03d}"
-        user["conversations"] = [{"conversation_id": f"C-{n:04d}", "turns": turns}]
+        user["conversations"] = [{"chat_id": f"C-{n:04d}", "turns": turns}]
         users.append(user)
 
     payload["analysis_results"] = users
@@ -1206,13 +1206,13 @@ def test_the_case_tab_can_search(result_file, tmp_path):
     payload = json.loads(result_file.read_text(encoding="utf-8"))
     turns = [t for u in payload["analysis_results"]
              for c in u["conversations"] for t in c["turns"]]
-    turns[0]["current_query"] = "출입증 재발급이 왜 이렇게 오래 걸리나요"
+    turns[0]["current_query"] = "출입증 재발급이 왜 이렇게 오래 걸리나요 (티켓 Q7Q)"
     log = tmp_path / "search.json"
     log.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     at = render(log)
     box = next(b for b in at.tabs[2].text_input if b.label == "찾기")
-    box.set_value("출입증"); at.run()
+    box.set_value("Q7Q"); at.run()
 
     position = next(m.value for m in at.tabs[2].markdown
                     if m.value.startswith("**") and "/" in m.value)

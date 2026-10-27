@@ -758,7 +758,7 @@ def generate(n: Optional[int] = None, seed: int = 0,
                 turns.append(_turn(turn_no, complaint, "(아직 답변 없음)", [], rng,
                                    followup=True))
                 conversations.append(
-                    {"conversation_id": f"C-{conv_no:04d}", "turns": turns})
+                    {"chat_id": f"C-{conv_no:04d}", "turns": turns})
 
             # 사용자 식별자가 로그에 없다 (2026-10). 남은 것은 조직 속성뿐이다.
             users.append({
@@ -796,7 +796,7 @@ def _turn(no, question, answer, docs, rng, followup):
     carried = [n for n in range(max(1, no - 2), no)]
     return {
         "turn": no,
-        "request_time": f"2026-0{rng.randint(3, 8)}-{day:02d} 1{no % 9}:{rng.randint(10, 59)}:00.000",
+        "event_time": f"2026-0{rng.randint(3, 8)}-{day:02d} 1{no % 9}:{rng.randint(10, 59)}:00.000",
         "prev_question": None if no == 1 else "(이전 질문)",
         "retrieved_data": json.dumps(docs, ensure_ascii=False),
         # 도구 결과. 문서 검색 결과와 같은 성격이라 청크 풀로 들어간다.

@@ -62,7 +62,7 @@ class Field:
 
 # 2026-10 에 user_id · db_login_id · db_position_name 이 로그에서 빠졌다.
 # **사용자 식별자가 하나도 없다.** 그래서 집계는 조직 축으로만 돌고, 같은 사람이
-# 반복해서 겪는 실패는 셀 수 없다. Case 식별은 conversation_id 로 넘겼다 -
+# 반복해서 겪는 실패는 셀 수 없다. Case 식별은 chat_id 로 넘겼다 -
 # 그 값이 사용자 간에도 유일하다는 것을 확인받았다.
 USER_SCHEMA = (
     Field("db_dept_name", "str", True, note="조직 분류의 소분류와 매칭되는 값"),
@@ -71,13 +71,13 @@ USER_SCHEMA = (
 )
 
 CONVERSATION_SCHEMA = (
-    Field("conversation_id", "str", False),
+    Field("chat_id", "str", False),
     Field("turns", "list", False, note="시간순. 2턴 이상이어야 분석 대상이다"),
 )
 
 TURN_SCHEMA = (
     Field("turn", "int", False, rng=(1, None), note="1부터. 순서가 어긋난 로그를 본 적 있다"),
-    Field("request_time", "str", True,
+    Field("event_time", "str", True,
           note="2026-10 에 timestamp 에서 개명. 지연 판정에는 쓸 수 없다 — "
                "턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
     Field("user_question", "str", False),
@@ -334,6 +334,8 @@ def check_log(payload: dict) -> ContractReport:
     convs = [c for u in users for c in (u.get("conversations") or [])
              if isinstance(c, dict)]
     turns = [t for c in convs for t in (c.get("turns") or []) if isinstance(t, dict)]
+    # records.jsonl 경로가 채운 본문 없는 앞 턴 자리. 로그가 준 레코드가 아니라 대조하지 않는다.
+    turns = [t for t in turns if not t.get("_stub")]
 
     report = ContractReport(
         checked=len(USER_SCHEMA) + len(CONVERSATION_SCHEMA) + len(TURN_SCHEMA))
@@ -347,7 +349,7 @@ def check_log(payload: dict) -> ContractReport:
         found.append(Mismatch(
             "user", "conversations", "structure",
             f"turns 가 user 바로 아래라 파서가 0건으로 읽는다 ({len(flat):,}건) — "
-            f"users → conversations → turns 로 묶을 것 (턴의 conversation_id 기준)", count=1))
+            f"users → conversations → turns 로 묶을 것 (턴의 chat_id 기준)", count=1))
         # 턴 필드는 그대로 대조한다 - 구조를 고친 뒤 무엇이 더 어긋나는지 미리 보인다.
         turns = flat
     else:

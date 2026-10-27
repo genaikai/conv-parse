@@ -228,9 +228,9 @@ def _turn(n, eval_letter=None, emotion_letter=None, ts="2026-03-06 10:00:00.000"
 
 def _convs(turns, dept="인사팀"):
     return parse_conversations({"users": [{
-        "conversation_id": "u1", "db_dept_name": dept, "db_job_name": "인사운영",
+        "chat_id": "u1", "db_dept_name": dept, "db_job_name": "인사운영",
         "db_position_name": "팀원", "job_grade": "대리",
-        "conversations": [{"conversation_id": "c1", "turns": turns}],
+        "conversations": [{"chat_id": "c1", "turns": turns}],
     }]})
 
 
@@ -385,8 +385,8 @@ def test_turn_bucket_filters_selected_turns():
 
 def test_role_filters_on_job_grade():
     convs = parse_conversations({"users": [{
-        "conversation_id": "u", "job_grade": "Staff Engineer", "db_dept_name": "인사팀",
-        "conversations": [{"conversation_id": "c", "turns": [_turn(1), _turn(2, "K", "I")]}],
+        "chat_id": "u", "job_grade": "Staff Engineer", "db_dept_name": "인사팀",
+        "conversations": [{"chat_id": "c", "turns": [_turn(1), _turn(2, "K", "I")]}],
     }]})
     assert len(apply_filter(convs, FilterSpec(job_grades={"Staff Engineer"}))[0]) == 1
     assert apply_filter(convs, FilterSpec(job_grades={"Manager"}))[0] == []
@@ -423,9 +423,9 @@ def test_single_turn_conversations_are_excluded():
 
 def _two_turn_log():
     return {"users": [{
-        "conversation_id": "u1", "db_login_id": "l1", "job_grade": "사원",
+        "chat_id": "u1", "db_login_id": "l1", "job_grade": "사원",
         "db_dept_name": "인사팀", "db_job_name": "인사", "db_position_name": "팀원",
-        "conversations": [{"conversation_id": "C-1", "turns": [
+        "conversations": [{"chat_id": "C-1", "turns": [
             {"turn": 1, "user_question": "연차 며칠인가요?", "llm_response": "규정에 따릅니다.",
              "retrieved_data": json.dumps(["연차는 15일이다."])},
             {"turn": 2, "user_question": "그래서 며칠이요?", "llm_response": "15일입니다.",
@@ -448,7 +448,7 @@ def test_turns_list_selects_exactly_what_was_asked(tmp_path):
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),
-                        [{"conversation_id": "C-1", "turn": 2}])
+                        [{"chat_id": "C-1", "turn": 2}])
     selection = select_turns(log, turns)
     assert len(selection.cases) == 1
     case = selection.cases[0]
@@ -465,7 +465,7 @@ def test_turns_list_accepts_jsonl(tmp_path):
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),
-                        '{"conversation_id": "C-1", "turn": 2}\n', name="t.jsonl")
+                        '{"chat_id": "C-1", "turn": 2}\n', name="t.jsonl")
     assert len(select_turns(log, turns).cases) == 1
 
 
@@ -473,8 +473,8 @@ def test_turns_not_in_the_log_are_counted_not_swallowed(tmp_path):
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(), [
-        {"conversation_id": "C-1", "turn": 2},
-        {"conversation_id": "없는대화", "turn": 2},
+        {"chat_id": "C-1", "turn": 2},
+        {"chat_id": "없는대화", "turn": 2},
     ])
     selection = select_turns(log, turns)
     assert len(selection.cases) == 1
@@ -487,14 +487,14 @@ def test_first_turn_cannot_be_judged_and_says_so(tmp_path):
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),
-                        [{"conversation_id": "C-1", "turn": 1}])
+                        [{"chat_id": "C-1", "turn": 1}])
     selection = select_turns(log, turns)
     assert not selection.cases
     assert any("직전 턴" in st.name and st.dropped == 1 for st in selection.steps), \
         [(st.name, st.dropped) for st in selection.steps]
 
 
-def test_duplicate_conversation_id_is_refused(tmp_path):
+def test_duplicate_chat_id_is_refused(tmp_path):
     """대화 id 는 전역 유일이라는 전제 위에 Case 식별이 서 있다 (2026-10).
 
     사용자 식별자가 로그에서 없어져 가를 다른 값이 없다. 같은 id 가 둘 나오면
@@ -506,8 +506,8 @@ def test_duplicate_conversation_id_is_refused(tmp_path):
     log = _two_turn_log()
     log["users"].append(json.loads(json.dumps(log["users"][0])))
 
-    path, turns = _write(tmp_path, log, [{"conversation_id": "C-1", "turn": 2}])
-    with pytest.raises(ValueError, match="conversation_id"):
+    path, turns = _write(tmp_path, log, [{"chat_id": "C-1", "turn": 2}])
+    with pytest.raises(ValueError, match="chat_id"):
         select_turns(path, turns)
 
 
@@ -516,7 +516,7 @@ def test_turn_list_needs_no_label_conditions(tmp_path):
     from ragdiag.pipeline import select_turns
 
     log, turns = _write(tmp_path, _two_turn_log(),
-                        [{"conversation_id": "C-1", "turn": 2}])
+                        [{"chat_id": "C-1", "turn": 2}])
     assert len(select_turns(log, turns).cases) == 1
 
 
@@ -524,10 +524,10 @@ def test_bad_turn_list_says_which_line(tmp_path):
     from ragdiag.pipeline import read_turn_list
 
     path = tmp_path / "t.jsonl"
-    path.write_text('{"conversation_id": "C-1", "turn": 2}\n{망가진\n', encoding="utf-8")
+    path.write_text('{"chat_id": "C-1", "turn": 2}\n{망가진\n', encoding="utf-8")
     with pytest.raises(ValueError, match=":2"):
         read_turn_list(path)
 
     path.write_text(json.dumps([{"turn": 2}]), encoding="utf-8")
-    with pytest.raises(ValueError, match="conversation_id"):
+    with pytest.raises(ValueError, match="chat_id"):
         read_turn_list(path)

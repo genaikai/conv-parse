@@ -148,6 +148,3 @@ CHUNK_PARTIAL_P = 0.5
 # 검색 도구의 이름. tool_calls.name 이 여기 있으면 그 결과는 "검색 근거"(D1), 아니면
 # "업무 도구 결과"(T2). 비어 있으면 둘을 가르지 않고 D1 에 D:출처미상 태그를 붙인다.
 SEARCH_TOOL_NAMES: tuple = ()
-
-# 청크 풀 훅. config 가 "모듈:함수" 를 import 해 callable 로 넣는다. None 이면 내장.
-CHUNK_POOL_HOOK = None

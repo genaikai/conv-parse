@@ -152,7 +152,7 @@ def test_messy_set_looks_like_the_operational_log():
     assert {"job_grade", "db_dept_name", "db_job_name"} <= set(user)
     assert not {"user_id", "db_login_id", "db_position_name"} & set(user)
     turn = user["conversations"][0]["turns"][-1]
-    assert {"request_time", "user_question", "llm_response",
+    assert {"event_time", "user_question", "llm_response",
             "llm_eval_result", "llm_eval_score", "llm_eval_alternatives",
             "llm_eval_context_summarized",
             "llm_emotion_result", "llm_emotion_alternatives",
@@ -163,8 +163,8 @@ def test_messy_set_looks_like_the_operational_log():
     # 2026-10 컬럼 목록에서 빠졌다. 짝인 emotion 쪽은 남아 있어 확인 중이다.
     assert "llm_eval_score_top1" not in turn
     # 대화 id 는 대화 층에만 있다 - 턴마다 되풀이되던 것은 옛 로그 모양이다.
-    assert "conversation_id" not in turn
-    assert user["conversations"][0]["conversation_id"].endswith("_conv_1")
+    assert "chat_id" not in turn
+    assert user["conversations"][0]["chat_id"].endswith("_conv_1")
     # 2턴 이상인 턴은 history_input 이 있고, 그 안의 user 메시지가 앞 질문들이다.
     prior = user["conversations"][0]["turns"][:-1]
     users_in_chat = [m["content"] for m in turn["history_input"]["history_chat"]
@@ -244,7 +244,7 @@ def test_golden_sets_take_the_whole_history_chat_and_fall_back_to_a_window():
         full, fallback = cases(raw), cases(stripped)
         longer = 0
         for conv in parse_conversations(raw):
-            key = f"{conv.conversation_id}:{conv.turns[-1].turn}"
+            key = f"{conv.chat_id}:{conv.turns[-1].turn}"
             questions = [t.user_question for t in conv.turns[:-1]]
             # 새 경로: 앞 질문 전부 + 비판받은 답변을 부른 질문. 자르지 않는다.
             assert full[key].pre_queries == questions, key

@@ -159,7 +159,7 @@ def make_case(scenario: str) -> Case:
     answer = text["answer"] + (BROKEN_TAIL if mode.startswith("illegible") else "")
     chunks = list(text["chunks"])
     return Case(case_id=scenario, dept="d", job_grade="g", job_name="j",
-                conversation_id="c", turn=2,
+                chat_id="c", turn=2,
                 pre_queries=list(text["pre_queries"]), llm_ans_on_last_q=answer,
                 current_query=COMPLAINT, rag_chunks=chunks,
                 chunk_sources=list(text.get("sources") or ["retrieved"] * len(chunks)),

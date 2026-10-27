@@ -26,7 +26,7 @@ def _turn(n, eval_result=None, emotion=None, eval_score=None, emotion_score=None
 def test_first_turns_are_excluded_from_candidates():
     """첫 턴은 비판할 직전 답변이 없어 진단 대상이 아니다."""
     convs = parse_conversations(_raw([
-        {"conversation_id": "c1", "turns": [_turn(1), _turn(2, "질의 킬로")]},
+        {"chat_id": "c1", "turns": [_turn(1), _turn(2, "질의 킬로")]},
     ]))
     text = survey(convs)
     assert "전체 턴                     2" in text
@@ -35,13 +35,13 @@ def test_first_turns_are_excluded_from_candidates():
 
 def test_metadata_mismatch_is_flagged():
     """선언과 실제가 다르면 파일이 잘렸거나 중복이 있다는 뜻이다."""
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [_turn(1)]}]))
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [_turn(1)]}]))
     assert "불일치" in survey(convs, {"total_turns": 999})
     assert "불일치" not in survey(convs, {"total_turns": 1})
 
 
 def test_label_distribution_is_counted():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _turn(1), _turn(2, "질의 킬로"), _turn(3, "질의 킬로"), _turn(4, "질의 폭스")]}]))
     text = survey(convs)
     assert "질의 킬로" in text and "질의 폭스" in text
@@ -49,7 +49,7 @@ def test_label_distribution_is_counted():
 
 def test_filter_preview_shows_each_step_separately():
     """한 번에 다 걸고 최종 숫자만 보면 어느 조건이 과했는지 알 수 없다."""
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _turn(1),
         _turn(2, "질의 킬로", "감정 호텔", 30.0),
         _turn(3, "질의 폭스", "감정 호텔", 80.0),
@@ -69,13 +69,13 @@ def test_filter_preview_drops_followups_without_a_previous_turn():
 
     턴 번호가 띄엄띄엄한 데이터에서 실제로 생긴다.
     """
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _turn(5, "질의 킬로", "감정 호텔", 10.0)]}]))
     assert "후속 턴 (직전 턴 존재)                       0" in preview_filter(convs)
 
 
 def test_no_conditions_means_everything_survives():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _turn(1), _turn(2, "질의 폭스", "감정 에코", 50.0)]}]))
     text = preview_filter(convs)
     assert "최종 진단 대상                              1" in text
@@ -100,14 +100,14 @@ def _t(n, trace=None, eval_result=None):
 
 
 def test_clean_data_has_no_issues():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _t(1, "True"), _t(2, "True", "질의 폭스")]}]))
     assert check_integrity(convs) == []
 
 
 def test_single_turn_conversation_declares_false():
     convs = parse_conversations(_raw([
-        {"conversation_id": "c", "turns": [_t(1, "False")]}]))
+        {"chat_id": "c", "turns": [_t(1, "False")]}]))
     assert check_integrity(convs) == []
 
 
@@ -117,41 +117,41 @@ def test_trace_true_but_only_one_turn_is_flagged():
     그 상태로 진단하면 '직전 답변'을 못 찾아 케이스가 조용히 사라진다.
     """
     convs = parse_conversations(_raw([
-        {"conversation_id": "c", "turns": [_t(1, "True")]}]))
+        {"chat_id": "c", "turns": [_t(1, "True")]}]))
     issues = check_integrity(convs)
     assert [i.kind for i in issues] == ["trace_mismatch"]
     assert "누락" in issues[0].detail
 
 
 def test_disagreeing_trace_flags_are_caught():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _t(1, "True"), _t(2, "False", "질의 폭스")]}]))
     assert "trace_inconsistent" in {i.kind for i in check_integrity(convs)}
 
 
 def test_eval_label_on_first_turn_is_impossible():
     # eval은 직전 턴을 참고해 계산되므로 turn 1에는 있을 수 없다.
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _t(1, "True", "질의 폭스"), _t(2, "True", "맥락 추가")]}]))
     assert "eval_on_first_turn" in {i.kind for i in check_integrity(convs)}
 
 
 def test_followup_without_eval_label_is_flagged():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _t(1, "True"), _t(2, "True")]}]))
     issues = [i for i in check_integrity(convs) if i.kind == "eval_missing"]
     assert issues and "turn 2" in issues[0].detail
 
 
 def test_turn_numbering_gap_is_flagged():
-    convs = parse_conversations(_raw([{"conversation_id": "c", "turns": [
+    convs = parse_conversations(_raw([{"chat_id": "c", "turns": [
         _t(1, "True"), _t(5, "True", "질의 폭스")]}]))
     assert "turn_numbering" in {i.kind for i in check_integrity(convs)}
 
 
 def test_survey_reports_integrity_instead_of_trace_distribution():
     convs = parse_conversations(_raw([
-        {"conversation_id": "c", "turns": [_t(1, "True")]}]))
+        {"chat_id": "c", "turns": [_t(1, "True")]}]))
     text = survey(convs)
     assert "[7] 무결성" in text
     assert "trace_mismatch" in text
