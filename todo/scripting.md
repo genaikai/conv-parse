@@ -135,24 +135,22 @@ LATEST=$(ls -1 output/[0-9]*_*.json | tail -1)
 
 ## 7. 결과 JSON 의 모양
 
-입력 로그와 같은 `users → conversations → turns` 구조를 유지한다. 원본 옆에 두고
-조인할 수 있다. 판정한 턴에만 `classification` 이 붙는다.
+`run` · `summary` · `turns`. 턴마다 결론(`verdict`) → 지나온 단계(`steps`) → 플래그 · 축 · 본문.
+식별자는 불만 턴(`turn` · `event_time`)과 답변 턴(`target_*`) 둘 다 있어 원본과 조인된다.
 
 ```json
-{"analysis_results": [{"user_id": "...", "conversations": [{"turns": [
-  {"turn": 3, "classification": {
-      "case_id": "D1", "case_name": "검색 근거에 답 없음",
-      "type_id": "D", "type_name": "검색 근거", "owner": "검색기 · 문서",
-      "confidence": "high", "grade": 3, "reason": "...", "tags": [...],
-      "secondary_cases": [...], "flags": [], "events": [],
-      "evidence": {...}, "llm_calls": 1, "kev_calls": 7, "answered_turn": 2}}]}]}]}
+{"run": {...}, "summary": {"buckets": {"정상": 1, "근거": 3, ...}, "review_at": {...}},
+ "turns": [{"chat_id": "...", "turn": 3, "event_time": "...", "target_turn": 2, "target_event_time": "...",
+            "verdict": {"bucket": "근거", "sure": true, "stopped_at": "근거 판정",
+                        "because": "근거 어디에도 질문의 답이 없었다", "where": [...]},
+            "steps": [...], "flags": {...}, "axes": {...}, "text": {...}}]}
 ```
 
-판정에 실패한 턴은 `classification` 에 `error` 만 들어간다. 앞에 `[observe]` 같은
-단계 이름이 붙으므로 어디서 깨졌는지 세어볼 수 있다.
+판정에 실패한 턴은 식별자와 `error` 만 들어간다. 앞에 `[complaint]` 같은 단계 이름이 붙으므로
+어디서 깨졌는지 세어볼 수 있다.
 
 ```json
-{"classification": {"error": "[sufficiency] Truncated: 토큰 한도(16,000)를 ..."}}
+{"chat_id": "...", "turn": 3, "error": "[evidence] JudgeError: kev 서버에 닿지 않는다 ..."}
 ```
 
 ---

@@ -7,8 +7,9 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from ragdiag.backends import Usage, extract_json
-from ragdiag.prompts import output_contract
-from ragdiag.schema import GroundingCheck, Observation, SufficiencyJudgment
+from ragdiag.decide import output_contract
+
+from probe_models import GroundingCheck, WithArray as SufficiencyJudgment, WithEnum as Observation
 
 
 def test_extracts_plain_json():
@@ -125,8 +126,6 @@ def test_a_closing_think_tag_inside_a_json_string_does_not_cut_the_json():
 
 def _payload_for(thinking_param, thinking="off"):
     from ragdiag.backends import OpenAICompatBackend
-    from ragdiag.schema import GroundingCheck
-
     backend = OpenAICompatBackend.__new__(OpenAICompatBackend)
     backend.model = "m"
     backend.temperature = 0.0

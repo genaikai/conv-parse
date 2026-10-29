@@ -11,8 +11,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from ragdiag.backends import JudgeError, OpenAICompatBackend, strict_json_schema
-from ragdiag.prompts import output_contract
-from ragdiag.schema import GroundingCheck
+from ragdiag.decide import output_contract
+
+from probe_models import GroundingCheck
 
 GOOD = '{"reasoning": "문서를 쓰지 않았다", "answer_used_rag": "ignored"}'
 

@@ -33,14 +33,15 @@
 | [features_pipeline.md](features_pipeline.md) | 판정 순서를 코드에서 빼내 `features/` 등록부로 옮긴 설계 |
 | [features_pipeline_plan.md](features_pipeline_plan.md) | 그 구현 계획 (완료) |
 | [per_stage_model.md](per_stage_model.md) | 단계마다 다른 모델. ⑨ 만 작은 모델을 받을 수 있는 이유 — **아직 안 쟀다** |
-| [taxonomy_v3.md](taxonomy_v3.md) | **분류 체계 v3** — 묶음 라벨 · 태그 · 플래그 · 증거 등급 중재 · kev. 지금 코드의 설계 출처 |
-| [taxonomy_v3_plan.md](taxonomy_v3_plan.md) | v3 구현 순서와 완료 조건 (2026-10-24 완료) |
+| [decision_tree_v4.md](decision_tree_v4.md) | **결정 트리 v4** (2026-10-29) — 묶음 다섯 · 단계 넷 · kev 최대 3요청. **지금 코드의 설계 출처** |
+| [decision_tree_v4_plan.md](decision_tree_v4_plan.md) | v4 구현 순서와 완료 조건 |
+| [taxonomy_v3.md](taxonomy_v3.md) | 분류 체계 v3 — 라벨 17 · 태그 · 등급 중재. **v4 로 대체됨, 기록** |
+| [taxonomy_v3_plan.md](taxonomy_v3_plan.md) | v3 구현 계획 (2026-10-24 완료, 기록) |
 | [../assemble.md](../assemble.md) | **eval.jsonl 입력 경로** (2026-10-27) — select(저장소) → lookup(사내, 파일 경계) → run. 청크 풀 훅은 이때 뺐다 |
 
-두 문서는 **그 변경 시점의 기록**이다. 지금의 기능 목록과 순서는
-`src/ragdiag/features/__init__.py` 의 `FEATURES` 가 유일한 출처다 — 그 뒤로
-읽기(`legibility`) · 요구 확인(`request_quote` · `history_quote`) · 전달본(`handover`)이
-더해졌다.
+단계별 문서(observe · sufficiency · grounding · legibility · request_check)는 v3 까지의 **측정
+기록**이다 — v4 는 그 단계들을 없앴지만 "왜 그 입력을 뺐는가" 의 근거는 그대로 살아 있다. 지금의
+기능 목록과 순서는 `src/ragdiag/features/__init__.py` 의 `JUDGES` 가 유일한 출처다.
 
 ## 읽는 순서
 

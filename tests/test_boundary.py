@@ -25,15 +25,12 @@ CORE = [
     "ragdiag.settings",     # 배포마다 바뀌는 값
     "ragdiag.schema",       # Case · 판정 결과 모델
     "ragdiag.results",      # 턴 판정 결과 (Check · Classification · TurnResult)
-    "ragdiag.taxonomy",     # 라벨 v3 (묶음 · 태그 · 등급)
-    "ragdiag.prompts",      # 일반 LLM 프롬프트
+    "ragdiag.taxonomy",     # 묶음 · 단계 · 이유 문장 (v4)
     "ragdiag.questions",    # kev 문항
     "ragdiag.backends",     # LLM 접속
     "ragdiag.decide",       # 결정 백엔드 (kev · 에뮬레이션 · 스텁)
     "ragdiag.judge",        # 호출 오케스트레이션
     "ragdiag.textfmt",      # 터미널 표 정렬 (표시 폭)
-    "ragdiag.verify",       # 인용 대조
-    "ragdiag.requests",     # 요구(형식 · 언어 · 길이)가 앞 질문에 있는지 코드로 확인
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수
     "ragdiag.progress",     # 진행 표시 (표준 라이브러리만)
@@ -48,7 +45,6 @@ LOCAL_ONLY = [
     "ragdiag.labels",       # query · emotion 라벨표
     "ragdiag.org",          # 조직 분류 (대시보드용)
     "ragdiag.survey",       # 로그 훑어보기
-    "ragdiag.golden",       # 골든셋 채점
 ]
 
 
@@ -170,5 +166,6 @@ def test_core_accepts_a_foreign_conversation_object():
 
     assert outcome.n_llm_calls == 0, "확정 문구는 LLM 없이 판정돼야 한다"
     assert outcome.n_failed == 0
-    turn = outcome.payload["analysis_results"][0]["conversations"][0]["turns"][0]
-    assert turn["classification"]["case_id"] == "I1"
+    turn = outcome.payload["turns"][0]
+    assert turn["verdict"]["bucket"] == "시스템" and turn["verdict"]["stopped_at"] == "코드 확정"
+    assert turn["axes"]["부서"] == "인사팀" and turn["chat_id"] == "C-9001"

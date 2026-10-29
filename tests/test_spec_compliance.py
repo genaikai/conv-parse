@@ -755,630 +755,90 @@ def test_dashboard_deps_are_not_in_the_main_requirements():
 
 
 # ---------------------------------------------------------------------------
-# process_flow.md 가 코드보다 앞서 나가지 않도록
+# 문서가 코드보다 앞서 나가지 않도록 — v4 (docs/design/decision_tree_v4.md)
 # ---------------------------------------------------------------------------
 
-def _dashboard_symbols(*names):
-    """streamlit 없이 dashboard.py 의 함수만 꺼낸다. import 하면 런타임을 요구한다."""
-    import types
-
-    source = (ROOT / "src" / "dashboard.py").read_text(encoding="utf-8")
-    body = source.split("from ragdiag import taxonomy as tx", 1)[1]
-    module = types.ModuleType("dash_fns")
-    from ragdiag import taxonomy as tx
-    module.__dict__.update(tx=tx)
-    # 함수 정의만 골라 넣는다 - st.* 를 부르는 줄은 실행하지 않는다.
-    wanted, keep, indent = set(names), [], False
-    for line in body.splitlines():
-        if line.startswith("def "):
-            indent = line.split("(")[0][4:] in wanted
-        elif line and not line[0].isspace():
-            indent = False
-        if indent:
-            keep.append(line)
-    module.__dict__["re"] = __import__("re")
-    exec("\n".join(keep), module.__dict__)
-    return tuple(module.__dict__[n] for n in names)
+def _doc(name: str) -> str:
+    return (ROOT / name).read_text(encoding="utf-8")
 
 
-def test_case_ids_sort_by_type_then_number():
-    """문자열로 정렬하면 I1 이 N0 앞에 온다. 번호만으로 정렬하면 묶음이 섞인다.
-
-    20개짜리 목록에서 이걸 만나면 "정렬이 안 돼 있다"로 읽고 원하는 라벨을 눈으로
-    훑게 된다. v2 에서 실제로 두 번 그랬다 - 대시보드 사이드바가 문자열 정렬이었고, 그 뒤
-    우리가 더한 case 가 번호 때문에 목록 끝에 혼자 남아 조직 탭 표와 어긋났다.
-
-    v3 의 순서는 묶음(N U C T D G S I) 이 먼저, 그 안에서 번호다. 중재의 동률 깨기 순서
-    (ORDER) 와는 다른 것이다 - 저쪽은 증거 강도, 이쪽은 표시 순서.
-    """
+def test_taxonomy_doc_lists_every_bucket_with_its_owner():
     from ragdiag import taxonomy as tx
 
-    shuffled = ["G5", "U1", "I2", "N0", "unclassified", "C1", "G1", "T3", "D1"]
-    assert tx.ordered(shuffled) == [
-        "N0", "U1", "C1", "T3", "D1", "G1", "G5", "I2", "unclassified"], tx.ordered(shuffled)
-
-    # 묶음 → 번호. 등록 순서와 같을 필요는 없지만 묶음이 끊기면 안 된다.
-    groups = "NUCTDGSI"
-    seq = tx.ordered(list(tx.LABELS))
-    assert set(seq) == set(tx.LABELS)
-    ranks = [(groups.index(l[0]), int(l[1:])) for l in seq]
-    assert ranks == sorted(ranks), f"묶음 → 번호 순이 아니다: {seq}"
-    assert all(tx.get(l).group_id == l[0] for l in seq), "묶음 글자와 group_id 가 어긋난다"
-    assert set(groups) >= {l[0] for l in seq}, "sort_key 가 모르는 묶음 글자가 있다"
-
-
-def test_the_case_picker_and_the_crosstab_agree_on_order():
-    """고르는 자리와 보는 자리가 같은 순서여야 한다 - 다르면 표에서 본 것을 못 찾는다."""
-    import sys
-
-    from ragdiag import taxonomy as tx
-
-    sys.path.insert(0, str(ROOT / "src"))
-    order, label = _dashboard_symbols("column_order", "column_label",
-                                      "type_of", "case_of")[:2]
-    picker = tx.ordered(list(tx.CASES))
-    columns = sorted((label(c) for c in tx.CASES), key=order)
-    assert [c.rsplit("/", 1)[-1] for c in columns] == picker
-
-
-def test_one_type_does_not_use_two_words_for_the_same_thing():
-    """진리표에 `case21` 검색 미수행 과 `case20` Retrieve 실패 가 나란히 있었다.
-
-    같은 것을 두 단어로 부르면 읽는 사람이 서로 다른 것으로 읽는다. 타입 이름이
-    규격에서 온 "도메인 관련 Retrieve Context 문제" 라 거기에 맞춘다.
-    """
-    from ragdiag import taxonomy as tx
-
-    names = [c.name for c in tx.CASES.values() if c.type_id == "TYPE5"]
-    used = {w for name in names for w in ("검색", "retrieve", "Retrieve") if w in name}
-    assert used <= {"Retrieve"}, f"TYPE5 이름이 어휘를 섞는다: {sorted(used)} — {names}"
-
-
-def test_every_case_traces_back_to_v1_or_is_listed_as_new():
-    """어떤 라벨이 어디서 왔는지 되짚을 수 있어야 한다.
-
-    두 방향이다. 옛 번호(case0~30)는 전부 V2_TO_V3 에 있어야 한다 - 라벨로 갔든, 태그로만
-    남았든, 제외됐든 적혀 있어야 옛 결과 파일을 읽을 때 "모르는 번호" 가 안 생긴다. v3 라벨은
-    옛 번호의 목적지이거나 NEW_IN_V3 에 적혀 있어야 한다 - 빠지면 v2 에 있었다고 잘못 읽는다.
-    """
-    import re
-
-    from ragdiag import taxonomy as tx
-
-    v2 = {f"case{i}" for i in range(31)}
-    assert set(tx.V2_TO_V3) == v2, (
-        f"V2_TO_V3 에 없는 옛 번호: {sorted(v2 - set(tx.V2_TO_V3))} / "
-        f"옛 번호가 아닌 키: {sorted(set(tx.V2_TO_V3) - v2)}")
-
-    targets = {v for v in tx.V2_TO_V3.values() if v}
-    assert targets <= set(tx.LABELS), f"없는 라벨로 보낸다: {sorted(targets - set(tx.LABELS))}"
-    unexplained = [l for l in tx.LABELS if l not in targets and l not in tx.NEW_IN_V3]
-    assert not unexplained, f"출처가 없는 라벨: {tx.ordered(unexplained)}"
-    assert tx.NEW_IN_V3 <= set(tx.LABELS), f"없는 라벨이 새 것이라 적혀 있다: {tx.NEW_IN_V3 - set(tx.LABELS)}"
-    assert not (tx.NEW_IN_V3 & targets), (
-        f"새 라벨인데 옛 번호에서 온다고도 적혀 있다: {sorted(tx.NEW_IN_V3 & targets)}")
-
-    # 태그로 가는 옛 번호는 V2_TO_V3 에도 있고, 그 태그는 등록된 것이어야 한다.
-    assert set(tx.V2_TAG) <= set(tx.V2_TO_V3), f"V2_TAG 에만 있는 번호: {sorted(set(tx.V2_TAG) - set(tx.V2_TO_V3))}"
-    assert all(t in tx.TAGS for t in tx.V2_TAG.values()), (
-        f"등록되지 않은 태그로 보낸다: {sorted(set(tx.V2_TAG.values()) - set(tx.TAGS))}")
-
-    # 문서의 대응표도 옛 번호 전부를 담는다.
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    table = doc.split("| v2 | v3 |")[1].split("\n\n")[0]
-    listed = {f"case{n}" for n in re.findall(r"`case(\d+)`", table)}
-    assert listed == v2, f"대응표에 없는 옛 번호: {sorted(v2 - listed)} / 남는 것: {sorted(listed - v2)}"
-
-
-def test_process_flow_case_names_match_the_taxonomy():
-    """문서가 든 case 이름이 실제와 달라지면 읽는 사람이 잘못 배운다."""
-    import re
-
-    from ragdiag import taxonomy as tx
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    # 라벨 꼴(묶음 글자 + 숫자) 전부. U3 처럼 라벨이 아니라 태그인 것은 TAGS 에 있어야 한다.
-    ids = set(re.findall(r"\b([NUCTDGSI]\d)\b", doc))
-    unknown = [i for i in ids if i not in tx.LABELS and i not in tx.TAGS]
-    assert not unknown, f"없는 라벨 · 태그를 참조한다: {sorted(unknown)}"
-    assert ids >= set(tx.LABELS), f"문서에 한 번도 안 나오는 라벨: {sorted(set(tx.LABELS) - ids)}"
-
-    # 옛 번호는 대응표 한 곳에만 있어야 한다. 본문에 남아 있으면 읽는 사람이 두 체계를 섞어 배운다.
-    body = doc.replace(doc.split("### v2 → v3 대응")[1].split("\n---")[0], "")
-    assert not re.findall(r"\bcase\d+\b", body), (
-        f"대응표 밖에 옛 번호가 남아 있다: {sorted(set(re.findall(r'case\d+', body)))}")
-
-    # 괄호 표기 Xn(이름) 만 본다. 산문의 `G5 가 …` 처럼 뒤에 조사가 붙는 것을 이름으로
-    # 읽으면 오탐이 난다. 표는 아래 test_process_flow_overview_lists_every_case 가 이름 ·
-    # 종류 · 고칠 곳까지 엄밀히 대조한다.
-    wrong = []
-    for m in re.finditer(r"\b([NUCTDGSI]\d)\(([^)]{2,30})\)", doc):
-        label = tx.get(m.group(1))
-        name = m.group(2).strip()
-        if label and label.name not in name and name not in label.name:
-            wrong.append(f"{m.group(1)}: 문서 '{name}' vs 실제 '{label.name}'")
-    assert not wrong, "\n".join(wrong)
-
-
-def test_steps_withhold_what_the_document_claims():
-    """문서의 핵심 주장은 '단계마다 무엇을 일부러 안 준다'는 것이다.
-
-    프롬프트 조립이 바뀌어 그게 새어 들어가면 문서가 거짓이 되고, 더 나쁘게는
-    판정이 조용히 다른 것을 재기 시작한다.
-    """
-    from ragdiag import prompts
-    from ragdiag.schema import Case, Observation
-
-    case = Case(
-        case_id="x", dept="인사팀", job_grade="사원", job_name="인사",
-        chat_id="C", turn=4,
-        pre_queries=["연차 이월 예외 조건"],
-        llm_ans_on_last_q="사규에 따라 운영됩니다.",
-        current_query="예외 조건을 물었는데요.",
-        rag_chunks=["연차는 반차 단위로도 사용할 수 있다."])
-    obs = Observation(
-        reasoning="r", resolved_question="연차 이월 예외 조건", unmet_need="예외 조건",
-        complaint_target="content_missing", question_domain="domain",
-        question_clarity="clear", question_multi_intent=False, answer_refused=False,
-        answer_covers_all_intents=False,
-        answer_actionable=False, answer_ignored_history=False,
-        requests_unsupported_output=False, requested_language="none",
-        requested_length_kind="none", requested_length_value=0, requested_format="none")
-
-    withheld = {
-        "Step 1 관측": (prompts.observe_user_message(case),
-                      {"문서": case.rag_chunks[0], "부서": case.dept}),
-        "Step 2 충족도": (prompts.sufficiency_user_message(case, obs),
-                       {"챗봇 답변": case.llm_ans_on_last_q,
-                        "불만 원문": case.current_query}),
-        # Step 3 는 질문을 받는다 - 없으면 "아무 청크나 썼는가" 가 되어 case22 가 사라진다
-        # (docs/design/grounding_step.md). 불만 원문은 여전히 주지 않는다.
-        "Step 3 근거활용": (prompts.grounding_user_message(case, obs.resolved_question),
-                        {"불만 원문": case.current_query}),
-    }
-    leaks = [f"{step}: {what}" for step, (msg, banned) in withheld.items()
-             for what, value in banned.items() if value in msg]
-    assert not leaks, (
-        "단계에 주지 않기로 한 정보가 프롬프트에 들어갔다:\n"
-        + "\n".join(f"  {l}" for l in leaks))
-    assert obs.resolved_question in withheld["Step 3 근거활용"][0], "Step 3 에 질문이 빠졌다"
-
-
-def _flow_tables():
-    """process_flow.md 의 라벨 표를 섹션별로 나눠 읽는다.
-
-    서두의 개요표(라벨 20개 전부 - 실패 · 플래그 · 이벤트)와 ⑦의 후보 생성 규칙표(중재가
-    실제로 내는 실패 라벨 17개)는 재는 것이 다르므로 갈라 본다.
-
-    개요표는 `## 무엇으로 분류되나` 절 하나에 들어 있다. 그 앞뒤에 절이 더 붙어도
-    이 경계는 안 흔들린다. 후보표는 `| 후보 | 등급 | 조건 |` 머리를 가진 표 하나다.
-    """
-    import re
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    row = re.compile(r"^\| `([NUCTDGSI]\d)` \| ([^|]+?) \| (failure|flag|event) \| ([^|]+?) \|", re.M)
-    overview = doc.split("## 무엇으로 분류되나")[1].split("## 실행 방식")[0]
-    candidates = doc.split("| 후보 | 등급 | 조건 |")[1].split("\n\n")[0]
-    cand_row = re.compile(r"^\| `([NUCTDGSI]\d)` \| ([^|]+?) \| ([^|]+?) \|", re.M)
-    return ([m.groups() for m in row.finditer(overview)],
-            [m.groups() for m in cand_row.finditer(candidates)])
-
-
-def test_process_flow_overview_lists_every_case():
-    """서두 개요표는 taxonomy 전부를 담고, 종류(failure · flag · event)와 고칠 곳을 코드와 같게 적는다.
-
-    빠진 라벨이 있으면 읽는 사람은 그게 없는 줄 안다. 종류가 틀리면 분모에 넣을지를 잘못 배운다.
-    """
-    from ragdiag import taxonomy as tx
-
-    rows, _ = _flow_tables()
-    ids = [r[0] for r in rows]
-    assert len(ids) == len(set(ids)), f"개요표에 같은 라벨이 두 번: {ids}"
-    assert set(ids) == set(tx.LABELS), (
-        f"문서에만: {sorted(set(ids) - set(tx.LABELS))} / taxonomy 에만: {sorted(set(tx.LABELS) - set(ids))}")
-    assert ids == tx.ordered(ids), f"개요표 순서가 taxonomy.ordered 와 다르다: {ids}"
-
-    wrong = []
-    for lid, name, kind, owner in rows:
-        label = tx.get(lid)
-        if label.name != name.strip():
-            wrong.append(f"{lid} 이름: '{name.strip()}' vs '{label.name}'")
-        if label.kind != kind:
-            wrong.append(f"{lid} 종류: '{kind}' vs '{label.kind}'")
-        if label.group.owner != owner.strip():
-            wrong.append(f"{lid} 고칠 곳: '{owner.strip()}' vs '{label.group.owner}'")
-    assert not wrong, "\n".join(wrong)
-
-    # 묶음 머리글에 코드의 묶음 이름과 영어 표기가 있어야 한다 - G(generation) 꼴.
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    overview = doc.split("## 무엇으로 분류되나")[1].split("## 실행 방식")[0]
-    for g in tx.GROUPS.values():
-        assert f"**{g.group_id}({g.word}) · {g.name}**" in overview, (
-            f"묶음 머리글이 없거나 다르다: {g.group_id}({g.word}) · {g.name}")
-
-
-def test_process_flow_routing_table_matches_the_code():
-    """⑦ 의 후보 생성 규칙표는 중재가 **실제로 내는** 라벨만, 그리고 전부 담는다.
-
-    v3 는 실패 라벨 17개가 전부 도달 가능하다 (ORDER 가 그 목록이다). v3 테스트셋이
-    실제로 전부 내는지로 교차 확인한다.
-    """
-    from ragdiag import taxonomy as tx
-    from ragdiag.fixtures import v3_cases
-
-    _, rows = _flow_tables()
-    listed = {r[0] for r in rows}
-    actual = set(tx.ORDER)
-    assert listed == actual, (
-        f"문서에만: {sorted(listed - actual)} / 코드에만: {sorted(actual - listed)}")
-
-    # 등급 칸은 1~4 의 숫자(들)여야 한다 - 0 은 후보가 아니다.
-    import re
-    for lid, grade, _ in rows:
-        digits = re.findall(r"\d", grade)
-        assert digits and set(digits) <= set("1234"), f"{lid} 의 등급 칸이 이상하다: '{grade}'"
-
-    exercised = {c["expect"] for c in v3_cases.CASES} - {tx.UNCLASSIFIED}
-    assert exercised == actual, (
-        f"테스트셋이 안 내는 라벨: {sorted(actual - exercised)} / 모르는 라벨: {sorted(exercised - actual)}")
-
-    # 플래그 · 이벤트는 후보가 아니다.
-    assert not (listed & {l.label_id for l in tx.FLAGS + tx.EVENTS})
-
-
-def test_process_flow_lists_every_observation_field():
-    """관측 필드가 늘면 문서에도 늘어야 한다. 안 적힌 필드는 없는 것과 같다.
-
-    ②b 가 내는 ObservationText 의 칸도 Observation 에 합쳐지므로 같이 본다.
-    """
-    from ragdiag.schema import Observation, ObservationText
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    fields = set(Observation.model_fields) | set(ObservationText.model_fields)
-    missing = [n for n in fields if f"`{n}`" not in doc]
-    assert not missing, f"process_flow.md 에 없는 관측 필드: {missing}"
-    assert set(ObservationText.model_fields) <= set(Observation.model_fields), (
-        "②b 의 칸이 Observation 에 없다 - merge 가 떨어뜨린다")
-
-
-def test_process_flow_names_the_fields_that_reach_the_output_file():
-    """⑤ 는 20개를 내지만 결과 파일에는 16개만 실린다.
-
-    문서가 이걸 구분하지 않으면 결과 파일에 20개가 다 있는 줄 알고 찾게 된다.
-    output.py 가 싣는 목록이 바뀌면 문서도 따라 바뀌어야 한다.
-    """
-    import inspect
-    import re
-
-    from ragdiag import output
-
-    src = inspect.getsource(output._evidence_payload)
-    block = src.split('payload["observation"] = {')[1].split("}")[0]
-    shipped = set(re.findall(r'"(\w+)": obs\.', block))
-    assert shipped, "output.py 에서 observation 필드를 못 찾았다"
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    section = doc.split("결과 파일에 실리는 관측 필드")[1].split("나머지")[0]
-    listed = set(re.findall(r"`(\w+)`", section))
-    assert listed == shipped, (
-        f"문서에만: {sorted(listed - shipped)} / "
-        f"output.py 에만: {sorted(shipped - listed)}")
-
-
-def test_every_entry_script_runs_without_pythonpath():
-    """진입 스크립트는 PYTHONPATH 없이 도는 상태여야 한다.
-
-    세 번 같은 실수를 했다. src/ragdiag/dashboard.py 는 streamlit 이 그 디렉터리를
-    sys.path[0] 에 넣어 ragdiag 를 못 찾았고, scripts/legacy_run.py 는 scripts/ 가
-    올라가 마찬가지였다. 실행 환경에서는 인터넷도 없고 고칠 수도 없어서 그 자리에서 막힌다.
-    """
-    import os
-    import subprocess
-    import sys
-
-    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    for script, flag in [("src/run.py", "--help"),
-                         ("src/dashboard.py", None)]:
-        path = ROOT / script
-        if not path.exists():
+    doc = _doc("docs/taxonomy.md")
+    table = doc.split("## 묶음 — 고치는 사람이다")[1].split("## 네 단계")[0]
+    for b in tx.BUCKETS.values():
+        if b.id == tx.REVIEW:
             continue
-        args = [sys.executable, str(path)] + ([flag] if flag else [])
-        proc = subprocess.run(args, capture_output=True, text=True, cwd=ROOT, env=env)
-        combined = proc.stdout + proc.stderr
-        assert "ModuleNotFoundError: No module named 'ragdiag'" not in combined, (
-            f"{script} 가 PYTHONPATH 없이 ragdiag 를 못 찾는다.\n"
-            "src/ 밖에 있는 스크립트는 sys.path 부트스트랩이 필요하다.\n" + combined)
+        assert f"| **{b.name}** | {b.owner} |" in table, f"{b.name} 행이 없거나 고치는 사람이 다르다"
+    assert "**검토**는 묶음이 아니라 상태다" in doc
 
 
-def test_step_numbering_means_one_thing():
-    """'Step 3' 이 라우팅과 근거 활용을 동시에 가리킨 적이 있다.
+def test_taxonomy_doc_lists_the_complaint_questions_in_reading_order():
+    from ragdiag import questions as qs
 
-    골든셋 채점 화면과 대시보드가 근거 활용을 Step 3 이라 부르므로 그쪽이 기준이다.
-    v2 의 라우팅도, 그 자리를 이은 v3 의 중재도 Step 이 아니다 - 관측을 조합하는 코드다.
-    """
+    doc = _doc("docs/taxonomy.md")
+    section = doc.split("### 불만 판정의 문항 여덟")[1].split("### 근거 판정")[0]
+    positions = [section.index(qs.TEXT[qid]) for qid in qs.COMPLAINT]
+    assert positions == sorted(positions), "문서의 문항 순서가 questions.COMPLAINT 와 다르다"
+    for qid in (*qs.EVIDENCE_SLOT, "any"):
+        assert qs.TEXT[qid] in doc, f"근거 판정 문항이 문서에 없다: {qs.TEXT[qid]}"
+
+
+def test_taxonomy_doc_states_every_way_into_a_bucket():
+    """'들어오는 길' 은 BECAUSE 문장의 요약이다. 출구가 늘거나 줄면 문서도 바뀌어야 한다."""
+    from ragdiag import taxonomy as tx
+
+    doc = _doc("docs/taxonomy.md")
+    assert str(len(tx.STEPS)) in doc.split("## 네 단계")[0] or "네 단계" in doc
+    for step in tx.STEPS:
+        assert step in doc, f"단계 이름이 문서에 없다: {step}"
+
+
+def test_process_flow_names_the_four_steps_and_the_judges_in_order():
+    from ragdiag import features, taxonomy as tx
+
+    doc = _doc("docs/process_flow.md")
+    for step in tx.STEPS:
+        assert f"{step}" in doc
+    for module in features.JUDGES:
+        assert f"features/{module.NAME}" in doc or f"`features/{module.NAME}`" in doc, (
+            f"process_flow.md 가 판정 기능 {module.NAME} 을 가리키지 않는다")
+    order = [doc.index(f"features/{m.NAME}") for m in features.JUDGES]
+    assert order == sorted(order), "문서의 단계 순서가 JUDGES 와 다르다"
+
+
+def test_process_flow_output_example_uses_real_sentences():
+    from ragdiag import questions as qs, taxonomy as tx
+
+    doc = _doc("docs/process_flow.md")
+    example = doc.split("## 한 턴이 낳는 것 전부")[1].split("## 파일")[0]
+    assert tx.BECAUSE[f"{tx.STEP_EVIDENCE}:any:all"] in example
+    assert qs.TEXT["complains"] in example and qs.SKIPPED in example
+    for key in ("verdict", "steps", "flags", "axes", "text", "target_turn"):
+        assert f'"{key}"' in example
+
+
+def test_readme_flow_matches_the_judge_order():
+    from ragdiag import features
+
+    readme = _doc("README.md")
+    flow = readme.split("## 처리 흐름")[1].split("## 분류 체계")[0]
+    names = [m.NAME for m in features.JUDGES]
+    positions = [flow.index(f"`{n}`") for n in names]
+    assert positions == sorted(positions), "README 의 기능 순서가 JUDGES 와 다르다"
+
+
+def test_because_sentences_have_no_question_ids_or_v3_labels():
+    """결과 파일에 코드가 아니라 말이 간다. 문항 id · 옛 라벨이 새면 읽는 사람이 번역해야 한다."""
     import re
 
-    for path in ["src/ragdiag/features/arbitrate/__init__.py",
-                 "src/ragdiag/features/arbitrate/candidates.py"]:
-        text = (ROOT / path).read_text(encoding="utf-8")
-        assert not re.search(r"Step\s*\d", text), (
-            f"{path} 가 중재를 Step 이라 부른다. 중재는 Step 이 아니다.")
+    from ragdiag import questions as qs, taxonomy as tx
 
-    for path in ["README.md", "docs/process_flow.md", "docs/taxonomy.md",
-                 "src/ragdiag/features/__init__.py"]:
-        text = (ROOT / path).read_text(encoding="utf-8")
-        assert not re.search(r"Step\s*\d\s*[·—-]?\s*(라우팅|중재)", text), (
-            f"{path} 가 라우팅 · 중재를 Step 이라 부른다")
-
-
-def test_process_flow_checker_inputs_match_run_checks():
-    """검증기가 무엇을 보는지는 필드명으로 적어야 한다.
-
-    "답변"이라고만 쓰면 불만 턴의 답변인지 비판받은 답변인지 알 수 없고,
-    실제로 그 질문을 받았다. Case 의 필드명을 그대로 적고 코드와 대조한다.
-    """
-    import inspect
-    import re
-
-    from ragdiag.features import CHECKS, short_circuit
-
-    # 검증기마다 턴에서 무엇을 꺼내 넘기는지 소스에서 읽는다. LLM 전에 라벨을
-    # 확정하는 규칙(④)도 검증기라 문서 표에 같이 있어야 한다.
-    fields = ("llm_ans_on_last_q", "last_query", "rag_chunks",
-              "tool_outputs", "tool_calls", "pre_queries", "current_query")
-    entries = ([(m.NAME, m.process_data) for m in CHECKS]
-               + [(rule.NAME, rule.check) for rule in short_circuit.RULES])
-    real = {name: {f for f in fields if f"case.{f}" in inspect.getsource(fn)}
-            for name, fn in entries}
-    assert real, "검증기를 못 찾았다"
-    assert len(real) == len(CHECKS) + len(short_circuit.RULES), "이름이 겹치는 검증기가 있다"
-    assert all(real.values()), f"Case 의 어느 필드도 안 읽는 검증기: {[n for n, f in real.items() if not f]}"
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    table = doc.split("| 검증기 | 입력 | 무엇을 |")[1].split("\n\n")[0]
-    listed = {m.group(1): m.group(2)
-              for m in re.finditer(r"^\| `(\w+)` \| ([^|]+) \|", table, re.M)}
-
-    missing = set(real) - set(listed)
-    assert not missing, f"문서에 없는 검증기: {sorted(missing)}"
-    extra = set(listed) - set(real)
-    assert not extra, f"코드에 없는 검증기가 표에 있다: {sorted(extra)}"
-
-    wrong = []
-    for name, fields in real.items():
-        shown = listed[name]
-        for field in fields:
-            alias = "pre_queries[-1]" if field == "last_query" else field
-            if alias not in shown:
-                wrong.append(f"{name}: 문서에 `{alias}` 가 없다 — '{shown.strip()}'")
-    assert not wrong, "\n".join(wrong)
-
-
-def test_process_flow_input_tables_name_real_fields():
-    """입력 표가 "답변" 대신 필드명을 쓰면 코드와 대조할 수 있다.
-
-    한국어 표현으로 두면 어느 필드인지 알 수 없고 — 실제로 그 질문을 받았다 —
-    무엇보다 문서가 코드와 어긋나도 알아챌 방법이 없다.
-    """
-    import re
-
-    from ragdiag.schema import Case, Claims, Observation, ObservationText
-
-    known = (set(Case.__dataclass_fields__) | set(Observation.model_fields)
-             | set(ObservationText.model_fields) | set(Claims.model_fields)
-             | {"llm_eval_*", "llm_emotion_*", "event_time", "verdict",
-                "pre_queries[-1]", "requested_*", "requested_length_*"})
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    unknown = []
-    for step in ["## ⑤", "## ⑥", "## ⑦"]:
-        # "주는 것 / 안 주는 것" 표만 본다. 같은 절의 다른 표(question_domain 의
-        # 값 목록 같은 것)는 필드명이 아니라 값이라 섞어 읽으면 오탐이 난다.
-        section = doc.split(step)[1].split("**출력**")[0]
-        assert "| 주는 것 | 안 주는 것 |" in section, f"{step} 에 입력 표가 없다"
-        table = section.split("| 주는 것 | 안 주는 것 |")[1].split("\n\n")[0]
-        rows = [l for l in table.splitlines() if l.startswith("|") and "---" not in l]
-        cells = [c for row in rows for c in row.split("|")[1:-1]]
-        assert any("`" in c for c in cells), f"{step} 입력 표에 필드명이 하나도 없다"
-        for name in re.findall(r"`(\w+(?:\[-?\d\])?\*?)`", " ".join(cells)):
-            if name not in known and not name.endswith("*"):
-                unknown.append(f"{step}: `{name}` 은 어느 모델에도 없는 필드")
-    assert not unknown, "\n".join(unknown)
-
-
-def test_process_flow_documents_every_checker_verdict_rule():
-    """verdict 를 어떻게 만드는지 검증기마다 적혀 있어야 한다.
-
-    "룰 기반"이라고만 하면 어떤 룰인지 알 수 없고, 임계값을 바꿀 때 무엇이
-    영향받는지도 모른다.
-    """
-    import inspect
-    import re
-
-    from ragdiag.features import CHECKS, short_circuit
-
-    real = {m.NAME for m in CHECKS} | {rule.NAME for rule in short_circuit.RULES}
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    assert "### verdict 를 어떻게 만드나" in doc, "판정 규칙 절이 없다"
-    header = "| 검증기 | `not_applicable` | `ok` | `violated` | `undetermined` |"
-    assert header in doc, "verdict 네 값이 열로 다 있어야 한다"
-    table = doc.split(header)[1].split("\n\n")[0]
-    rows = re.findall(r"^\| `(\w+)` \|", table, re.M)
-    assert len(rows) == len(set(rows)), "같은 검증기가 두 줄"
-    listed = set(rows)
-    assert listed == real, (
-        f"문서에만: {sorted(listed - real)} / 코드에만: {sorted(real - listed)}")
-    # 네 칸이 전부 있어야 한다 - 빈 칸은 "—" 로라도 적는다. 비워 두면 "안 나온다" 인지 "안 적었다" 인지 모른다.
-    for line in table.splitlines():
-        if re.match(r"^\| `\w+` \|", line):
-            cells = [c.strip() for c in line.split("|")[1:-1]]
-            assert len(cells) == 5 and all(cells), f"칸이 비었다: {line}"
-
-
-def test_process_flow_routing_inputs_match_route_py():
-    """중재가 관측 20개를 다 읽는 것이 아니다.
-
-    requested_* 넷은 ⑥이 소비해 검증기 verdict 로 바뀌어 있고 중재는 안 본다 —
-    "요구했다"가 아니라 "지켰나"로 판정한다는 뜻이다. 문서가 이걸 뭉뚱그리면
-    후보 규칙을 고칠 때 어느 값이 실제로 갈림길인지 알 수 없다.
-    """
-    import re
-
-    from ragdiag.schema import Observation
-
-    route = (ROOT / "src/ragdiag/features/arbitrate/candidates.py").read_text(encoding="utf-8")
-    real = {f for f in Observation.model_fields if re.search(rf"obs\.{f}\b", route)}
-    assert real, "candidates.py 에서 관측 필드 참조를 못 찾았다"
-    # 중재 본체(__init__)는 관측을 읽지 않는다 - 후보만 본다.
-    body = (ROOT / "src/ragdiag/features/arbitrate/__init__.py").read_text(encoding="utf-8")
-    leaked = {f for f in Observation.model_fields if re.search(rf"obs\.{f}\b", body)
-              and f not in ("complaint_target", "question_domain")}   # unclassified 노트에만 쓴다
-    assert not leaked, f"arbitrate/__init__ 이 관측을 갈림길로 읽는다: {sorted(leaked)}"
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    table = doc.split("| 어디서 | 중재가 읽는 것 | 안 읽는 것 |")[1].split("\n\n")[0]
-    rows = [l for l in table.splitlines() if l.startswith("| ⑤ 관측")]
-    assert rows, "⑦ 입력 표에 관측 행이 없다"
-    reads, skips = (set(re.findall(r"`(\w+)`", c)) for c in rows[0].split("|")[2:4])
-
-    assert reads == real, (
-        f"읽는다고 적었는데 안 읽음: {sorted(reads - real)} / "
-        f"실제로 읽는데 문서에 없음: {sorted(real - reads)}")
-    assert not (skips & real), (
-        f"안 읽는다고 적었는데 실제로는 읽는다: {sorted(skips & real)}")
-    assert reads | skips == set(Observation.model_fields), (
-        f"표에서 빠진 관측 필드: "
-        f"{sorted(set(Observation.model_fields) - reads - skips)}")
-
-
-def test_process_flow_states_when_sufficiency_runs():
-    """충족도가 언제 도는지는 조건이 둘이고 하나는 코드, 하나는 관측이다.
-
-    "도메인 질문일 때만" 이라고만 적으면 도메인 여부를 누가 어떻게 정하는지
-    알 수 없다 — 실제로 그 질문을 받았다. rag_chunks 유무로 정한다고 오해하면
-    T1(호출 없음)이 통째로 사라진다. v3 는 불만 종류로는 가르지 않는다 - 내용 불만이면
-    unmet_need 로 한 번 더 재는 것뿐이다.
-    """
-    import inspect
-    import re
-    import typing
-
-    from ragdiag import questions, schema
-    from ragdiag.features import sufficiency
-    from ragdiag.schema import Observation
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    section = doc.split("### 충족도 (호출 ③)")[1].split("### 주장 (호출 ④)")[0]
-
-    # 코드의 조건을 문서가 그대로 담고 있나
-    body = inspect.getsource(sufficiency)
-    assert "turn.doc_question()" in body, "문서 질문 여부는 TurnResult.doc_question 이 정한다"
-    assert schema.DOC_DOMAINS == ("domain", "technical")
-    assert "DOC_DOMAINS" in section and "doc_question()" in section
-    for token in ("question_domain", "rag_chunks", "resolved_question", "unmet_need", "complaint_target"):
-        assert token in section, f"충족도 절에 {token} 이 없다"
-    for value in schema.DOC_DOMAINS:
-        assert f"`{value}`" in section, f"충족도 절에 문서 질문 유형 {value} 가 없다"
-    for value in sufficiency.CONTENT_COMPLAINTS:
-        assert f"`{value}`" in section, f"충족도 절에 {value} 가 없다"
-    # 불만 종류로 분기하지 않는다는 말이 있어야 한다. 그렇게 오해한 적이 있다.
-    assert "불만 종류로는 가르지 않는다" in section
-
-    # question_domain 의 값이 전부 적혀 있나 (task · technical 이 v3 에서 더해졌다)
-    domains = set(typing.get_args(
-        Observation.model_fields["question_domain"].annotation))
-    assert domains == set(questions.OBSERVE["question_domain"]["criteria"]), (
-        "schema 의 QuestionDomain 과 kev 문항의 선택지가 다르다")
-    table = section.split("| 값 | 뜻 | 어디로 |")[1].split("\n\n")[0]
-    listed = set(re.findall(r"`(\w+)`", table))
-    assert listed == domains, (
-        f"문서에만: {sorted(listed - domains)} / 코드에만: {sorted(domains - listed)}")
-
-    rule = "회사마다 답이 달라지는가"
-    assert rule in section, (
-        "domain 과 general_knowledge 를 가르는 기준이 없다 — 문항이 그 문장으로 지시하고 있다")
-    assert rule in questions.OBSERVE["question_domain"]["instructions"], (
-        "문서가 적은 기준이 kev 문항에 없다")
-
-
-def test_process_flow_truth_table_matches_routing():
-    """문서의 T · D · G5 · G3 진리표를 candidates.py 로 실제 돌려 대조한다.
-
-    이 분기가 이 도구의 핵심이고 값 여럿이 조합되는 유일한 곳이라, 표가
-    코드와 어긋나면 읽는 사람이 D1 과 G5 를 반대로 이해한다.
-    """
-    import sys
-
-    sys.path.insert(0, str(ROOT))
-    from tests.helpers import case, obs, probs, turn
-
-    from ragdiag.features.arbitrate import arbitrate
-    from ragdiag.results import ChunkSupport, ClaimVerdict, Sufficiency
-
-    content = probs(complaint_target={"content_missing": 0.95})
-
-    def suff(verdict, p, verified=True):
-        return {"own": Sufficiency("own", "q", [ChunkSupport(0, p, "retrieved")], verdict, verified)}
-
-    def claim(verdict):
-        return [ClaimVerdict("x", "doc", verdict, 0.95, [0])]
-
-    def run(**kw):
-        o = kw.pop("observation", obs())
-        p = kw.pop("probabilities", content)
-        return arbitrate(turn(o, probabilities=p, **kw))
-
-    got = {
-        "T1": run(case=case(rag_chunks=[], chunk_sources=[], n_fetched=0),
-                  sufficiency={"own": Sufficiency("own", "q", [], "insufficient", True)}),
-        "D1 일치": run(sufficiency=suff("insufficient", 0.05, True)),
-        "D1 불일치": run(sufficiency=suff("insufficient", 0.3, False)),
-        "D1 vs G5": run(sufficiency=suff("partial", 0.6, True), claim_verdicts=claim("contradicted")),
-        "G5 어긋남": run(sufficiency=suff("sufficient", 0.95), claim_verdicts=claim("contradicted")),
-        "G5 안씀": run(sufficiency=suff("sufficient", 0.95), claim_verdicts=claim("not_found")),
-        "G3": run(sufficiency=suff("sufficient", 0.95), claim_verdicts=claim("supported")),
-        "N0": run(observation=obs(complaint_target="none"),
-                  probabilities=probs(complaint_target={"none": 0.95}),
-                  sufficiency=suff("sufficient", 0.95)),
-    }
-    want = {
-        "T1": ("T1", 4, set()),
-        "D1 일치": ("D1", 3, set()),
-        "D1 불일치": ("D1", 2, {"2차불일치"}),
-        "D1 vs G5": ("D1", 3, {"G5:어긋남"}),        # 같은 3 이지만 ORDER 에서 D1 이 앞
-        "G5 어긋남": ("G5", 3, {"G5:어긋남"}),
-        "G5 안씀": ("G5", 2, {"G5:안씀"}),
-        "G3": ("G3", 1, set()),
-        "N0": ("N0", 2, set()),
-    }
-    wrong = []
-    for key, (label, grade, tags) in want.items():
-        c = got[key]
-        if (c.primary_case, c.grade) != (label, grade) or not tags <= set(c.tags):
-            wrong.append(f"{key}: {label}/{grade}/{sorted(tags)} 를 기대했으나 "
-                         f"{c.primary_case}/{c.grade}/{sorted(c.tags)}")
-    assert not wrong, "\n".join(wrong)
-    assert "G5" in got["D1 vs G5"].secondary_cases, "밀린 후보는 secondary 로 남아야 한다"
-
-    doc = (ROOT / "docs/process_flow.md").read_text(encoding="utf-8")
-    assert "### 진리표" in doc, "진리표 절이 없다"
-    table = doc.split("| 조건 | 후보 | 등급 |")[1].split("\n\n")[0]
-    for label in {l for l, _, _ in want.values()}:
-        assert f"`{label}`" in table, f"진리표에 {label} 가 없다"
-    for tag in {t for _, _, tags in want.values() for t in tags}:
-        assert f"`{tag}`" in table, f"진리표에 태그 {tag} 가 없다"
-    # 등급 칸이 코드와 같아야 한다 - 라벨마다 적힌 등급 집합을 대조한다.
-    import re
-    rows = re.findall(r"^\| ([^|]+?) \| ([^|]+?) \| (\d) \|", table, re.M)
-    assert rows, "진리표 행을 못 읽었다"
-    documented = {}
-    for _, cand, grade in rows:
-        m = re.match(r"`([NUCTDGSI]\d)`", cand.strip())
-        assert m, f"후보 칸이 라벨로 시작하지 않는다: {cand}"
-        documented.setdefault(m.group(1), set()).add(int(grade))
-    for label, grade, _ in want.values():
-        assert grade in documented.get(label, set()), f"진리표의 {label} 등급에 {grade} 가 없다: {documented.get(label)}"
+    for key, sentence in tx.BECAUSE.items():
+        assert not re.search(r"\b[NUCTDGSI]\d\b", sentence), f"{key}: 옛 라벨이 들어 있다: {sentence}"
+        for qid in qs.TEXT:
+            assert qid not in sentence, f"{key}: 문항 id 가 들어 있다: {sentence}"
 
 
 @pytest.mark.parametrize("name", ["README.md", "docs/taxonomy.md", "docs/process_flow.md",
