@@ -29,6 +29,7 @@ from . import (
     classification,
     code_rules,
     complaint,
+    complaint_evidence,
     evidence,
     failures,
     filter_fp,
@@ -44,6 +45,7 @@ JUDGES = (
     code_rules,        # 코드 확정 — 자원 부족 문구 · 빈 답변 · 붕괴 → 시스템
     complaint,         # 불만 판정 — kev 8문항 → 정상 · 시스템 · 생성 · 사용자
     evidence,          # 근거 판정 — kev 5문항 → 생성 · 근거, 일부면 열어 둠
+    complaint_evidence,  # 불만 부분 근거 판정 — kev 1문항, 일부일 때만 → 생성 · 근거
 )
 
 # 집계. 화면에 뜨는 순서다 — 사람이 사이클 사이에 눈으로 대조하므로 순서를 바꾸지 않는다.
