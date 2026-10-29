@@ -114,9 +114,6 @@ MODEL_VAR = "RAGDIAG_MODEL"
 
 CACHE_DIR = ".cache"
 DEFAULT_WORKERS = 4
-# ④′ 읽기 - 답변만 보고 "읽을 수 있는 글인가" 를 LLM 에 묻는다 (턴당 +1 호출). 코드 규칙이
-# 못 잡는 붕괴(토큰 잡탕 · 중간부터 깨짐 · 프롬프트 유출)를 잡는다. 호출을 아끼려면 끈다.
-LEGIBILITY = True
 # 낙오자 기준. 한 단계에서 절반이 끝난 뒤, 중앙값의 이 배수(와 최소 초 중 큰 쪽)를 넘겨도
 # 안 오는 턴은 에러로 닫고 다음 단계로 간다. 0 이면 끈다 (HTTP 타임아웃만 남는다).
 STRAGGLER_FACTOR = 4.0
@@ -129,7 +126,7 @@ DEFAULT_TIMEOUT_SEC = 600
 
 
 # ---------------------------------------------------------------------------
-# v3 — 결정 백엔드(kev) · 증거 등급 임계값 · 도구 · 훅  (docs/design/taxonomy_v3.md)
+# 결정 백엔드(kev) · 확신 임계  (docs/design/decision_tree_v4.md)
 # ---------------------------------------------------------------------------
 
 # kev 서버. 비어 있으면 일반 LLM 이 같은 문항에 답하는 에뮬레이션으로 돈다.
@@ -138,13 +135,6 @@ KEV_KEY = ""
 KEV_MODEL = "kev-latest"
 KEV_TIMEOUT_SEC = 120
 
-# 확률 → 등급. p ≥ KEV_CONFIDENT 가 등급 2, KEV_LEAN 이상이 등급 1, 그 아래는 후보가 아니다.
+# 확신 임계 하나. noul 은 p ≥ 이 값이면 예, p ≤ 1 - 이 값이면 아니오, 사이는 모름.
+# choice 는 최빈 선택지의 p 가 이 값 이상일 때만 확신. 모름은 그 문항에서 멈춰 검토로 간다.
 KEV_CONFIDENT = 0.9
-KEV_LEAN = 0.6
-# ③ 충족도. 청크의 P(답한다) 가 이 이상이면 근거, CHUNK_PARTIAL_P 이상이면 partial.
-CHUNK_EVIDENCE_P = 0.8
-CHUNK_PARTIAL_P = 0.5
-
-# 검색 도구의 이름. tool_calls.name 이 여기 있으면 그 결과는 "검색 근거"(D1), 아니면
-# "업무 도구 결과"(T2). 비어 있으면 둘을 가르지 않고 D1 에 D:출처미상 태그를 붙인다.
-SEARCH_TOOL_NAMES: tuple = ()

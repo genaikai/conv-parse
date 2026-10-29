@@ -66,30 +66,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "llm.key": (str, False),
     "llm.model": (str, False),
 
-    # 단계별 판정 모델. 비우면 위의 llm.url / key / model 로 돈다.
-    #
-    #   model_<단계>   한 서버에 모델 둘을 올린 경우
-    #   url_<단계>     모델이 서버마다 따로 떠 있는 경우. model 을 비우면 그 서버의
-    #                  /v1/models 에서 찾는다
-    #   key_<단계>     그 서버의 키가 다를 때만. 비우면 위의 llm.key 를 쓴다
-    #
-    # json_mode · thinking · max_tokens · timeout 은 언제나 공통이다 - 그게 단계마다
-    # 달라지면 같은 조건에서 모델을 비교하는 게 아니게 된다.
-    # 단계 이름은 judge.STAGES 와 같다. 모르는 이름은 설정 검사에서 걸린다.
-    "llm.model_observe": (str, False),
-    "llm.model_sufficiency": (str, False),
-    "llm.model_legibility": (str, False),
-    "llm.model_grounding": (str, False),
 
-    "llm.url_observe": (str, False),
-    "llm.url_sufficiency": (str, False),
-    "llm.url_legibility": (str, False),
-    "llm.url_grounding": (str, False),
-
-    "llm.key_observe": (str, False),
-    "llm.key_sufficiency": (str, False),
-    "llm.key_legibility": (str, False),
-    "llm.key_grounding": (str, False),
 
     "llm.json_mode": (str, False),
     "llm.thinking": (str, False),
@@ -99,7 +76,6 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "run.workers": (int, False),
     "run.limit": (int, False),
     "run.history_turns": (int, False),
-    "run.legibility": (bool, False),
     "run.straggler_factor": ((int, float), False),
     "run.straggler_min_sec": (int, False),
     "run.mode": (str, False),
@@ -125,11 +101,6 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "kev.timeout_sec": (int, False),
     # v3 — 확률 → 등급, 청크 근거 임계값
     "thresholds.kev_confident": ((int, float), False),
-    "thresholds.kev_lean": ((int, float), False),
-    "thresholds.chunk_evidence": ((int, float), False),
-    "thresholds.chunk_partial": ((int, float), False),
-    # v3 — 검색 도구 이름 (D1/T2 가름)
-    "tools.search_names": (list, False),
 }
 
 # 없어진 키 → 왜 없어졌나. 판정에 더 이상 쓰지 않는다.
@@ -138,6 +109,14 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 # 막으면 코드를 못 고치는 쪽에서 실행이 시작도 못 하므로 받아는 둔다. 대신 아무것도
 # 바꾸지 않는다고 화면과 RUN SUMMARY 에 남긴다 - 적어 둔 값이 조용히 무시되는 것도 결함이다.
 RETIRED = {
+    # v4 (docs/design/decision_tree_v4.md) — 등급 · 청크별 충족도 · 단계별 모델이 없어졌다.
+    "thresholds.kev_lean": "확신 임계는 kev_confident 하나다. 등급 1 이 없어졌다",
+    "thresholds.chunk_evidence": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
+    "thresholds.chunk_partial": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
+    "run.legibility": "읽을 수 없는 글은 불만 판정의 문항이다. 따로 켜고 끄지 않는다",
+    "tools.search_names": "검색 실패와 도구 미호출을 가르지 않는다. 근거 묶음 하나다",
+    **{f"llm.{kind}_{stage}": "일반 LLM 은 kev 에뮬레이션에만 쓴다. 단계별 모델이 없다"
+       for kind in ("model", "url", "key") for stage in ("observe", "sufficiency", "legibility", "grounding")},
     "thresholds.vague_short_max_chars": "길이는 재기만 하고 판정하지 않는다. 기준값을 쓰는 곳이 없다",
     "service_error.markers": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
     "service_error.max_chars": "보조 표지 판정을 없앴다. 확정 문구(templates)만 본다",
@@ -155,7 +134,6 @@ TO_SETTINGS = {
     "paths.cache": "CACHE_DIR",
     "run.workers": "DEFAULT_WORKERS",
     "run.history_turns": "MAX_HISTORY_TURNS",
-    "run.legibility": "LEGIBILITY",
     "run.straggler_factor": "STRAGGLER_FACTOR",
     "run.straggler_min_sec": "STRAGGLER_MIN_SEC",
     "run.mode": "RUN_MODE",
@@ -173,10 +151,6 @@ TO_SETTINGS = {
     "kev.model": "KEV_MODEL",
     "kev.timeout_sec": "KEV_TIMEOUT_SEC",
     "thresholds.kev_confident": "KEV_CONFIDENT",
-    "thresholds.kev_lean": "KEV_LEAN",
-    "thresholds.chunk_evidence": "CHUNK_EVIDENCE_P",
-    "thresholds.chunk_partial": "CHUNK_PARTIAL_P",
-    "tools.search_names": "SEARCH_TOOL_NAMES",
 }
 
 
@@ -267,11 +241,10 @@ def validate(values: dict[str, Any]) -> list[str]:
         threshold = values.get(key)
         if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
             problems.append(f"{key}: 0 과 1 사이여야 한다 (연속 일치 비율이다)")
-    for key in ("thresholds.kev_confident", "thresholds.kev_lean",
-                "thresholds.chunk_evidence", "thresholds.chunk_partial"):
-        threshold = values.get(key)
-        if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
-            problems.append(f"{key}: 0 과 1 사이여야 한다 (확률이다)")
+    threshold = values.get("thresholds.kev_confident")
+    if isinstance(threshold, (int, float)) and not 0.5 < threshold <= 1:
+        problems.append("thresholds.kev_confident: 0.5 와 1 사이여야 한다 (확신 확률이다. "
+                        "0.5 이하면 예와 아니오가 겹친다)")
     templates = values.get("service_error.templates")
     if isinstance(templates, list) and any(not str(t).strip() for t in templates):
         problems.append("service_error.templates: 빈 문자열이 있다. "
