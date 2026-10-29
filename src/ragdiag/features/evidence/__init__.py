@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from ragdiag import questions, taxonomy
+from ragdiag import questions, second, taxonomy
 from ragdiag.results import NO, UNSURE, YES, StepResult, answer_payload, read_choice, read_noul
 
 from .._shared import call_kev, each_turn
@@ -61,12 +61,16 @@ def _apply(turn, ctx) -> None:
                    where=[names[s] for s, _ in questions.SLOTS])
         return
 
-    answers = call_kev(turn, ctx, "evidence", state_of(case, slots), questions_for(slots))
+    state = state_of(case, slots)
+    answers = call_kev(turn, ctx, "evidence", state, questions_for(slots))
     payload = {qid: (answer_payload(answers[qid]) if qid in answers else questions.SKIPPED)
                for qid in (*questions.EVIDENCE_SLOT, "any")}
     turn.steps.append(StepResult(step=taxonomy.STEP_EVIDENCE, answers=payload))
 
     overall = read_choice(answers["any"])
+    if overall == UNSURE:
+        overall = second.ask(turn, ctx, taxonomy.STEP_EVIDENCE, "any", questions.EVIDENCE_ANY["any"],
+                             state, answers["any"]) or UNSURE
     if overall == UNSURE:
         turn.review(taxonomy.STEP_EVIDENCE, "any", answers["any"].p)
         return

@@ -19,7 +19,8 @@
          complaint={문항 id: bool | p},    # 불만 판정의 kev 답. 안 적은 문항은 아니오
          evidence={문항 id: …},            # 근거 판정의 kev 답 (any 는 all · partial · none)
          targeted=bool | p,                # 불만 부분 근거 판정의 답
-         expect=dict(bucket, stopped_at, because_key, where?, sure, flags?))
+         second={문항 id: 답},             # 2차 판정에서 LLM 이 낼 답. 안 적으면 모름
+         expect=dict(bucket, stopped_at, because_key, where?, sure, kev_calls, llm_calls?, second_pass?, flags?))
 """
 
 from __future__ import annotations
@@ -181,21 +182,23 @@ CASES = [
                      because_key="불만 부분 근거 판정:targeted:no", sure=True, kev_calls=3)),
 
     # ================================================================== 검토
-    dict(id="review-complaint", note="거절인지 못 찾은 안내인지 모름",
+    dict(id="review-complaint", note="거절인지 못 찾은 안내인지 모름 — LLM 도 모름이라 검토",
          prior=[], history_chat=[],
          question="PR 두께 기준이 어떻게 되나요", answer="관련 자료를 확인할 수 없어 안내가 어렵습니다.",
          followup="아니 그게 왜 안 돼요, 분명 문서 있는데",
          retrieved=FAB, complaint={"complains": True, "refusal": 0.55},
          expect=dict(bucket="review", stopped_at="불만 판정 · 정책·권한 거절이고 그걸 불평한다",
-                     because_key=None, sure=False, kev_calls=1)),
-    dict(id="review-evidence", note="근거 전체 판단을 못 함",
+                     because_key=None, sure=False, kev_calls=1, llm_calls=1,
+                     second_pass="불만 판정 · 정책·권한 거절이고 그걸 불평한다 — kev p 0.55, LLM 모름")),
+    dict(id="review-evidence", note="근거 전체 판단을 못 함 — LLM 도 모름",
          prior=[], history_chat=[],
          question="두께 이탈 로트는 어떻게 해?", answer="절차에 따라 처리합니다.",
          followup="구체적으로요",
          retrieved=FAB, complaint={"complains": True},
          evidence={"in_retrieved": True, "any": {"all": 0.5, "partial": 0.45, "none": 0.05}},
          expect=dict(bucket="review", stopped_at="근거 판정 · 근거 전체에 답이 있다",
-                     because_key=None, sure=False, kev_calls=2)),
+                     because_key=None, sure=False, kev_calls=2, llm_calls=1,
+                     second_pass="근거 판정 · 근거 전체에 답이 있다 — kev p 0.50, LLM 모름")),
 
     # ================================================================== history · 플래그
     dict(id="reconstructed", note="history_chat 이 비어 앞 3턴을 재구성한다. 앞 턴 누락 플래그도 선다",
@@ -208,7 +211,8 @@ CASES = [
          evidence={"in_retrieved": True, "any": "all"},
          expect=dict(bucket="generation", stopped_at="근거 판정", because_key="근거 판정:any:all",
                      where=["이번 턴 검색 청크"], sure=True, kev_calls=2,
-                     flags={"앞 턴 누락": True, "history 재구성 턴 수": 3, "질문에 개인정보": False})),
+                     flags={"앞 턴 누락": True, "history 재구성 턴 수": 3, "질문에 개인정보": False,
+                            "불만 판정 기울기 통과": 0})),
     dict(id="old-log-pii", note="history_input 이 없는 옛 로그 + 질문에 전화번호",
          prior=[("반차는 어떻게 신청해요?", "그룹웨어에서요.")], history_chat=None,
          question="제 번호 010-1234-5678 로 연차 현황 보내줘", answer="연차 현황은 그룹웨어에서 조회하실 수 있습니다.",
@@ -218,5 +222,57 @@ CASES = [
          expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:any:none",
                      sure=True, kev_calls=2,
                      flags={"앞 턴 누락": "옛 로그 — 판정 안 함", "history 재구성 턴 수": 1,
-                            "질문에 개인정보": True})),
+                            "질문에 개인정보": True, "불만 판정 기울기 통과": 0})),
+
+    # ================================================================== 기울기 통과 (모름 줄이기)
+    dict(id="lean-through", note="거절 0.3 · 감정 0.4 는 결론이 아니라 다음 문항 — 기울기로 지나 근거까지 간다",
+         prior=[], history_chat=[],
+         question="국내 출장 식비 상한이 얼마인가요?", answer="출장 식비는 회사 규정에 따라 지급됩니다.",
+         followup="그게 아니라 금액을 물었잖아요",
+         retrieved=[TRIP[1]], complaint={"complains": True, "refusal": 0.3, "emotion_only": 0.4},
+         evidence={"in_retrieved": False, "any": "none"},
+         expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:any:none",
+                     sure=True, kev_calls=2,
+                     flags={"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False,
+                            "불만 판정 기울기 통과": 2})),
+    dict(id="review-lean-yes", note="거절 0.7 은 결론 쪽으로 기운 모름 — 여전히 그 문항에서 검토",
+         prior=[], history_chat=[],
+         question="장비 가동률 원본 데이터 주세요", answer="해당 데이터는 접근 권한이 필요해 제공이 어렵습니다.",
+         followup="왜요, 급한데요",
+         retrieved=[], complaint={"complains": True, "refusal": 0.7},
+         expect=dict(bucket="review", stopped_at="불만 판정 · 정책·권한 거절이고 그걸 불평한다",
+                     because_key=None, sure=False, kev_calls=1, llm_calls=1,
+                     second_pass="불만 판정 · 정책·권한 거절이고 그걸 불평한다 — kev p 0.70, LLM 모름",
+                     flags={"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False,
+                            "불만 판정 기울기 통과": 0})),
+
+    # ================================================================== 2차 판정 (LLM)
+    dict(id="second-yes", note="거절 0.7 모름 → LLM 예 → 시스템. 묶음은 받되 sure 는 아니다",
+         prior=[], history_chat=[],
+         question="장비 가동률 원본 데이터 주세요", answer="해당 데이터는 접근 권한이 필요해 제공이 어렵습니다.",
+         followup="왜요, 급한데요",
+         retrieved=[], complaint={"complains": True, "refusal": 0.7}, second={"refusal": "예"},
+         expect=dict(bucket="system", stopped_at="불만 판정", because_key="불만 판정:refusal:yes",
+                     sure=False, kev_calls=1, llm_calls=1,
+                     second_pass="불만 판정 · 정책·권한 거절이고 그걸 불평한다 — kev p 0.70, LLM 예")),
+    dict(id="second-no-goes-on", note="새 요구 0.62 모름 → LLM 아니오 → 근거 판정까지 이어 가서 근거",
+         prior=[], history_chat=[],
+         question="국내 출장 식비 상한이 얼마인가요?", answer="출장 식비는 회사 규정에 따라 지급됩니다.",
+         followup="그게 아니라 금액을 물었잖아요. 숙박비는요?",
+         retrieved=[TRIP[1]], complaint={"complains": True, "new_demand": 0.62}, second={"new_demand": "아니오"},
+         evidence={"in_retrieved": False, "any": "none"},
+         expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:any:none",
+                     sure=False, kev_calls=2, llm_calls=1, where=["이번 턴 검색 청크", "이번 턴 도구 결과", "앞 턴 근거", "메모리"],
+                     second_pass="불만 판정 · 앞 질문에 없던 새 요구를 하며 불평한다 — kev p 0.62, LLM 아니오")),
+    dict(id="second-evidence-partial", note="근거 전체 모름 → LLM 일부 → 불만 부분까지 가서 생성",
+         prior=[], history_chat=[],
+         question="PR 두께 기준과 샘플링 수는?", answer="두께 기준은 1.5 µm 입니다.",
+         followup="1.5 가 아닌데요",
+         retrieved=[FAB[0]], complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": {"all": 0.5, "partial": 0.45, "none": 0.05}},
+         second={"any": "partial"}, targeted=True,
+         expect=dict(bucket="generation", stopped_at="불만 부분 근거 판정",
+                     because_key="불만 부분 근거 판정:targeted:yes", sure=False, kev_calls=3, llm_calls=1,
+                     where=["이번 턴 검색 청크"],
+                     second_pass="근거 판정 · 근거 전체에 답이 있다 — kev p 0.50, LLM 일부")),
 ]

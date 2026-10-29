@@ -45,6 +45,9 @@ STEP_COMPLAINT = "불만 판정"
 STEP_EVIDENCE = "근거 판정"
 STEP_COMPLAINT_EVIDENCE = "불만 부분 근거 판정"
 STEPS = (STEP_CODE, STEP_COMPLAINT, STEP_EVIDENCE, STEP_COMPLAINT_EVIDENCE)
+# 멈추는 단계가 아니다 — kev 가 모름이라 한 문항을 LLM 에 다시 물은 기록으로, 멈춘 단계 뒤에 선다.
+# 그래서 STEPS(stopped_at 의 값) 에는 없다.
+STEP_SECOND = "2차 판정 (LLM)"
 
 # 멈춘 자리 → 이유 문장. 키는 "<단계>:<출구>". 같은 결론은 늘 같은 문장이라 검색이 된다.
 BECAUSE: dict[str, str] = {
@@ -77,3 +80,8 @@ def stopped_at_review(step: str, question_text: str) -> str:
 
 def because_review(step: str, question_text: str, p: float) -> str:
     return f"{question_text} — 확신이 없다 (p {p:.2f})"
+
+
+def second_pass_text(step: str, question_text: str, kev_p: float, llm: str) -> str:
+    """verdict.second_pass 한 항목 — 어느 문항에서 kev 가 얼마였고 LLM 이 뭐라 했나."""
+    return f"{step} · {question_text} — kev p {kev_p:.2f}, LLM {llm}"

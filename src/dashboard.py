@@ -153,6 +153,8 @@ def load(path: str) -> pd.DataFrame:
             "앞턴누락": flags.get("앞 턴 누락") is True,
             "개인정보": bool(flags.get("질문에 개인정보")),
             "재구성": int(flags.get("history 재구성 턴 수") or 0),
+            "기울기": int(flags.get("불만 판정 기울기 통과") or 0),
+            "LLM2차": bool(v.get("second_pass")),
             "질문": text.get("question", ""), "답변": text.get("answer", ""),
             "불만": text.get("followup", ""),
             "본문": bool(text),
@@ -684,6 +686,12 @@ def detail(row: pd.Series) -> None:
         st.caption(f"history 는 턴 순서로 {flags['history 재구성 턴 수']}턴을 재구성한 것이다 (history_chat 이 비어 있었다).")
     if flags.get("질문에 개인정보"):
         st.caption("질문에 개인정보 — 답변의 성패와 독립인 사건. 입력 마스킹(UI)의 일이다.")
+    if (original.get("verdict") or {}).get("second_pass"):
+        st.caption(f"2차 판정 (LLM) — {original['verdict']['second_pass']}. kev 가 모름이라 한 문항을 LLM 이 "
+                   "답한 것이라 확신 판정이 아니다. 아래 지나온 단계의 이유를 볼 것.")
+    if flags.get("불만 판정 기울기 통과"):
+        st.caption(f"불만 판정에서 {flags['불만 판정 기울기 통과']}문항을 확신 없이 아니오로 넘겼다 "
+                   "(아니오 (기울기)). 이 묶음에 시스템 · 사용자 성격이 섞였을 수 있다.")
 
     steps = original.get("steps") or []
     st.markdown("**지나온 단계** — 문항과 답. p 는 그 답의 확신(0.9 이상이면 확실). 모름이면 P(예) 그대로")

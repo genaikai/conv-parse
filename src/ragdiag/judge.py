@@ -1,10 +1,12 @@
 """판정 오케스트레이션 — 결정 백엔드(kev) 호출과 디스크 캐시.
 
-v4 는 호출이 한 종류다.
+v4 는 호출이 두 종류다.
 
   decide    결정 백엔드. 범주 답 — 불만 판정 8문항 · 근거 판정 5문항 · 불만 부분 근거 판정 1문항.
             kev 가 없으면 일반 LLM 이 같은 문항에 JSON 으로 답하는 에뮬레이션으로 떨어진다
-            (decide.LLMDecisionBackend). 문장을 만드는 자리는 없다.
+            (decide.LLMDecisionBackend).
+  opine     일반 LLM. kev 가 모름이라 한 문항 하나를 이유와 함께 다시 묻는다 (second.py). 문장을
+            만드는 자리는 이것뿐이고, 답은 결론이 아니라 sure=False 로 남는다.
 
 캐시가 있는 이유: 리포트 코드를 고칠 때마다 판정을 다시 사는 건 낭비다. 키는 (단계, 모델,
 state 전문, 문항 전문) 의 해시라 입력이 한 글자라도 다르면 빗나간다 — 문항 문구를 고치면
@@ -100,3 +102,18 @@ class Judge:
             path.write_text(json.dumps({k: a.__dict__ for k, a in answers.items()},
                                        ensure_ascii=False), encoding="utf-8")
         return answers, usage
+
+    # -- 일반 LLM (2차 판정) -----------------------------------------------------
+
+    def opine(self, stage: str, system: str, user: str, out_model: type[T],
+              contract_hint: str = "") -> tuple[T, Usage]:
+        """일반 LLM 한 번. 캐시 키는 (단계, 모델, 시스템, 사용자 프롬프트) 다."""
+        if self.backend is None:
+            raise RuntimeError("일반 LLM 백엔드가 없다 — 2차 판정은 llm 설정이 필요하다")
+        path = self._path(f"o-{stage}", self.backend.model, system, user)
+        if path and path.exists():
+            return out_model.model_validate_json(path.read_text(encoding="utf-8")), Usage()
+        parsed, usage = self.backend.complete(system, user, out_model, contract_hint)
+        if path:
+            path.write_text(parsed.model_dump_json(), encoding="utf-8")
+        return parsed, usage

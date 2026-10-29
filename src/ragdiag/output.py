@@ -64,7 +64,7 @@ def build_turn(result: TurnResult, conv, with_text: bool = True) -> dict:
     v = result.verdict
     case = result.case
     turn["verdict"] = {"bucket": taxonomy.name(v.bucket), "sure": v.sure, "stopped_at": v.stopped_at,
-                       "because": v.because, "where": list(v.where)}
+                       "because": v.because, "where": list(v.where), "second_pass": v.second_pass}
     turn["steps"] = [_step_payload(s) for s in result.steps]
     turn["flags"] = dict(result.flags)
     meta = conv.user
@@ -80,13 +80,18 @@ def summary_of(results: list[TurnResult]) -> dict:
     buckets = Counter(r.verdict.bucket for r in done)
     stopped = Counter(r.verdict.stopped_at.split(" · ")[0] for r in done)
     review = Counter(r.verdict.stopped_at for r in done if r.verdict.bucket == taxonomy.REVIEW)
+    # 2차 판정 — LLM 이 답해 묶음을 받은 턴(sure=False)과 LLM 도 모름이라 검토로 남은 턴.
+    decided = sum(1 for r in done if r.second and r.verdict.bucket != taxonomy.REVIEW)
+    still = sum(1 for r in done if r.second and r.verdict.bucket == taxonomy.REVIEW)
     return {
         "turns": len(results),
         "buckets": {taxonomy.name(b): buckets.get(b, 0) for b in taxonomy.BUCKETS},
         "stopped_at": {s: stopped.get(s, 0) for s in taxonomy.STEPS},
         "review_at": dict(review.most_common()),
+        "second_pass": {"LLM 이 정함": decided, "LLM 도 모름": still},
         "errors": sum(1 for r in results if r.error),
         "kev_calls": sum(r.n_kev_calls for r in results),
+        "llm_calls": sum(r.n_calls for r in results),
     }
 
 
@@ -111,7 +116,8 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
     if not done:
         return f"판정된 턴이 없습니다. (실패 {s['errors']}건)"
     lines = ["=" * 78,
-             f"판정 결과  |  성공 {done}건 / 실패 {s['errors']}건  |  kev 요청 {s['kev_calls']}회",
+             f"판정 결과  |  성공 {done}건 / 실패 {s['errors']}건  |  kev 요청 {s['kev_calls']}회"
+             + (f"  |  LLM 2차 {s['llm_calls']}회" if s["llm_calls"] else ""),
              "=" * 78, "", "[1] 묶음 (고치는 사람)"]
     for b in taxonomy.BUCKETS.values():
         n = s["buckets"][b.name]
@@ -126,6 +132,10 @@ def summarize(pairs: list[tuple["Conversation", TurnResult]]) -> str:
         lines += ["", "[3] 검토 — 어느 문항에서 막혔나 (기준문을 고칠 곳)"]
         for where, n in list(s["review_at"].items())[:5]:
             lines.append(f"  {pad(where, 60)}{n:>5}")
+    sp = s["second_pass"]
+    if sp["LLM 이 정함"] or sp["LLM 도 모름"]:
+        lines += ["", f"[4] 2차 판정 (LLM) — kev 모름 뒤에 LLM 이 정함 {sp['LLM 이 정함']}건 "
+                      f"(묶음에 들어가되 확신 아님) · LLM 도 모름 {sp['LLM 도 모름']}건"]
     errors = [r for r in results if r.error]
     if errors:
         lines += ["", f"[!] 실패 {len(errors)}건"]

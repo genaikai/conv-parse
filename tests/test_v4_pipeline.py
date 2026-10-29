@@ -1,7 +1,8 @@
 """v4 결정 트리 — 출구마다 하나씩, 파싱부터 결과까지 끝까지 돈다.
 
 fixtures/v4_cases.py 의 사례를 conv_eval 모양의 대화로 접어 파서 · 짝짓기 · 플래그 · 네 단계를
-전부 지나게 한다. kev 답은 사례에 적힌 대로 ScriptedBackend 가 낸다.
+전부 지나게 한다. kev 답은 사례에 적힌 대로 ScriptedBackend 가 낸다. 2차 판정의 LLM 답도 사례의
+`second` 대로 — 안 적은 문항은 모름이라 kev 모름 사례는 전처럼 검토로 간다.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import pytest
 
 from ragdiag import taxonomy
+from ragdiag.backends import Usage
 from ragdiag.conv import parse_conversations, to_case
 from ragdiag.decide import ScriptedBackend
 from ragdiag.features._shared import current_turn
@@ -58,8 +60,20 @@ def _script(state, questions) -> dict:
     return {}
 
 
+class _LLM:
+    """2차 판정용 일반 LLM. 사례의 second={문항 id: 답} 을 낸다. 없으면 모름."""
+
+    model = "llm-scripted"
+
+    def complete(self, system, user, out_model, hint=""):
+        fx = FIXTURES[current_turn().case.chat_id]
+        answers = fx.get("second", {})
+        qid = next((q for q in answers if f"[{q}]" in user), None)
+        return out_model(reasoning=f"사례 {fx['id']} 의 각본", answer=answers.get(qid, "모름")), Usage(1, 1)
+
+
 def run(fx: dict):
-    judge = Judge(backend=None, cache_dir=None, decision=ScriptedBackend(_script))
+    judge = Judge(backend=_LLM(), cache_dir=None, decision=ScriptedBackend(_script))
     [result] = judge_cases([make_case(fx)], judge, workers=1, progress=False)
     return result
 
@@ -78,6 +92,8 @@ def test_each_case_lands_where_the_design_says(fx):
     if "where" in e:
         assert v.where == e["where"], detail
     assert r.n_kev_calls == e["kev_calls"], detail
+    assert r.n_calls == e.get("llm_calls", 0), detail
+    assert v.second_pass == e.get("second_pass", ""), detail
     if "flags" in e:
         assert r.flags == e["flags"], detail
 

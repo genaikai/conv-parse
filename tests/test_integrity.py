@@ -29,4 +29,5 @@ def test_reconstruction_count_and_question_pii_are_columns():
     integrity.process_data(c)
     flags = c.turns[0].flags
     assert flags["history 재구성 턴 수"] == 2 and flags["질문에 개인정보"] is True
-    assert set(flags) == {"앞 턴 누락", "history 재구성 턴 수", "질문에 개인정보"}
+    assert set(flags) == {"앞 턴 누락", "history 재구성 턴 수", "질문에 개인정보", "불만 판정 기울기 통과"}
+    assert flags["불만 판정 기울기 통과"] == 0

@@ -645,7 +645,9 @@ def main(argv=None, backend=None) -> int:
                 "conv_data": str(conv_data), "filter_data": str(filter_path) if filter_path else None,
                 "turns": str(turns_path) if turns_path else None,
                 "kev": models["decision"], "kev_kind": kind,
-                "threshold": settings.KEV_CONFIDENT, "version": version()}
+                "threshold": settings.KEV_CONFIDENT, "pass_through": settings.KEV_PASS_THROUGH,
+                "second_pass": backend.model if settings.SECOND_PASS else "",
+                "version": version()}
 
     # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도
     # 여기서 하나씩 부르지 않는다 - 기능이 늘 때마다 진입점을 고치게 된다.

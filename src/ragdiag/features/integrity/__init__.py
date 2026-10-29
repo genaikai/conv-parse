@@ -4,6 +4,8 @@
 것인지 못 가르니 라벨이 아니라 열이다. 많이 서는 사이클은 사용자 행 집계를 보류한다.
 history 재구성 턴 수: history_chat 이 비어 턴 순서로 되살린 턴 수 (conv.reconstruct_history).
 질문에 개인정보: 사용자가 질문에 개인정보를 넣었다 — 답변의 성패와 독립인 사건.
+불만 판정 기울기 통과: 불만 판정이 확신 없이 기울기만으로 넘긴 문항 수. 여기서는 0 으로 열고
+features/complaint 가 채운다 — 트리 안에서 나는 수지만 턴마다 있어야 하는 열이라 같은 곳에 둔다.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ NAME = "integrity"
 MISSING = "앞 턴 누락"
 RECONSTRUCTED = "history 재구성 턴 수"
 PII = "질문에 개인정보"
+LEAN = "불만 판정 기울기 통과"
 OLD_LOG = "옛 로그 — 판정 안 함"
 
 
@@ -35,6 +38,7 @@ def _apply(turn) -> None:
         MISSING: missing_prior_turns(case),
         RECONSTRUCTED: case.history_reconstructed,
         PII: bool(find_pii(case.last_query)),
+        LEAN: 0,
     }
 
 

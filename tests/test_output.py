@@ -25,7 +25,8 @@ def test_turn_keys_are_in_reading_order(results):
     turn = build_turn(results["generation-all"], CONV)
     assert list(turn) == ["chat_id", "turn", "event_time", "target_turn", "target_event_time",
                           "verdict", "steps", "flags", "axes", "text"]
-    assert list(turn["verdict"]) == ["bucket", "sure", "stopped_at", "because", "where"]
+    assert list(turn["verdict"]) == ["bucket", "sure", "stopped_at", "because", "where", "second_pass"]
+    assert turn["verdict"]["second_pass"] == ""
     assert turn["verdict"]["bucket"] == "생성" and turn["verdict"]["sure"] is True
     assert turn["verdict"]["where"] == ["이번 턴 검색 청크"]
     assert (turn["turn"], turn["target_turn"]) == (2, 1)
@@ -56,7 +57,8 @@ def test_review_turn_names_the_question_it_stopped_at(results):
 
 def test_flags_axes_and_text_blocks(results):
     turn = build_turn(results["normal"], CONV)
-    assert turn["flags"] == {"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False}
+    assert turn["flags"] == {"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False,
+                             "불만 판정 기울기 통과": 0}
     assert turn["axes"] == {"부서": "부서", "직급": "직급", "직무": "직무",
                             "answered_by": "rag", "ask_on": "web", "fallback": ""}
     assert set(turn["text"]) == {"question", "answer", "followup", "history",
@@ -86,6 +88,24 @@ def test_summary_counts_buckets_stops_and_review_questions(results):
     assert s["stopped_at"] == {"코드 확정": 1, "불만 판정": 5, "근거 판정": 3, "불만 부분 근거 판정": 2}
     assert s["review_at"] == {"불만 판정 · 정책·권한 거절이고 그걸 불평한다": 1}
     assert s["kev_calls"] == 1 + 1 + 1 + 1 + 1 + 2 + 2 + 3 + 3 + 1   # system-code 0, evidence-empty 1
+    assert s["second_pass"] == {"LLM 이 정함": 0, "LLM 도 모름": 0} and s["llm_calls"] == 0
+
+
+def test_second_pass_turn_is_written_with_its_record():
+    from ragdiag import questions
+    from ragdiag.results import StepResult
+    r = judge_cases([make_case("generation-all")], ScriptedJudge(), workers=1, progress=False)[0]
+    r.second.append({"step": "불만 판정", "qid": "refusal", "kev_p": 0.7, "llm": "아니오"})
+    r.steps.insert(2, StepResult(step="2차 판정 (LLM)",
+                                 answers={"refusal": {"kev_p": 0.7, "answer": "아니오", "이유": "안내다"}}))
+    r.close(r.verdict.bucket, r.verdict.stopped_at, r.verdict.because, r.verdict.where)
+    turn = build_turn(r, CONV)
+    assert turn["verdict"]["sure"] is False and turn["verdict"]["bucket"] == "생성"
+    assert turn["verdict"]["second_pass"] == "불만 판정 · 정책·권한 거절이고 그걸 불평한다 — kev p 0.70, LLM 아니오"
+    assert turn["steps"][2] == {"step": "2차 판정 (LLM)", "answers": {
+        questions.TEXT["refusal"]: {"kev_p": 0.7, "answer": "아니오", "이유": "안내다"}}}
+    s = summary_of([r])
+    assert s["second_pass"] == {"LLM 이 정함": 1, "LLM 도 모름": 0}
 
 
 def test_output_file_has_run_summary_turns_and_is_json(results):

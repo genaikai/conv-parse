@@ -72,6 +72,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "llm.thinking": (str, False),
     "llm.max_tokens": (int, False),
     "llm.timeout_sec": (int, False),
+    "llm.second_pass": (bool, False),
 
     "run.workers": (int, False),
     "run.limit": (int, False),
@@ -97,6 +98,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "kev.timeout_sec": (int, False),
     # v3 — 확률 → 등급, 청크 근거 임계값
     "thresholds.kev_confident": ((int, float), False),
+    "thresholds.kev_pass_through": ((int, float), False),
 }
 
 # 없어진 키 → 왜 없어졌나. 판정에 더 이상 쓰지 않는다.
@@ -106,7 +108,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
 # 바꾸지 않는다고 화면과 RUN SUMMARY 에 남긴다 - 적어 둔 값이 조용히 무시되는 것도 결함이다.
 RETIRED = {
     # v4 (docs/design/decision_tree_v4.md) — 등급 · 청크별 충족도 · 단계별 모델이 없어졌다.
-    "thresholds.kev_lean": "확신 임계는 kev_confident 하나다. 등급 1 이 없어졌다",
+    "thresholds.kev_lean": "등급 1 이 없어졌다. 확신은 kev_confident, 불만 판정의 기울기 통과는 kev_pass_through 다",
     "thresholds.chunk_evidence": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
     "thresholds.chunk_partial": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
     "run.legibility": "읽을 수 없는 글은 불만 판정의 문항이다. 따로 켜고 끄지 않는다",
@@ -139,6 +141,7 @@ TO_SETTINGS = {
     "run.mode": "RUN_MODE",
     "llm.max_tokens": "DEFAULT_MAX_TOKENS",
     "llm.timeout_sec": "DEFAULT_TIMEOUT_SEC",
+    "llm.second_pass": "SECOND_PASS",
     "service_error.templates": "SERVICE_ERROR_TEMPLATES",
     "org.candidate_fields": "ORG_CANDIDATE_FIELDS",
     "filter.any_values": "FILTER_ANY_VALUES",
@@ -147,6 +150,7 @@ TO_SETTINGS = {
     "kev.model": "KEV_MODEL",
     "kev.timeout_sec": "KEV_TIMEOUT_SEC",
     "thresholds.kev_confident": "KEV_CONFIDENT",
+    "thresholds.kev_pass_through": "KEV_PASS_THROUGH",
 }
 
 
@@ -237,6 +241,10 @@ def validate(values: dict[str, Any]) -> list[str]:
     if isinstance(threshold, (int, float)) and not 0.5 < threshold <= 1:
         problems.append("thresholds.kev_confident: 0.5 와 1 사이여야 한다 (확신 확률이다. "
                         "0.5 이하면 예와 아니오가 겹친다)")
+    lean = values.get("thresholds.kev_pass_through")
+    if isinstance(lean, (int, float)) and not 0 < lean <= 0.5:
+        problems.append("thresholds.kev_pass_through: 0 과 0.5 사이여야 한다 (P(예) 가 이 값 이하면 "
+                        "다음 문항으로 넘긴다. 0.5 를 넘기면 예 쪽으로 기운 답이 아니오로 흐른다)")
     templates = values.get("service_error.templates")
     if isinstance(templates, list) and any(not str(t).strip() for t in templates):
         problems.append("service_error.templates: 빈 문자열이 있다. "

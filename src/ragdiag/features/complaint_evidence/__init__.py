@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from ragdiag import questions, taxonomy
+from ragdiag import questions, second, taxonomy
 from ragdiag.results import NO, UNSURE, YES, StepResult, answer_payload, read_noul
 
 from .._shared import call_kev, each_turn
@@ -29,6 +29,9 @@ def _apply(turn, ctx) -> None:
     turn.steps.append(StepResult(step=taxonomy.STEP_COMPLAINT_EVIDENCE,
                                  answers={"targeted": answer_payload(answers["targeted"])}))
     verdict = read_noul(answers["targeted"])
+    if verdict == UNSURE:
+        verdict = second.ask(turn, ctx, taxonomy.STEP_COMPLAINT_EVIDENCE, "targeted",
+                             questions.COMPLAINT_EVIDENCE["targeted"], state, answers["targeted"]) or UNSURE
     if verdict == UNSURE:
         turn.review(taxonomy.STEP_COMPLAINT_EVIDENCE, "targeted", answers["targeted"].p)
         return

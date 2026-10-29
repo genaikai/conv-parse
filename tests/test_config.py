@@ -33,7 +33,7 @@ yaml = pytest.importorskip("yaml")
 @pytest.fixture
 def restore_settings():
     """설정 적용은 모듈 전역을 바꾼다. 테스트끼리 새지 않게 되돌린다."""
-    names = ["KEV_CONFIDENT",
+    names = ["KEV_CONFIDENT", "KEV_PASS_THROUGH",
              "SERVICE_ERROR_TEMPLATES",
              "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
              "ORG_CANDIDATE_FIELDS", "FILTER_ANY_VALUES", "CACHE_DIR"]
@@ -1039,3 +1039,23 @@ def test_no_overrides_changes_nothing():
     base = Config(values={"run.workers": 2})
     assert apply_overrides(base, None) is base
     assert apply_overrides(base, []) is base
+
+
+def test_pass_through_is_bounded_and_reaches_the_reader(tmp_path, restore_settings):
+    from ragdiag.decide import Answer
+    from ragdiag.results import LEAN_NO, read_gate
+
+    path = write(tmp_path, """
+        thresholds:
+          kev_pass_through: 0.7
+    """)
+    with pytest.raises(ConfigError) as e:
+        load(path)
+    assert "kev_pass_through" in str(e.value)
+
+    assert read_gate(Answer("noul", p=0.35)) == LEAN_NO
+    apply(load(write(tmp_path, """
+        thresholds:
+          kev_pass_through: 0.3
+    """)))
+    assert read_gate(Answer("noul", p=0.35)) == "모름", "임계값이 읽는 쪽까지 도달하지 않았다"

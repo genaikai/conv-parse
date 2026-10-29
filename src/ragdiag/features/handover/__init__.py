@@ -43,6 +43,9 @@ def _step_line(step: dict) -> str:
     """단계 하나를 한 줄로 — '단계: 문항 답 · 문항 답'. 확률은 뺀다."""
     if "rules" in step:
         parts = [f"{k} {v}" for k, v in step["rules"].items()]
+    elif step["step"] == taxonomy.STEP_SECOND:
+        # LLM 의 이유가 곧 사람이 검수할 내용이라 같이 싣는다.
+        parts = [f"{k} {v['answer']} — {v.get('이유', '')}" for k, v in step["answers"].items()]
     else:
         parts = [f"{k} {v['answer'] if isinstance(v, dict) else v}" for k, v in step["answers"].items()]
     return f"{step['step']}: " + " · ".join(parts)
@@ -55,6 +58,8 @@ def build_example(turn: dict) -> dict:
         "사유": _P_SUFFIX.sub("", v["because"]),
         "지나온_단계": [_step_line(s) for s in turn.get("steps", [])],
     }
+    if v.get("second_pass"):
+        analysis["2차_판정"] = v["second_pass"]
     if v.get("where"):
         analysis["근거_위치"] = list(v["where"])
         if text:
@@ -71,6 +76,9 @@ def build_example(turn: dict) -> dict:
     }
 
 
+_LEAN = "불만 판정 기울기 통과"
+
+
 def _flag_section(turns: list[dict]) -> dict:
     counts = Counter()
     for t in turns:
@@ -83,6 +91,8 @@ def _flag_section(turns: list[dict]) -> dict:
             counts["history 재구성"] += 1
         if f.get("질문에 개인정보"):
             counts["질문에 개인정보"] += 1
+        if f.get(_LEAN):
+            counts[_LEAN] += 1
     return dict(counts)
 
 
@@ -98,8 +108,14 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
     for t in failed:
         name = t["verdict"]["bucket"]
         g = groups.setdefault(name, {"묶음": name, "고칠_곳": _BY_NAME[name].owner, "건수": 0,
+                                     "그중_기울기_통과": 0, "그중_LLM_2차": 0,
                                      "들어온_길": Counter(), "사례": []})
         g["건수"] += 1
+        # 기울기로 지난 턴은 거절·감정·새 요구를 확신 없이 아니오로 넘긴 것이라 이 묶음에 시스템 ·
+        # 사용자 성격이 섞였을 수 있다. 묶음 옆에 수로 남긴다 (설계 "기울기 통과").
+        g["그중_기울기_통과"] += bool((t.get("flags") or {}).get(_LEAN))
+        # 2차 판정으로 닫힌 턴은 묶음을 받았지만 kev 는 모름이었다 — 사례의 2차_판정을 검수할 것.
+        g["그중_LLM_2차"] += bool(t["verdict"].get("second_pass"))
         g["들어온_길"][t["verdict"]["because"]] += 1
         g["사례"].append(build_example(t))
     order = [b.name for b in taxonomy.BUCKETS.values()]
@@ -108,18 +124,30 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         g["들어온_길"] = dict(g["들어온_길"].most_common())
 
     flags = _flag_section(judged)
+    by_llm = sum(1 for t in judged if t["verdict"].get("second_pass") and t["verdict"]["bucket"] != _REVIEW)
     out: dict = {
         "생성일시": generated_at or datetime.now().isoformat(timespec="seconds"),
         "대상": {"로그": source, "분석한 턴": len(judged), "실패로 판정": len(failed),
-                 "정상으로 판정": len(normal), "검토": len(review), "오류": errors},
+                 "정상으로 판정": len(normal), "검토": len(review), "LLM 2차로 닫힘": by_llm, "오류": errors},
         "제외한_실패": EXCLUDED_NOTE,
     }
-    # 앞 턴 누락은 모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가른다. 그 턴의 "새 요구"
-    # 판정은 믿기 어려우니 머리에서 말한다 (docs/design/decision_tree_v4.md "history 규칙").
+    # 머리의 주의 — 앞 턴 누락은 모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가른다 (설계 "history
+    # 규칙"). 기울기 통과 · LLM 2차는 확신 판정이 아닌 턴이 묶음에 들어 있다는 말이다 ("모름 줄이기").
+    notes = []
+    if by_llm:
+        notes.append(f"LLM 2차로 닫힘 {by_llm}건 — kev 가 모름이라 한 문항을 LLM 이 이유와 함께 답해 묶음을 "
+                     "받은 턴이다. 확신 판정이 아니다. 묶음마다 '그중_LLM_2차' 에 수가 있고 사례의 "
+                     "'2차_판정' · 지나온_단계의 이유를 읽고 맞는지 볼 것.")
     if flags.get("앞 턴 누락"):
-        out["주의"] = [f"앞 턴 누락 {flags['앞 턴 누락']}건 — history_chat 에 앞 턴이 빠진 턴이다. "
-                       "모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가르므로, 많으면 사용자 묶음 "
-                       "집계를 보류하고 로그 · 적재 쪽에 먼저 물을 것."]
+        notes.append(f"앞 턴 누락 {flags['앞 턴 누락']}건 — history_chat 에 앞 턴이 빠진 턴이다. "
+                     "모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가르므로, 많으면 사용자 묶음 "
+                     "집계를 보류하고 로그 · 적재 쪽에 먼저 물을 것.")
+    if flags.get(_LEAN):
+        notes.append(f"불만 판정 기울기 통과 {flags[_LEAN]}건 — 거절 · 감정 · 새 요구 문항을 확신 없이 "
+                     "아니오로 넘긴 턴이다. 근거 · 생성 묶음에 시스템 · 사용자 성격이 섞였을 수 있다. "
+                     "묶음마다 '그중_기울기_통과' 에 수가 있다.")
+    if notes:
+        out["주의"] = notes
     out["분류"] = listed
     if flags:
         out["플래그"] = flags

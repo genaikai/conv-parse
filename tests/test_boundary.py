@@ -30,6 +30,7 @@ CORE = [
     "ragdiag.backends",     # LLM 접속
     "ragdiag.decide",       # 결정 백엔드 (kev · 에뮬레이션 · 스텁)
     "ragdiag.judge",        # 호출 오케스트레이션
+    "ragdiag.second",       # 2차 판정 (LLM) — kev 모름 문항 하나를 다시 묻는다
     "ragdiag.textfmt",      # 터미널 표 정렬 (표시 폭)
     "ragdiag.output",       # 출력 JSON 모양
     "ragdiag.pipeline",     # 단계별 함수

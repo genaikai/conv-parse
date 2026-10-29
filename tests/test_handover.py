@@ -66,7 +66,8 @@ def test_normal_is_left_out_but_counted_and_review_goes_last():
         turn("검토", sure=False, stopped_at="불만 판정 · 정책·권한 거절이고 그걸 불평한다",
              because="정책·권한 거절이고 그걸 불평한다 — 확신이 없다 (p 0.55)"),
         turn("근거")))
-    assert out["대상"] == {"로그": "", "분석한 턴": 3, "실패로 판정": 1, "정상으로 판정": 1, "검토": 1, "오류": 0}
+    assert out["대상"] == {"로그": "", "분석한 턴": 3, "실패로 판정": 1, "정상으로 판정": 1, "검토": 1,
+                          "LLM 2차로 닫힘": 0, "오류": 0}
     assert [g["묶음"] for g in out["분류"]] == ["근거"]
     assert list(out)[-1] == "검토"
     assert out["검토"]["건수"] == 1
@@ -108,6 +109,34 @@ def test_flags_are_counted_over_every_turn():
         turn("근거", flags={"앞 턴 누락": "옛 로그 — 판정 안 함", "history 재구성 턴 수": 1, "질문에 개인정보": False})))
     assert out["플래그"] == {"앞 턴 누락": 1, "history 재구성": 2, "질문에 개인정보": 1,
                             "옛 로그 (앞 턴 누락 판정 안 함)": 1}
+
+
+def test_lean_passes_are_counted_and_named_beside_the_bucket():
+    """기울기로 지난 턴은 시스템·사용자 성격이 섞였을 수 있다 — 묶음 옆에 수를 적는다."""
+    lean = {"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False, "불만 판정 기울기 통과": 2}
+    out = handover.build(result(turn("근거", flags=lean), turn("근거"), turn("생성", flags=lean)))
+    assert out["플래그"] == {"불만 판정 기울기 통과": 2}
+    by = {g["묶음"]: g for g in out["분류"]}
+    assert by["근거"]["건수"] == 2 and by["근거"]["그중_기울기_통과"] == 1
+    assert by["생성"]["그중_기울기_통과"] == 1
+    assert "기울기" in str(out["주의"])
+
+
+def test_second_pass_turns_are_counted_and_marked_for_checking():
+    """LLM 이 정한 턴은 묶음에 들어가되 sure=False 라 검수 대상이다 — 머리 · 묶음 · 사례에 보인다."""
+    sp = "불만 판정 · 정책·권한 거절이고 그걸 불평한다 — kev p 0.70, LLM 아니오"
+    t = turn("근거", sure=False)
+    t["verdict"]["second_pass"] = sp
+    t["steps"].insert(2, {"step": "2차 판정 (LLM)", "answers": {
+        "정책·권한 거절이고 그걸 불평한다": {"kev_p": 0.7, "answer": "아니오", "이유": "못 찾았다는 안내다"}}})
+    out = handover.build(result(t, turn("근거")))
+    assert out["대상"]["LLM 2차로 닫힘"] == 1
+    g = out["분류"][0]
+    assert g["건수"] == 2 and g["그중_LLM_2차"] == 1
+    ex = next(e for e in g["사례"] if "2차_판정" in e["분석"])
+    assert ex["분석"]["2차_판정"] == sp
+    assert any("못 찾았다는 안내다" in line for line in ex["분석"]["지나온_단계"])
+    assert "LLM 2차" in str(out["주의"])
 
 
 def test_no_text_result_is_accepted():
