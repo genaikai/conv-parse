@@ -1,0 +1,222 @@
+# -*- coding: utf-8 -*-
+"""v4 테스트셋 — 결정 트리의 출구마다 끝까지 도는 사례 하나.
+
+반도체 회사의 사내 LLM 서비스 로그를 흉내 낸다. 사례마다 **kev 가 낼 답을 함께 적어 둔다.**
+그래서 kev 없이 파이프라인 전체(파싱 · 짝짓기 · 플래그 · 네 단계 · 결과)를 돌려 묶음 · 멈춘
+자리 · 이유 · where · 플래그가 설계(docs/design/decision_tree_v4.md)대로 나오는지 잴 수 있다.
+
+이 셋이 재는 것은 **판정 모델의 품질이 아니라 파이프라인의 논리**다. 모델이 설계대로 답했을
+때 코드가 설계대로 묶음을 내는가.
+
+사례 하나의 모양 — 대화 하나를 통째로 적는다 (앞 턴 · 답변 턴 · 불만 턴):
+
+    dict(id, note,
+         prior=[(질문, 답변), …],          # 앞 턴들. 비우면 답변 턴이 첫 턴
+         history_chat=[(role, content), …] | None,   # 답변 턴의 history_input.history_chat.
+                                                    # None 이면 history_input 자체가 없다 (옛 로그)
+         question, answer, followup,
+         retrieved=[…], tool=[…], history_retrieved=[…], memory="",
+         complaint={문항 id: bool | p},    # 불만 판정의 kev 답. 안 적은 문항은 아니오
+         evidence={문항 id: …},            # 근거 판정의 kev 답 (any 는 all · partial · none)
+         targeted=bool | p,                # 불만 부분 근거 판정의 답
+         expect=dict(bucket, stopped_at, because_key, where?, sure, flags?))
+"""
+
+from __future__ import annotations
+
+SERVICE_ERROR = "서비스에 문제가 있거나, 사용자 분들이 많아서 서버에 부하가 걸리고 있어요"
+
+ATTEND = [
+    "[근태규정 제7조] 반차는 오전 · 오후 4시간 단위로 사용하며 그룹웨어에서 사전 신청한다.",
+    "[근태규정 제9조] 연차는 입사일 기준 매년 15일을 부여하고 미사용분은 이월하지 않는다.",
+]
+TRIP = [
+    "[출장규정 제3조] 국내 출장 식비는 1일 3만원을 상한으로 한다.",
+    "[출장규정 제6조] 출장비는 출장 종료 후 5영업일 이내에 정산한다.",
+]
+FAB = [
+    "[공정표준 WSP-001] WSPED01 라인의 PR 두께 기준은 1.2±0.05 µm 이며 측정은 로트당 5매 샘플링한다.",
+    "[공정표준 WSP-003] 두께 이탈 시 공정기술팀에 즉시 보고하고 해당 로트를 홀드한다.",
+]
+TOOL_EQUIP = '{"line": "WSPED01", "equipment": ["WSP-ETCH-01", "WSP-ETCH-02"], "count": 2}'
+
+HC = [("user", "반차는 어떻게 신청해요?"), ("assistant", "그룹웨어에서 사전 신청하시면 됩니다.")]
+
+CASES = [
+    # ================================================================== 코드 확정 → 시스템
+    dict(id="sys-service-error", note="자원 부족 확정 문구. kev 0회",
+         prior=[], history_chat=[],
+         question="연차 이월 예외 조건 알려줘", answer=SERVICE_ERROR, followup="왜 답이 없어요",
+         retrieved=ATTEND,
+         expect=dict(bucket="system", stopped_at="코드 확정", because_key="코드 확정:service_error",
+                     sure=True, kev_calls=0)),
+    dict(id="sys-empty", note="빈 답변",
+         prior=[], history_chat=[],
+         question="연차 이월 예외 조건 알려줘", answer="   ", followup="답이 안 왔어요",
+         retrieved=ATTEND,
+         expect=dict(bucket="system", stopped_at="코드 확정", because_key="코드 확정:empty_answer",
+                     sure=True, kev_calls=0)),
+    dict(id="sys-degenerate", note="글자 반복 붕괴",
+         prior=[], history_chat=[],
+         question="연차 이월 예외 조건 알려줘", answer="연차연차연차연차연차연차연차연차연차연차연차연차",
+         followup="이게 뭐예요",
+         retrieved=ATTEND,
+         expect=dict(bucket="system", stopped_at="코드 확정", because_key="코드 확정:degenerate",
+                     sure=True, kev_calls=0)),
+
+    # ================================================================== 불만 판정 — 여덟 출구
+    dict(id="normal", note="앞 답을 받아들이고 다음을 묻는다",
+         prior=[], history_chat=[],
+         question="반차는 어떻게 신청해요?", answer="그룹웨어에서 사전 신청하시면 됩니다.",
+         followup="고마워요. 그럼 연차는요?",
+         retrieved=ATTEND, complaint={"complains": False, "no_doc": True},
+         expect=dict(bucket="normal", stopped_at="불만 판정", because_key="불만 판정:complains:no",
+                     sure=True, kev_calls=1)),
+    dict(id="sys-refusal", note="보안 정책 거절에 불만",
+         prior=[], history_chat=[],
+         question="고객사별 출하 수량 알려줘", answer="정보보호 지침에 따라 안내할 수 없습니다.",
+         followup="제 업무인데 왜 안 돼요",
+         retrieved=["[정보보호지침 제5조] 고객사 출하 수량은 영업기밀로 외부 공유를 금지한다."],
+         complaint={"complains": True, "refusal": True},
+         expect=dict(bucket="system", stopped_at="불만 판정", because_key="불만 판정:refusal:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="sys-illegible", note="템플릿 토큰이 섞인 읽을 수 없는 답",
+         prior=[], history_chat=[],
+         question="출장비 정산 기한이 언제야?", answer="<|im_start|>assistant 정산은 {{deadline}} 이내 <think>",
+         followup="뭐라는 거예요",
+         retrieved=TRIP, complaint={"complains": True, "illegible": True},
+         expect=dict(bucket="system", stopped_at="불만 판정", because_key="불만 판정:illegible:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="sys-truncated", note="문장 중간에서 끊김",
+         prior=[], history_chat=[],
+         question="출장비 정산 절차 알려줘", answer="출장비는 종료 후 5영업일 이내에 정산하며, 영수증은",
+         followup="뒤가 잘렸어요",
+         retrieved=TRIP, complaint={"complains": True, "truncated": True},
+         expect=dict(bucket="system", stopped_at="불만 판정", because_key="불만 판정:truncated:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="gen-language", note="한국어 질문에 영어 답",
+         prior=[], history_chat=[],
+         question="국내 출장 식비 상한이 얼마야?", answer="The domestic meal allowance is capped at 30,000 KRW per day.",
+         followup="한국어로 해 주세요",
+         retrieved=TRIP, complaint={"complains": True, "language": True},
+         expect=dict(bucket="generation", stopped_at="불만 판정", because_key="불만 판정:language:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="user-emotion", note="욕설만, 단서 없음",
+         prior=[], history_chat=[],
+         question="국내 출장 식비 상한이 얼마야?", answer="국내 출장 식비는 1일 3만원이 상한입니다.",
+         followup="아 진짜 짜증나네",
+         retrieved=TRIP, complaint={"complains": True, "emotion_only": True},
+         expect=dict(bucket="user", stopped_at="불만 판정", because_key="불만 판정:emotion_only:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="user-new-demand", note="앞에 없던 새 요구를 하며 불평",
+         prior=[("반차는 어떻게 신청해요?", "그룹웨어에서 사전 신청하시면 됩니다.")], history_chat=HC,
+         question="연차는 며칠이야?", answer="연차는 입사일 기준 매년 15일입니다.",
+         followup="표로 정리해 달라니까요",
+         retrieved=ATTEND, complaint={"complains": True, "new_demand": True},
+         expect=dict(bucket="user", stopped_at="불만 판정", because_key="불만 판정:new_demand:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="gen-no-doc", note="산수 질문의 오답",
+         prior=[], history_chat=[],
+         question="3만원씩 4일이면 얼마야?", answer="12만원이 아니라 15만원입니다.",
+         followup="12만원 아니에요?",
+         retrieved=[], complaint={"complains": True, "no_doc": True},
+         expect=dict(bucket="generation", stopped_at="불만 판정", because_key="불만 판정:no_doc:yes",
+                     sure=True, kev_calls=1)),
+
+    # ================================================================== 근거 판정
+    dict(id="gen-all", note="근거에 답이 전부 있는데 답변이 못 살림",
+         prior=[], history_chat=[],
+         question="연차 이월 돼요?", answer="연차는 사규에 따라 운영됩니다.",
+         followup="이월 되는지를 물었는데요",
+         retrieved=ATTEND, complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": "all"},
+         expect=dict(bucket="generation", stopped_at="근거 판정", because_key="근거 판정:any:all",
+                     where=["이번 턴 검색 청크"], sure=True, kev_calls=2)),
+    dict(id="gen-all-history", note="답이 앞 턴 근거와 메모리에만 있었다",
+         prior=[("WSPED01 라인 담당이 누구야?", "공정기술팀이 담당합니다.")],
+         history_chat=[("user", "WSPED01 라인 담당이 누구야?"), ("assistant", "공정기술팀이 담당합니다.")],
+         question="두께 이탈이면 어디에 보고해?", answer="담당 부서에 보고하시면 됩니다.",
+         followup="어느 부서인지를 물었어요",
+         retrieved=[], history_retrieved=FAB, memory="사용자는 WSPED01 라인 공정 담당자다.",
+         complaint={"complains": True},
+         evidence={"in_history": True, "in_memory": False, "any": "all"},
+         expect=dict(bucket="generation", stopped_at="근거 판정", because_key="근거 판정:any:all",
+                     where=["앞 턴 근거"], sure=True, kev_calls=2)),
+    dict(id="evid-none", note="검색은 했는데 답이 없는 청크뿐",
+         prior=[], history_chat=[],
+         question="해외 출장 숙박비 상한은?", answer="해외 출장 숙박비는 규정을 확인해 보시기 바랍니다.",
+         followup="금액을 물었는데요",
+         retrieved=TRIP, complaint={"complains": True},
+         evidence={"in_retrieved": False, "any": "none"},
+         expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:any:none",
+                     where=["이번 턴 검색 청크", "이번 턴 도구 결과", "앞 턴 근거", "메모리"],
+                     sure=True, kev_calls=2)),
+    dict(id="evid-empty", note="청크도 도구 결과도 없다 — kev 는 불만 판정 1회뿐",
+         prior=[], history_chat=[],
+         question="WSPED01 라인 장비 몇 대야?", answer="장비 수는 확인되지 않습니다.",
+         followup="그걸 왜 몰라요",
+         retrieved=[], complaint={"complains": True},
+         expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:empty",
+                     where=["이번 턴 검색 청크", "이번 턴 도구 결과", "앞 턴 근거", "메모리"],
+                     sure=True, kev_calls=1)),
+
+    # ================================================================== 불만 부분 근거 판정
+    dict(id="partial-targeted", note="복합 질문, 있던 쪽을 틀림 → 생성",
+         prior=[], history_chat=[],
+         question="PR 두께 기준이 얼마고, 이탈하면 어디에 알려?",
+         answer="두께 기준은 1.5 µm 이고 보고 부서는 확인되지 않습니다.",
+         followup="1.5 가 아닌데요",
+         retrieved=FAB[:1], complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": "partial"}, targeted=True,
+         expect=dict(bucket="generation", stopped_at="불만 부분 근거 판정",
+                     because_key="불만 부분 근거 판정:targeted:yes", sure=True, kev_calls=3)),
+    dict(id="partial-missed", note="복합 질문, 빠진 쪽을 불평 → 근거",
+         prior=[], history_chat=[],
+         question="PR 두께 기준이 얼마고, 이탈하면 어디에 알려?",
+         answer="두께 기준은 1.2±0.05 µm 이고 보고 부서는 확인되지 않습니다.",
+         followup="부서를 물었는데요",
+         retrieved=FAB[:1], complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": "partial"}, targeted=False,
+         expect=dict(bucket="evidence", stopped_at="불만 부분 근거 판정",
+                     because_key="불만 부분 근거 판정:targeted:no", sure=True, kev_calls=3)),
+
+    # ================================================================== 검토
+    dict(id="review-complaint", note="거절인지 못 찾은 안내인지 모름",
+         prior=[], history_chat=[],
+         question="PR 두께 기준이 어떻게 되나요", answer="관련 자료를 확인할 수 없어 안내가 어렵습니다.",
+         followup="아니 그게 왜 안 돼요, 분명 문서 있는데",
+         retrieved=FAB, complaint={"complains": True, "refusal": 0.55},
+         expect=dict(bucket="review", stopped_at="불만 판정 · 정책·권한 거절이고 그걸 불평한다",
+                     because_key=None, sure=False, kev_calls=1)),
+    dict(id="review-evidence", note="근거 전체 판단을 못 함",
+         prior=[], history_chat=[],
+         question="두께 이탈 로트는 어떻게 해?", answer="절차에 따라 처리합니다.",
+         followup="구체적으로요",
+         retrieved=FAB, complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": {"all": 0.5, "partial": 0.45, "none": 0.05}},
+         expect=dict(bucket="review", stopped_at="근거 판정 · 근거 전체에 답이 있다",
+                     because_key=None, sure=False, kev_calls=2)),
+
+    # ================================================================== history · 플래그
+    dict(id="reconstructed", note="history_chat 이 비어 앞 3턴을 재구성한다. 앞 턴 누락 플래그도 선다",
+         prior=[("반차는 어떻게 신청해요?", "그룹웨어에서요."), ("연차는 며칠이야?", "15일입니다."),
+                ("이월 돼요?", "안 됩니다."), ("반차도 이월 안 돼요?", "네, 같습니다.")],
+         history_chat=[],
+         question="그럼 예외는 없어요?", answer="예외는 사규에 따릅니다.",
+         followup="아까부터 예외 조건을 물었잖아요",
+         retrieved=ATTEND, complaint={"complains": True},
+         evidence={"in_retrieved": True, "any": "all"},
+         expect=dict(bucket="generation", stopped_at="근거 판정", because_key="근거 판정:any:all",
+                     where=["이번 턴 검색 청크"], sure=True, kev_calls=2,
+                     flags={"앞 턴 누락": True, "history 재구성 턴 수": 3, "질문에 개인정보": False})),
+    dict(id="old-log-pii", note="history_input 이 없는 옛 로그 + 질문에 전화번호",
+         prior=[("반차는 어떻게 신청해요?", "그룹웨어에서요.")], history_chat=None,
+         question="제 번호 010-1234-5678 로 연차 현황 보내줘", answer="연차 현황은 그룹웨어에서 조회하실 수 있습니다.",
+         followup="보내 달라니까요",
+         retrieved=ATTEND, complaint={"complains": True},
+         evidence={"in_retrieved": False, "any": "none"},
+         expect=dict(bucket="evidence", stopped_at="근거 판정", because_key="근거 판정:any:none",
+                     sure=True, kev_calls=2,
+                     flags={"앞 턴 누락": "옛 로그 — 판정 안 함", "history 재구성 턴 수": 1,
+                            "질문에 개인정보": True})),
+]
