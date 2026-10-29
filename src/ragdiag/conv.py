@@ -227,8 +227,10 @@ class HistoryInput:
 
     present: bool = False
     queries: list[str] = field(default_factory=list)
-    # assistant 메시지. v3 의 ⑥ 일관성 · G2[약속] 이 읽는다.
+    # assistant 메시지. 순서대로.
     answers: list[str] = field(default_factory=list)
+    # user · assistant 를 섞어 원래 순서대로. v4 불만 판정이 이걸 받는다.
+    messages: list[dict] = field(default_factory=list)
     retrieved: list[str] = field(default_factory=list)
     tool_output: list[str] = field(default_factory=list)
     # 호출 단위 기록 (parse_tool_entries). 청크 출처와 T 묶음이 쓴다.
@@ -239,14 +241,14 @@ class HistoryInput:
 def parse_history_input(value: Any) -> HistoryInput:
     """`history_input` 을 우리가 쓰는 네 갈래로 가른다.
 
-    `history_chat` 은 role/content 메시지 배열이고, 거기서 **`role == "user"` 만**
-    순서대로 뽑아 `pre_queries` 를 대신한다. assistant 쪽을 버리는 것은 지금
-    `Case` 가 앞 턴의 답변을 아예 안 싣기 때문이다 (싣는 답변은 비판받은 것 하나).
+    `history_chat` 은 role/content 메시지 배열이다. user 만 뽑은 것이 `pre_queries` 를
+    대신하고, user · assistant 를 원래 순서대로 둔 `messages` 가 불만 판정의 history 다.
     """
     if not isinstance(value, dict):
         return HistoryInput()
     queries = []
     answers = []
+    messages = []
     for message in value.get("history_chat") or []:
         if not isinstance(message, dict):
             continue
@@ -258,10 +260,14 @@ def parse_history_input(value: Any) -> HistoryInput:
             queries.append(content)
         elif role == "assistant":
             answers.append(content)
+        else:
+            continue
+        messages.append({"role": role, "content": content})
     return HistoryInput(
         present=True,
         queries=queries,
         answers=answers,
+        messages=messages,
         retrieved=parse_retrieved(value.get("retrieved_data")),
         tool_output=parse_tool_output(value.get("tool_output")),
         tool_calls=parse_tool_entries(value.get("tool_output")),
@@ -532,6 +538,13 @@ def to_case(
     tool_calls = [*answered.tool_calls,
                   *[c for c in answered.history.tool_calls]]
     tool_outputs = list(answered.tool_output) + list(answered.history.tool_output)
+    # v4 — 불만 판정의 history. history_chat 이 있으면 그대로(사실은 자르지 않는다), 비었고
+    # 앞 턴이 있으면 최근 3턴을 재구성한다 (docs/design/decision_tree_v4.md "history 규칙").
+    if answered.history.messages:
+        history_messages, reconstructed = list(answered.history.messages), 0
+    else:
+        history_messages = reconstruct_history(prior, answered)
+        reconstructed = sum(1 for m in history_messages if m["role"] == "user")
     return Case(
         case_id=case_id,
         dept=conv.user.dept,
@@ -549,21 +562,47 @@ def to_case(
         # history_quote 대조 대상. 앞에서 정한 조건이 원문 턴 대신 요약에만
         # 남아 있을 수 있는데, 그래도 챗봇은 그 조건을 본 것이다.
         memory=memory_pool(answered),
-        prior_answers=prior_answers(answered, scope),
         tool_calls=tool_calls,
         tool_outputs=tool_outputs,
         prior_turn_nos=[t.turn for t in prior],
         history_present=answered.history.present,
         history_turn_count=len(answered.history.queries),
+        history_messages=history_messages,
+        history_reconstructed=reconstructed,
+        event_time=followup.event_time,
+        target_event_time=answered.event_time,
+        answered_by=answered.answered_by,
+        ask_on=answered.ask_on,
+        fallback=answered.fallback,
     )
 
 
-def prior_answers(answered: Turn, scope: list[Turn]) -> list[str]:
-    """비판받은 답변보다 앞의 챗봇 답변들. history_chat 의 assistant 가 사실이고, 없으면
-    scope 의 턴 레코드에서 재구성한다 (옛 로그 · 골든셋)."""
-    if answered.history.present:
-        return list(answered.history.answers)
-    return [t.llm_response for t in scope if t is not answered and t.llm_response]
+# 재구성 상한. history_chat 이 비었을 때만 쓴다 — 사실(history_chat)은 자르지 않는다.
+RECONSTRUCT_TURNS = 3
+
+
+def reconstruct_history(prior: list[Turn], answered: Turn,
+                        limit: int = RECONSTRUCT_TURNS) -> list[dict]:
+    """history_chat 이 비었을 때 턴 순서로 앞 대화를 되살린다. 턴마다 user → assistant.
+
+    `carried_turn_nos` 가 있으면 그 턴들(서비스가 넣었다고 적은 것), 없으면 answered 앞의 최근
+    턴들. 어느 쪽이든 최근 `limit` 개만 — 이건 추정이라 넓게 틀리면 "못 본 조건을 어겼다" 가
+    된다. 재구성은 "사용자가 전에 그 요구를 했나"(불만 판정 7) 를 위한 것이고, 모델이 그걸
+    봤는지는 앞 턴 누락 플래그가 따로 말한다.
+    """
+    before = [t for t in prior if t is not answered]
+    carried = set(answered.carried_turn_nos)
+    if carried:
+        before = [t for t in before if t.turn in carried]
+    if limit > 0:
+        before = before[-limit:]
+    out: list[dict] = []
+    for t in before:
+        if t.user_question:
+            out.append({"role": "user", "content": t.user_question})
+        if t.llm_response:
+            out.append({"role": "assistant", "content": t.llm_response})
+    return out
 
 
 def pre_queries(answered: Turn, scope: list[Turn]) -> list[str]:

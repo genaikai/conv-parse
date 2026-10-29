@@ -247,3 +247,27 @@ def test_example_command_writes_the_four_files(tmp_path):
     assert r.returncode == 0, r.stderr
     assert sorted(p.name for p in (tmp_path / "ex").iterdir()) == [
         "eval.jsonl", "filter.json", "records.jsonl", "selected.jsonl"]
+
+
+def test_prior_turn_rows_with_a_turn_number_fill_the_stubs():
+    """history_input 이 빈 답변 턴은 ② 가 앞 3턴 본문도 넣는다 — turn 번호를 달고."""
+    selected = [sel("C1", "t5", "t4", 3)]
+    records = [rec("C1", "t4", user_question="q4", llm_response="a4"),
+               rec("C1", "t5", user_question="q5"),
+               rec("C1", "t3", turn=3, user_question="q3", llm_response="a3"),
+               rec("C1", "t2", turn=2, user_question="q2", llm_response="a2")]
+    [conv] = parse_conversations(records_to_payload(records, selected))
+    assert [t.turn for t in conv.turns] == [1, 2, 3, 4, 5]
+    assert conv.turn_at(3).llm_response == "a3" and conv.turn_at(1).user_question == ""
+    turns = records_to_payload(records, selected)["users"][0]["conversations"][0]["turns"]
+    assert turns[2].get(assemble.STUB_KEY) is None and turns[0].get(assemble.STUB_KEY) is True
+
+
+def test_prior_turn_row_beyond_n_prior_stops():
+    selected = [sel("C1", "t3", "t2", 1)]
+    records = [rec("C1", "t2", user_question="q2", llm_response="a2"),
+               rec("C1", "t3", user_question="q3"),
+               rec("C1", "t9", turn=7, user_question="q7")]
+    with pytest.raises(AssembleError) as e:
+        records_to_payload(records, selected)
+    assert "turn 7" in str(e.value) and "n_prior" in str(e.value)

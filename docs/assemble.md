@@ -73,11 +73,13 @@ selected.jsonl 한 줄당 **두 줄**. 답변 턴(`target_event_time` 행)은 �
 |---|---|---|
 | 답변 턴 | `chat_id` · `event_time` · `user_question` · `llm_response` · 조직 셋 | `retrieved_data` · `tool_output` · `tool_calls` · `history_input` · `memory` · `prev_question` · `carried_turn_nos` — 턴 레코드 계약(`src/ragdiag/contracts.py` TURN_SCHEMA) 그대로 |
 | 불만 턴 | `chat_id` · `event_time` · `user_question` · 조직 셋 | — |
+| 앞 턴 (조건부) | `chat_id` · `event_time` · **`turn`** · `user_question` · `llm_response` | 답변 턴의 `history_input.history_chat` 이 **비어 있을 때만**, 답변 턴 바로 앞 최근 3턴 (turn = `n_prior-2 … n_prior`, 있는 만큼). 불만 판정이 앞 대화를 재구성하는 재료다 (`docs/design/decision_tree_v4.md` "history 규칙") |
 
 **② 가 지킬 것**
 
 - `event_time` 을 가공하지 않는다. ③ 은 `(chat_id, event_time)` 문자열 일치로 selected 와 맞춘다.
-- `turn` 을 쓰지 않는다. CSV 에 없고, ③ 이 `n_prior` 로 붙인다.
+- `turn` 은 **앞 턴 행에만** 쓴다. 답변 턴 · 불만 턴은 CSV 에 없고 ③ 이 `n_prior` 로 붙인다. 앞 턴
+  행의 `turn` 이 `n_prior` 를 넘거나 selected 의 턴과 겹치면 `check` 가 멈춘다.
 - 한 좌표에 한 줄. 같은 `(chat_id, event_time)` 이 두 줄이면 `check` 가 멈춘다.
 - 못 찾은 행은 빼지 말고 **멈춘다**. 빠진 채로 넘기면 `check` 가 "② 가 못 찾은 행" 으로 잡지만,
   조용히 비워 넘기면 그 턴이 T1(도구 안 부름)로 집계된다.

@@ -178,8 +178,10 @@ def records_to_payload(records: list[dict], selected: list[dict]) -> dict:
     """두 jsonl 을 conv-eval.json 과 같은 중첩 모양으로 접는다.
 
     턴 번호는 selected 의 n_prior 에서 나온다 - 답변 턴 = n_prior+1, 불만 턴 = n_prior+2.
-    records 에 없는 앞 턴(1..n_prior)은 본문 없는 자리만 채운다 - C1 이 "앞 턴이 k 개" 를
-    셀 수 있게. 불만 턴에는 selected 의 llm_emotion_* 을 합친다 (② 는 복사하지 않는다).
+    records 에 없는 앞 턴(1..n_prior)은 본문 없는 자리만 채운다 - 앞 턴 누락 플래그가 "앞 턴이
+    k 개" 를 셀 수 있게. ② 가 앞 턴 본문을 더 넣었으면(history_input 이 빈 답변 턴의 앞 3턴) 그
+    행은 `turn` 번호를 달고 오고 그 자리에 들어간다. 불만 턴에는 selected 의 llm_emotion_* 을
+    합친다 (② 는 복사하지 않는다).
 
     어긋남은 전부 AssembleError 다. 짝이 틀리면 조용히 엉뚱한 답변을 판정하게 되므로
     한 줄이라도 틀리면 멈춘다.
@@ -223,12 +225,28 @@ def records_to_payload(records: list[dict], selected: list[dict]) -> dict:
         by_key[key] = r
 
     missing = sorted(k for k in turn_no if k not in by_key)
-    extra = sorted(k for k in by_key if k not in turn_no)
     if missing:
         problems.append(f"② 가 못 찾은 행 {len(missing):,}건 — 예: {missing[0][0]} "
                         f"@ {missing[0][1]}")
-    if extra:
-        problems.append(f"② 가 더 넣은 행 {len(extra):,}건 — 예: {extra[0][0]} @ {extra[0][1]}")
+    # selected 에 없는 행은 **앞 턴 본문**(history_input 이 빈 답변 턴을 위해 ② 가 더 넣은 것)
+    # 이어야 하고, 그러면 turn 번호를 달고 온다. 번호 없이 더 넣은 행은 짝이 틀린 것이다.
+    for key in sorted(k for k in by_key if k not in turn_no):
+        cid, event_time = key
+        raw_turn = by_key[key].get("turn")
+        try:
+            number = int(raw_turn)
+        except (TypeError, ValueError):
+            problems.append(f"② 가 더 넣은 행 — {cid} @ {event_time} (앞 턴 본문이면 turn 번호가 "
+                            f"있어야 한다)")
+            continue
+        if not 1 <= number <= n_prior_max.get(cid, 0):
+            problems.append(f"{cid} @ {event_time} 의 turn {number} 는 앞 턴이 아니다 "
+                            f"(이 대화의 n_prior 최대 {n_prior_max.get(cid, 0)})")
+            continue
+        if (cid, number) in {(c, n) for (c, _), n in turn_no.items() if c == cid}:
+            problems.append(f"{cid} 의 turn {number} 가 selected 의 턴과 겹친다")
+            continue
+        turn_no[key] = number
     if problems:
         raise AssembleError("records.jsonl 과 selected.jsonl 이 맞지 않습니다:\n  "
                             + "\n  ".join(problems))

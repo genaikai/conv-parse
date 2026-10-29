@@ -358,3 +358,82 @@ def test_n_fetched_counts_this_turn_docs_and_tools():
         _raw_turn(3, "불만", llm_eval_result="명시적 부정 피드백"),
     )
     assert to_case(conv, 3).n_fetched == 3
+
+
+# ---------------------------------------------------------------------------
+# v4 — history 메시지 · 재구성 · 두 식별자 (docs/design/decision_tree_v4.md "history 규칙")
+# ---------------------------------------------------------------------------
+
+def _conv_n(n_turns, history_chat, extra=None):
+    """turn n_turns 가 불만, n_turns-1 이 답변. 답변 턴에 history_input 을 심는다."""
+    turns = [_raw_turn(i, f"q{i}", event_time=f"t{i}", answered_by="rag", ask_on="web")
+             for i in range(1, n_turns + 1)]
+    if history_chat is not None:
+        turns[-2]["history_input"] = {"history_chat": [{"role": r, "content": c}
+                                                       for r, c in history_chat]}
+    if extra:
+        turns[-2].update(extra)
+    return _conv(*turns)
+
+
+def test_history_chat_is_kept_as_ordered_messages():
+    conv = _conv_n(3, [("user", "q1"), ("assistant", "a1")])
+    case = to_case(conv, 3)
+    assert case.history_messages == [{"role": "user", "content": "q1"},
+                                     {"role": "assistant", "content": "a1"}]
+    assert case.history_reconstructed == 0
+
+
+def test_empty_history_chat_with_prior_turns_is_reconstructed_up_to_three():
+    conv = _conv_n(6, [])                      # turn 6 불만, 5 답변, 1~4 앞 턴
+    case = to_case(conv, 6)
+    assert case.history_reconstructed == 3
+    assert [m["content"] for m in case.history_messages if m["role"] == "user"] == ["q2", "q3", "q4"]
+    assert [m["content"] for m in case.history_messages if m["role"] == "assistant"] == ["답변 2", "답변 3", "답변 4"]
+
+
+def test_reconstruction_follows_carried_turn_nos_when_present_but_still_caps_at_three():
+    conv = _conv_n(7, [], extra={"carried_turn_nos": [1, 2, 3, 4, 5]})
+    case = to_case(conv, 7)
+    assert case.history_reconstructed == 3
+    assert [m["content"] for m in case.history_messages if m["role"] == "user"] == ["q3", "q4", "q5"]
+
+
+def test_partial_history_chat_is_not_padded():
+    conv = _conv_n(6, [("user", "q4"), ("assistant", "a4")])
+    case = to_case(conv, 6)
+    assert case.history_reconstructed == 0 and len(case.history_messages) == 2
+
+
+def test_old_log_without_history_input_is_reconstructed_too():
+    conv = _conv_n(4, None)
+    case = to_case(conv, 4)
+    assert case.history_present is False
+    assert case.history_reconstructed == 2
+    assert [m["content"] for m in case.history_messages if m["role"] == "user"] == ["q1", "q2"]
+
+
+def test_first_turn_has_no_history_and_no_reconstruction():
+    conv = _conv_n(2, None)
+    case = to_case(conv, 2)
+    assert case.history_messages == [] and case.history_reconstructed == 0
+
+
+def test_case_carries_both_event_times_and_turn_axes():
+    conv = _conv_n(2, None)
+    case = to_case(conv, 2)
+    assert case.event_time == "t2" and case.target_event_time == "t1"
+    assert case.answered_by == "rag" and case.ask_on == "web"
+
+
+def test_evidence_slots_split_the_pool_by_source():
+    conv = _conv(
+        _raw_turn(1, "q1"),
+        _raw_turn(2, "q2", retrieved_data=["이번 청크"], tool_output="도구 결과",
+                  history_input={"history_chat": [], "retrieved_data": ["앞 청크"]}),
+        _raw_turn(3, "불만"),
+    )
+    case = to_case(conv, 3)
+    assert case.retrieved_chunks == ["이번 청크"]
+    assert case.tool_chunks == ["도구 결과"]
+    assert case.history_chunks == ["앞 청크"]
