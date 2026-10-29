@@ -44,9 +44,16 @@ def read_choice(answer: Answer) -> str:
 
 
 def answer_payload(answer: Answer) -> dict:
-    """결과 파일의 답 한 칸 — {"answer": 말, "p": 확률}."""
+    """결과 파일의 답 한 칸 — {"answer": 말, "p": 확률}.
+
+    p 는 **보인 답의 확신**이다. "아니오 0.95" 가 확신 있는 아니오로 읽혀야 한다 — P(예) 를 그대로
+    실으면 아니오 행마다 0.05 가 찍혀 확신 없음처럼 보인다. 모름일 때만 P(예) 그대로 — 어느 쪽으로
+    기울었는지가 검토자에게 단서다.
+    """
     if answer.type == "noul":
-        return {"answer": read_noul(answer), "p": round(answer.p, 3)}
+        verdict = read_noul(answer)
+        p = answer.p if verdict == UNSURE else max(answer.p, 1 - answer.p)
+        return {"answer": verdict, "p": round(p, 3)}
     picked = read_choice(answer)
     return {"answer": CHOICE_TEXT.get(picked, picked), "p": round(answer.p, 3)}
 

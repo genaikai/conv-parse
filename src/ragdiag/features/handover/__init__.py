@@ -107,14 +107,20 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
     for g in listed:
         g["들어온_길"] = dict(g["들어온_길"].most_common())
 
+    flags = _flag_section(judged)
     out: dict = {
         "생성일시": generated_at or datetime.now().isoformat(timespec="seconds"),
         "대상": {"로그": source, "분석한 턴": len(judged), "실패로 판정": len(failed),
                  "정상으로 판정": len(normal), "검토": len(review), "오류": errors},
         "제외한_실패": EXCLUDED_NOTE,
-        "분류": listed,
     }
-    flags = _flag_section(judged)
+    # 앞 턴 누락은 모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가른다. 그 턴의 "새 요구"
+    # 판정은 믿기 어려우니 머리에서 말한다 (docs/design/decision_tree_v4.md "history 규칙").
+    if flags.get("앞 턴 누락"):
+        out["주의"] = [f"앞 턴 누락 {flags['앞 턴 누락']}건 — history_chat 에 앞 턴이 빠진 턴이다. "
+                       "모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가르므로, 많으면 사용자 묶음 "
+                       "집계를 보류하고 로그 · 적재 쪽에 먼저 물을 것."]
+    out["분류"] = listed
     if flags:
         out["플래그"] = flags
     if review:

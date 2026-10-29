@@ -686,7 +686,7 @@ def detail(row: pd.Series) -> None:
         st.caption("질문에 개인정보 — 답변의 성패와 독립인 사건. 입력 마스킹(UI)의 일이다.")
 
     steps = original.get("steps") or []
-    st.markdown("**지나온 단계** — 문항과 답. p 는 kev 의 확률이고 0.9 이상이 확신이다")
+    st.markdown("**지나온 단계** — 문항과 답. p 는 그 답의 확신(0.9 이상이면 확실). 모름이면 P(예) 그대로")
     columns = st.columns(max(len(steps), 1))
     for col, step in zip(columns, steps):
         with col:

@@ -57,3 +57,11 @@ def test_a_partial_turn_goes_on_to_this_step():
     t = _run({"in_retrieved": True, "any": "partial", "targeted": False}, run_evidence_first=True)
     assert t.verdict.bucket == "evidence" and t.n_kev_calls == 2
     assert [s.step for s in t.steps] == ["근거 판정", "불만 부분 근거 판정"]
+
+
+def test_where_comes_from_the_evidence_step():
+    """근거 판정을 지난 턴이라 where 가 있어야 한다 — 근거면 빈 칸 · 아니오 칸, 생성이면 예 칸."""
+    t = _run({"in_retrieved": True, "any": "partial", "targeted": False}, run_evidence_first=True)
+    assert t.verdict.where == ["이번 턴 도구 결과", "앞 턴 근거", "메모리"]
+    t = _run({"in_retrieved": True, "any": "partial", "targeted": True}, run_evidence_first=True)
+    assert t.verdict.where == ["이번 턴 검색 청크"]

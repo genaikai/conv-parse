@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from ragdiag import questions, taxonomy
-from ragdiag.results import UNSURE, YES, StepResult, answer_payload, read_noul
+from ragdiag.results import NO, UNSURE, YES, StepResult, answer_payload, read_noul
 
 from .._shared import call_kev, each_turn
 from ..evidence import slots_of, state_of
@@ -34,7 +34,23 @@ def _apply(turn, ctx) -> None:
         return
     key = "targeted:yes" if verdict == YES else "targeted:no"
     turn.close("generation" if verdict == YES else "evidence", taxonomy.STEP_COMPLAINT_EVIDENCE,
-               taxonomy.BECAUSE[f"{taxonomy.STEP_COMPLAINT_EVIDENCE}:{key}"])
+               taxonomy.BECAUSE[f"{taxonomy.STEP_COMPLAINT_EVIDENCE}:{key}"],
+               where=_where(turn, present=verdict == YES))
+
+
+def _where(turn, present: bool) -> list[str]:
+    """근거 판정이 남긴 칸별 답에서 — 생성이면 답이 있던 칸, 근거면 비었거나 없던 칸."""
+    step = next((s for s in turn.steps if s.step == taxonomy.STEP_EVIDENCE), None)
+    answers = step.answers if step and step.answers else {}
+    out = []
+    for slot, korean in questions.SLOTS:
+        a = answers.get(f"in_{slot}")
+        said = a["answer"] if isinstance(a, dict) else None     # 문자열이면 비어 있어 묻지 않음
+        if present and said == YES:
+            out.append(korean)
+        if not present and (said is None or said == NO):
+            out.append(korean)
+    return out
 
 
 def process_data(ctx) -> tuple[list, list]:

@@ -133,3 +133,12 @@ def test_entry_point_refuses_a_file_without_turns(tmp_path):
 def test_entry_points_are_exactly_the_four_scripts():
     scripts = sorted(p.name for p in (ROOT / "src").glob("*.py"))
     assert scripts == ["assemble.py", "dashboard.py", "handover.py", "run.py"]
+
+
+def test_missing_prior_turns_put_a_caution_in_the_head():
+    out = handover.build(result(
+        turn("근거", flags={"앞 턴 누락": True, "history 재구성 턴 수": 3, "질문에 개인정보": False}),
+        turn("사용자", because="후속 발화가 감정 표출뿐이라 무엇이 틀렸는지 단서가 없다")))
+    assert "주의" in out and "사용자" in out["주의"][0] and "앞 턴 누락" in out["주의"][0]
+    assert list(out).index("주의") < list(out).index("분류"), "머리에 적는다"
+    assert "주의" not in handover.build(result(turn("근거")))

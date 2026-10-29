@@ -49,3 +49,10 @@ def test_an_errored_turn_is_not_open():
     t = TurnResult(case=_case())
     t.error = "[complaint] JudgeError: x"
     assert not t.is_open
+
+
+def test_p_is_the_confidence_of_the_shown_answer_and_p_yes_when_unsure():
+    """읽는 사람에게 '아니오 0.95' 는 확신 있는 아니오여야 한다. 모름일 때만 P(예) 그대로."""
+    assert answer_payload(Answer("noul", p=0.05)) == {"answer": "아니오", "p": 0.95}
+    assert answer_payload(Answer("noul", p=0.95)) == {"answer": "예", "p": 0.95}
+    assert answer_payload(Answer("noul", p=0.3)) == {"answer": "모름", "p": 0.3}
