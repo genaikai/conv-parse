@@ -74,3 +74,17 @@ def test_the_bundled_pseudo_log_is_caught():
     assert "llm_eval_alternatives" not in fields, (
         "실행 환경 로그의 이름이 계약의 이름이다 - 여기서 어긋나면 파서가 못 읽는다")
     assert shape(payload).endswith("0 conversations / 0 turns")
+
+
+def test_request_time_satisfies_the_event_time_contract():
+    """event_time 과 request_time 은 같은 뜻이다. 파서가 둘 다 읽으니 어긋남이 아니다."""
+    payload = generate(seed=0)
+    for user in payload["users"]:
+        for conv in user["conversations"]:
+            for turn in conv["turns"]:
+                turn["request_time"] = turn.pop("event_time")
+    report = check_log(payload)
+    assert not [m for m in report.mismatches if m.field in ("event_time", "request_time")], \
+        [m.line() for m in report.mismatches]
+    assert not [m for m in report.notes if m.field == "request_time"], \
+        [m.line() for m in report.notes]

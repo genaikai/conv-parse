@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from ragdiag.conv import Conversation, Turn, UserMeta, _parse_turn
+from ragdiag.conv import Conversation, Turn, UserMeta, _parse_turn, event_time_of
 from ragdiag.filters import FilterSpec, Step, apply_filter, parse_filter, render_steps
 
 EMOTION_KEYS = ("llm_emotion_result", "llm_emotion_score", "llm_emotion_score_top1",
@@ -126,7 +126,7 @@ def reject_eval_conditions(spec: FilterSpec) -> None:
 
 def duplicate_event_times(rows: list[dict]) -> int:
     """같은 chat 안에서 event_time 이 겹치는 행 수. 겹치면 ② 가 행을 못 가른다."""
-    counts = Counter((str(r.get("chat_id")), str(r.get("event_time"))) for r in rows)
+    counts = Counter((str(r.get("chat_id")), event_time_of(r)) for r in rows)
     return sum(c for c in counts.values() if c > 1)
 
 
@@ -216,10 +216,10 @@ def records_to_payload(records: list[dict], selected: list[dict]) -> dict:
     # records → 키로 찾는다
     by_key: dict[tuple[str, str], dict] = {}
     for i, r in enumerate(records):
-        if "chat_id" not in r or "event_time" not in r:
+        if "chat_id" not in r or not event_time_of(r):
             problems.append(f"records[{i}] 에 chat_id 나 event_time 이 없다")
             continue
-        key = (str(r["chat_id"]), str(r["event_time"]))
+        key = (str(r["chat_id"]), str(event_time_of(r)))
         if key in by_key:
             problems.append(f"records: {key[0]} 의 event_time 하나에 행이 둘이다")
         by_key[key] = r

@@ -432,10 +432,19 @@ def _as_turn_nos(value: Any) -> list[int]:
     return out
 
 
+# 턴 시각의 키. 배포마다 event_time 이기도 request_time 이기도 하다 — 같은 뜻이고 앞이 이긴다.
+EVENT_TIME_KEYS = ("event_time", "request_time")
+
+
+def event_time_of(raw: dict) -> str:
+    """턴 레코드의 시각. event_time 이 없거나 비면 request_time."""
+    return raw.get("event_time") or raw.get("request_time") or ""
+
+
 def _parse_turn(raw: dict) -> Turn:
     return Turn(
         turn=int(raw.get("turn", -1)),
-        event_time=raw.get("event_time") or "",
+        event_time=event_time_of(raw),
         user_question=raw.get("user_question") or "",
         llm_response=raw.get("llm_response") or "",
         retrieved=parse_retrieved(raw.get("retrieved_data")),

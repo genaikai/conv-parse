@@ -78,8 +78,8 @@ CONVERSATION_SCHEMA = (
 TURN_SCHEMA = (
     Field("turn", "int", False, rng=(1, None), note="1부터. 순서가 어긋난 로그를 본 적 있다"),
     Field("event_time", "str", True,
-          note="2026-10 에 timestamp 에서 개명. 지연 판정에는 쓸 수 없다 — "
-               "턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
+          note="request_time 으로도 온다 — 같은 뜻이고 파서가 둘 다 읽는다 (conv.EVENT_TIME_KEYS). "
+               "지연 판정에는 쓸 수 없다 — 턴 시각 차이에 사용자가 생각한 시간이 섞인다"),
     Field("user_question", "str", False),
     Field("llm_response", "str", True,
           note="자원 부족 시 서비스가 정해진 안내 문구를 여기 넣는다 (I1)"),
@@ -172,6 +172,27 @@ ALIASES = {
     "llm_eval_alternatives": ("llm_alternatives",),
 }
 
+# 같은 뜻의 다른 이름. ALIASES 와 달리 **파서가 둘 다 읽으므로** 어느 쪽이 와도 그 필드가 온 것이고
+# 어긋남이 아니다. 대조 전에 계약 이름으로 맞춰 넣는다.
+EQUIVALENT = {
+    "event_time": ("request_time",),
+}
+
+
+def _unify(rows: list[dict]) -> list[dict]:
+    """동의어로 온 키를 계약 이름으로. 원본은 안 건드린다."""
+    out = []
+    for r in rows:
+        fixed = dict(r)
+        for name, others in EQUIVALENT.items():
+            if name not in fixed:
+                for other in others:
+                    if other in fixed:
+                        fixed[name] = fixed.pop(other)
+                        break
+        out.append(fixed)
+    return out
+
 SCHEMAS = {
     "user": USER_SCHEMA,
     "conversation": CONVERSATION_SCHEMA,
@@ -228,6 +249,7 @@ def validate(rows: list[dict], schema: tuple[Field, ...], layer: str) -> list[Mi
     개별 값을 찍지 않는다 - 타입 이름과 건수만 남긴다. 실데이터가 화면을
     거쳐 밖으로 나가는 경로를 만들지 않기 위해서다.
     """
+    rows = _unify(rows)
     found: dict[tuple, Mismatch] = {}
 
     def add(field: str, kind: str, detail: str):

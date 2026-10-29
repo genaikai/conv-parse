@@ -271,3 +271,21 @@ def test_prior_turn_row_beyond_n_prior_stops():
     with pytest.raises(AssembleError) as e:
         records_to_payload(records, selected)
     assert "turn 7" in str(e.value) and "n_prior" in str(e.value)
+
+
+def test_request_time_rows_are_selected_and_written_as_event_time():
+    """eval.jsonl 이 request_time 으로 와도 고르고, selected 에는 event_time 으로 쓴다 (② 가 보는 이름 하나)."""
+    rows = [ev("C1", 1, "t1"), ev("C1", 2, "t2", score=90.0, emo="불만")]
+    for r in rows:
+        r["request_time"] = r.pop("event_time")
+    out = select(rows, spec(emotion_labels=["불만"])).rows
+    assert [(r["event_time"], r["target_event_time"]) for r in out] == [("t2", "t1")]
+
+
+def test_records_may_carry_request_time_instead_of_event_time():
+    selected = [sel("C1", "t2", "t1", 0)]
+    records = [{"chat_id": "C1", "request_time": "t1", **ORG, "user_question": "q1", "llm_response": "a1"},
+               {"chat_id": "C1", "request_time": "t2", **ORG, "user_question": "q2"}]
+    [conv] = parse_conversations(records_to_payload(records, selected))
+    assert [t.turn for t in conv.turns] == [1, 2]
+    assert conv.turn_at(1).event_time == "t1" and conv.turn_at(2).user_question == "q2"

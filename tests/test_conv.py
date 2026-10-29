@@ -441,3 +441,18 @@ def test_memory_reaches_the_case_but_not_the_queries():
                    followup_turn=5)
     assert case.memory == "앞에서 국내 기준으로 정함"
     assert all("국내 기준" not in q for q in case.pre_queries)
+
+
+# ---------------------------------------------------------------------------
+# event_time 과 request_time 은 같은 뜻이다 — 배포마다 이름이 다르다
+# ---------------------------------------------------------------------------
+
+def test_request_time_is_read_as_event_time():
+    from ragdiag.conv import _parse_turn, event_time_of
+
+    assert _parse_turn({"turn": 1, "request_time": "2026-10-21 09:00:00", "user_question": "q"}).event_time \
+        == "2026-10-21 09:00:00"
+    assert event_time_of({"request_time": "r"}) == "r"
+    assert event_time_of({"event_time": "e", "request_time": "r"}) == "e", "둘 다 있으면 event_time"
+    assert event_time_of({"event_time": "", "request_time": "r"}) == "r", "빈 것은 없는 것"
+    assert event_time_of({}) == ""

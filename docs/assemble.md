@@ -78,6 +78,8 @@ selected.jsonl 한 줄당 **두 줄**. 답변 턴(`target_event_time` 행)은 �
 **② 가 지킬 것**
 
 - `event_time` 을 가공하지 않는다. ③ 은 `(chat_id, event_time)` 문자열 일치로 selected 와 맞춘다.
+  CSV 의 열 이름이 `request_time` 이면 그대로 `request_time` 으로 실어도 된다 — ③ 은 둘을 같은
+  뜻으로 읽는다 (`event_time` 이 있으면 그쪽이 이긴다). selected.jsonl 은 언제나 `event_time` 이다.
 - `turn` 은 **앞 턴 행에만** 쓴다. 답변 턴 · 불만 턴은 CSV 에 없고 ③ 이 `n_prior` 로 붙인다. 앞 턴
   행의 `turn` 이 `n_prior` 를 넘거나 selected 의 턴과 겹치면 `check` 가 멈춘다.
 - 한 좌표에 한 줄. 같은 `(chat_id, event_time)` 이 두 줄이면 `check` 가 멈춘다.
