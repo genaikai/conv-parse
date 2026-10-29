@@ -40,9 +40,9 @@ def main(argv=None) -> int:
     except json.JSONDecodeError as e:
         print(f"JSON 을 읽지 못했습니다: {e}", file=sys.stderr)
         return 2
-    if "analysis_results" not in result:
-        print("analysis_results 가 없습니다. src/run.py 의 결과 파일이 맞습니까?",
-              file=sys.stderr)
+    if "turns" not in result:
+        print("turns 가 없습니다. src/run.py (v4) 의 결과 파일이 맞습니까? 옛 결과 파일"
+              "(analysis_results)은 읽지 않습니다.", file=sys.stderr)
         return 2
 
     from ragdiag.features import handover
@@ -53,14 +53,14 @@ def main(argv=None) -> int:
 
     print(f"{target}")
     info = out["대상"]
-    print(f"  분석한 턴 {info['분석한 턴']} · "
-          f"실패 {info['실패로 판정']} · 정상 {info['정상으로 판정']}")
+    print(f"  분석한 턴 {info['분석한 턴']} · 실패 {info['실패로 판정']} · "
+          f"정상 {info['정상으로 판정']} · 검토 {info['검토']} · 오류 {info['오류']}")
     for group in out["분류"]:
-        print(f"  {group['type']} {group['이름']}  {group['건수']}건")
-        for case in group["세부"]:
-            print(f"      {case['case']:8} {case['이름']:24} {case['건수']}건")
-    if "미분류" in out:
-        print(f"  미분류  {out['미분류']['건수']}건")
+        print(f"  {group['묶음']:4} {group['고칠_곳']:28} {group['건수']}건")
+        for because, n in group["들어온_길"].items():
+            print(f"      {n:4}  {because}")
+    if "검토" in out:
+        print(f"  검토  {out['검토']['건수']}건")
     return 0
 
 
