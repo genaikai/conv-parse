@@ -1,14 +1,14 @@
-"""판정 오케스트레이션 — 일반 LLM 호출과 결정 백엔드(kev) 호출, 그리고 디스크 캐시.
+"""판정 오케스트레이션 — 결정 백엔드(kev) 호출과 디스크 캐시.
 
-두 종류의 호출이 있다.
+v4 는 호출이 한 종류다.
 
-  complete  일반 LLM. 문장을 만들어야 하는 자리 — 질문 재구성(②b) · 주장 추출(④a) · 인용.
-  decide    결정 백엔드. 범주 답 — 읽기 · 관측 12문항 · 충족도 · 2차 검증 · 주장별 판정 ·
-            memory · 일관성. kev 가 없으면 일반 LLM 에뮬레이션으로 떨어진다 (decide.py).
+  decide    결정 백엔드. 범주 답 — 불만 판정 8문항 · 근거 판정 5문항 · 불만 부분 근거 판정 1문항.
+            kev 가 없으면 일반 LLM 이 같은 문항에 JSON 으로 답하는 에뮬레이션으로 떨어진다
+            (decide.LLMDecisionBackend). 문장을 만드는 자리는 없다.
 
-캐시가 있는 이유: 리포트 코드를 고칠 때마다 판정을 다시 사는 건 낭비다. 키는 (단계,
-모델, 입력 전문) 의 해시라 입력이 한 글자라도 다르면 빗나간다 — 풀이 달라지면 저절로
-다시 묻는다.
+캐시가 있는 이유: 리포트 코드를 고칠 때마다 판정을 다시 사는 건 낭비다. 키는 (단계, 모델,
+state 전문, 문항 전문) 의 해시라 입력이 한 글자라도 다르면 빗나간다 — 문항 문구를 고치면
+저절로 다시 묻는다. v3 의 단계 이름(observe · sufficiency …)과 다르므로 옛 캐시는 안 맞는다.
 """
 
 from __future__ import annotations
@@ -20,31 +20,13 @@ from typing import Any, Optional, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from ragdiag import prompts
 from ragdiag.backends import Usage
 from ragdiag.decide import Answer, DecisionBackend, LLMDecisionBackend
-from ragdiag.schema import (
-    Case,
-    Claims,
-    GroundingCheck,
-    LegibilityCheck,
-    Observation,
-    ObservationText,
-    QuotePair,
-    SufficiencyJudgment,
-)
 
 T = TypeVar("T", bound=BaseModel)
-DEFAULT_MODEL = "claude-opus-5"
 
-# 일반 LLM 단계. 캐시 키의 첫 칸이고 단계별 모델을 고르는 키다. 이름을 바꾸면 캐시가 통째로
-# 무효화된다. 앞 넷은 옛 골든셋 러너가 아직 쓴다.
-STAGES = ("observe", "sufficiency", "legibility", "grounding",
-          "observe_text", "claims", "quotes")
-
-# 결정 백엔드 단계. 캐시 키와 요약의 호출 수 집계에 쓴다.
-DECISION_STAGES = ("legibility", "observe", "sufficiency", "verify", "claim",
-                   "memory", "consistency")
+# 결정 백엔드 단계. 캐시 키의 첫 칸이고 결과 파일 · 요약의 호출 수 집계 축이다.
+DECISION_STAGES = ("complaint", "evidence", "complaint_evidence")
 
 
 class Backend(Protocol):
@@ -56,27 +38,18 @@ class Backend(Protocol):
 
 
 class Judge:
-    """단계마다 다른 모델을 쓸 수 있다. decision 이 None 이면 일반 LLM 으로 에뮬레이션한다."""
+    """decision 이 None 이면 일반 LLM(backend) 으로 에뮬레이션한다. 둘 다 없으면 못 돈다."""
 
     def __init__(self, backend: Optional[Backend] = None,
                  cache_dir: Optional[str | Path] = ".cache",
-                 per_stage: Optional[dict[str, Backend]] = None,
                  decision: Optional[DecisionBackend] = None):
         self.backend = backend
-        self.per_stage = dict(per_stage or {})
-        unknown = sorted(set(self.per_stage) - set(STAGES))
-        if unknown:
-            raise ValueError(f"모르는 판정 단계: {', '.join(unknown)} "
-                             f"(가능: {', '.join(STAGES)})")
         self.cache_dir = Path(cache_dir) if cache_dir else None
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._decision = decision
 
-    # -- 백엔드 선택 ----------------------------------------------------------
-
-    def backend_for(self, stage: str) -> Optional[Backend]:
-        return self.per_stage.get(stage) or self.backend
+    # -- 백엔드 ---------------------------------------------------------------
 
     @property
     def decision(self) -> Optional[DecisionBackend]:
@@ -90,65 +63,21 @@ class Judge:
         return d.kind if d is not None else "none"
 
     def all_backends(self) -> list[Backend]:
-        seen: set[int] = set()
-        out = []
-        for backend in [self.backend, *self.per_stage.values()]:
-            if backend is not None and id(backend) not in seen:
-                seen.add(id(backend))
-                out.append(backend)
-        return out
+        """이 실행이 쓴 일반 LLM 백엔드. 에뮬레이션일 때만 하나, 아니면 비어 있다."""
+        return [self.backend] if self.backend is not None else []
 
     def models(self) -> dict[str, str]:
-        """단계 → 모델. 결과 파일의 judged_by 에 실린다."""
-        out = {stage: (b.model if (b := self.backend_for(stage)) else DEFAULT_MODEL)
-               for stage in STAGES}
+        """결과 파일 머리의 run.kev 에 실린다."""
         d = self.decision
-        out["decision"] = d.model if d is not None else "(없음)"
-        return out
+        return {"decision": d.model if d is not None else "(없음)"}
 
     # -- 캐시 -------------------------------------------------------------------
-
-    def _cache_path(self, stage: str, system: str, user: str) -> Optional[Path]:
-        """일반 LLM 단계의 캐시 파일. 키에 그 단계의 모델이 들어간다 - 단계 하나의 모델만 바꾸면
-        그 단계의 캐시만 무효화되고, 같은 단계라도 모델이 다르면 섞이지 않는다."""
-        if not self.cache_dir:
-            return None
-        backend = self.backend_for(stage)
-        model = backend.model if backend else DEFAULT_MODEL
-        return self._path(stage, model, system, user)
 
     def _path(self, stage: str, *parts: str) -> Optional[Path]:
         if not self.cache_dir:
             return None
         key = hashlib.sha256("\x00".join([stage, *parts]).encode("utf-8")).hexdigest()[:24]
         return self.cache_dir / f"{stage}-{key}.json"
-
-    # -- 일반 LLM ---------------------------------------------------------------
-
-    def _call(self, stage: str, system: str, user: str, out_model: type[T]) -> tuple[T, Usage]:
-        backend = self.backend_for(stage)
-        path = self._cache_path(stage, system, user)
-        if path and path.exists():
-            return out_model.model_validate_json(path.read_text(encoding="utf-8")), Usage()
-        parsed, usage = backend.complete(system, user, out_model, prompts.output_contract(out_model))
-        if path:
-            path.write_text(parsed.model_dump_json(), encoding="utf-8")
-        return parsed, usage
-
-    def observe_text(self, case: Case) -> tuple[ObservationText, Usage]:
-        """②b — 질문 재구성 · 요구값 · 조건 인용. 범주는 묻지 않는다."""
-        return self._call("observe_text", prompts.OBSERVE_TEXT_SYSTEM,
-                          prompts.observe_user_message(case), ObservationText)
-
-    def extract_claims(self, case: Case) -> tuple[Claims, Usage]:
-        """④a — 답변의 사실 주장과 기대 출처."""
-        return self._call("claims", prompts.CLAIMS_SYSTEM,
-                          prompts.claims_user_message(case), Claims)
-
-    def quote_pair(self, answer: str, source: str, what: str) -> tuple[QuotePair, Usage]:
-        """조건부 인용 — 어긋나는 두 구절. 전달본용."""
-        return self._call("quotes", prompts.QUOTES_SYSTEM,
-                          prompts.quotes_user_message(answer, source, what), QuotePair)
 
     # -- 결정 백엔드 ------------------------------------------------------------
 
@@ -171,21 +100,3 @@ class Judge:
             path.write_text(json.dumps({k: a.__dict__ for k, a in answers.items()},
                                        ensure_ascii=False), encoding="utf-8")
         return answers, usage
-
-    # -- 옛 단계. 골든셋 러너(__main__ --golden) 가 아직 쓴다 -------------------
-
-    def observe(self, case: Case) -> tuple[Observation, Usage]:
-        return self._call("observe", prompts.OBSERVE_SYSTEM,
-                          prompts.observe_user_message(case), Observation)
-
-    def judge_sufficiency_from(self, case: Case, obs) -> tuple[SufficiencyJudgment, Usage]:
-        return self._call("sufficiency", prompts.SUFFICIENCY_SYSTEM,
-                          prompts.sufficiency_user_message(case, obs), SufficiencyJudgment)
-
-    def check_legibility(self, case: Case) -> tuple[LegibilityCheck, Usage]:
-        return self._call("legibility", prompts.LEGIBILITY_SYSTEM,
-                          prompts.legibility_user_message(case), LegibilityCheck)
-
-    def check_grounding(self, case: Case, question: str = "") -> tuple[GroundingCheck, Usage]:
-        return self._call("grounding", prompts.GROUNDING_SYSTEM,
-                          prompts.grounding_user_message(case, question), GroundingCheck)

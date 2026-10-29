@@ -123,6 +123,39 @@ yes/no 문항은 true/false 로, 택일 문항은 선택지 이름 그대로 답
 """
 
 
+# 출력 계약. API 경로(messages.parse)는 서버가 스키마를 강제하지만 CLI 경로에는 그런 장치가
+# 없어 계약을 프롬프트에 싣는다. 손으로 쓰면 모델과 어긋나므로 Pydantic 모델에서 만든다.
+_TYPE_NAMES = {"string": "문자열", "integer": "정수", "boolean": "true 또는 false",
+               "number": "숫자"}
+
+
+def _type_str(prop: dict, defs: dict) -> str:
+    if "enum" in prop:
+        return " | ".join(f'"{v}"' for v in prop["enum"])
+    if prop.get("type") == "array":
+        item = prop.get("items", {})
+        if "$ref" in item:
+            sub = defs[item["$ref"].rsplit("/", 1)[-1]]
+            fields = ", ".join(f"{n}: {_type_str(p, defs)}" for n, p in sub["properties"].items())
+            return f"배열. 각 원소는 {{{fields}}}"
+        return f"배열 of {_TYPE_NAMES.get(item.get('type'), item.get('type'))}"
+    return _TYPE_NAMES.get(prop.get("type", ""), prop.get("type", "값"))
+
+
+def output_contract(model: type[BaseModel]) -> str:
+    """Pydantic 모델에서 출력 계약 문구를 만든다. 필드 순서를 그대로 둔다."""
+    schema = model.model_json_schema()
+    defs = schema.get("$defs", {})
+    lines = []
+    for name, prop in schema["properties"].items():
+        desc = prop.get("description", "")
+        lines.append(f"  {name}: {_type_str(prop, defs)}" + (f"  // {desc}" if desc else ""))
+    return ("## 출력 형식\n\n"
+            "아래 필드를 **선언된 순서 그대로** 가진 JSON 객체 하나만 출력해라.\n"
+            "설명, 인사말, 코드펜스 없이 JSON만 출력해라.\n\n"
+            "{\n" + "\n".join(lines) + "\n}")
+
+
 def _state_text(state: Any) -> str:
     if isinstance(state, str):
         return state
@@ -172,12 +205,10 @@ class LLMDecisionBackend:
         self.model = f"emulated:{getattr(backend, 'model', '?')}"
 
     def decide(self, state: Any, questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage]:
-        from ragdiag import prompts
-
         model = _emulation_model(questions)
         user = f"## 상태\n{_state_text(state)}\n\n## 문항\n{_questions_text(questions)}"
         parsed, usage = self.backend.complete(_EMULATE_SYSTEM, user, model,
-                                              prompts.output_contract(model))
+                                              output_contract(model))
         data = parsed.model_dump()
         answers: dict[str, Answer] = {}
         for qid, q in questions.items():
