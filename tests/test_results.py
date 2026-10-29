@@ -56,3 +56,13 @@ def test_p_is_the_confidence_of_the_shown_answer_and_p_yes_when_unsure():
     assert answer_payload(Answer("noul", p=0.05)) == {"answer": "아니오", "p": 0.95}
     assert answer_payload(Answer("noul", p=0.95)) == {"answer": "예", "p": 0.95}
     assert answer_payload(Answer("noul", p=0.3)) == {"answer": "모름", "p": 0.3}
+
+
+def test_judgment_and_display_round_to_the_same_three_decimals():
+    """p=0.8996 이 화면에 0.9 로 보이면 판정도 예여야 한다. 반올림 자리가 둘이면 '모름 0.9' 가 나온다."""
+    assert read_noul(Answer("noul", p=0.8996)) == "예"
+    assert read_noul(Answer("noul", p=0.1004)) == "아니오"
+    assert read_noul(Answer("noul", p=0.8994)) == "모름"
+    a = Answer("choice", p=0.8999999, choice="all", probabilities={"all": 0.8999999})
+    assert read_choice(a) == "all"
+    assert answer_payload(Answer("noul", p=0.8996)) == {"answer": "예", "p": 0.9}

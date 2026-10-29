@@ -21,24 +21,28 @@ YES = "예"
 NO = "아니오"
 UNSURE = "모름"
 
+# 확률의 반올림 자리. 판정(read_*)과 결과 파일(answer_payload)이 같은 자리를 쓴다.
+DECIMALS = 3
+
 # choice 문항의 선택지 → 결과 파일에 쓰는 말.
 CHOICE_TEXT = {"all": "전부", "partial": "일부", "none": "없음"}
 
 
 def read_noul(answer: Answer) -> str:
     """P(예) 를 세 갈래로. 임계 하나(settings.KEV_CONFIDENT)로 예/아니오를 가르고 사이는 모름."""
-    # 1 - 0.9 는 0.0999… 라 p=0.1 이 모름으로 샌다. 소수 여섯째 자리에서 맞춘다.
-    p = round(answer.p, 6)
-    if p >= round(settings.KEV_CONFIDENT, 6):
+    # 판정과 표시가 같은 자리에서 반올림한다 — 결과 파일에 0.9 로 보이는 값은 예여야 한다.
+    # (1 - 0.9 는 0.0999… 라 반올림 없이는 p=0.1 이 모름으로 샌다.)
+    p = round(answer.p, DECIMALS)
+    if p >= round(settings.KEV_CONFIDENT, DECIMALS):
         return YES
-    if p <= round(1 - settings.KEV_CONFIDENT, 6):
+    if p <= round(1 - settings.KEV_CONFIDENT, DECIMALS):
         return NO
     return UNSURE
 
 
 def read_choice(answer: Answer) -> str:
     """최빈 선택지의 p 가 임계 이상이면 그 선택지 id, 아니면 모름."""
-    if answer.choice and answer.p >= settings.KEV_CONFIDENT:
+    if answer.choice and round(answer.p, DECIMALS) >= round(settings.KEV_CONFIDENT, DECIMALS):
         return answer.choice
     return UNSURE
 
@@ -53,9 +57,9 @@ def answer_payload(answer: Answer) -> dict:
     if answer.type == "noul":
         verdict = read_noul(answer)
         p = answer.p if verdict == UNSURE else max(answer.p, 1 - answer.p)
-        return {"answer": verdict, "p": round(p, 3)}
+        return {"answer": verdict, "p": round(p, DECIMALS)}
     picked = read_choice(answer)
-    return {"answer": CHOICE_TEXT.get(picked, picked), "p": round(answer.p, 3)}
+    return {"answer": CHOICE_TEXT.get(picked, picked), "p": round(answer.p, DECIMALS)}
 
 
 @dataclass
