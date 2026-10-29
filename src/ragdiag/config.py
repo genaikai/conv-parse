@@ -80,10 +80,6 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "run.straggler_min_sec": (int, False),
     "run.mode": (str, False),
 
-    "thresholds.match_threshold": ((int, float), False),
-    "thresholds.quote_match_threshold": ((int, float), False),
-    "thresholds.evidence_min_quote_chars": (int, False),
-    "thresholds.answer_quote_min_chars": (int, False),
 
     "service_error.templates": (list, False),
 
@@ -114,6 +110,10 @@ RETIRED = {
     "thresholds.chunk_evidence": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
     "thresholds.chunk_partial": "청크마다 묻던 충족도가 없어졌다. 근거 판정은 kev_confident 로 읽는다",
     "run.legibility": "읽을 수 없는 글은 불만 판정의 문항이다. 따로 켜고 끄지 않는다",
+    "thresholds.match_threshold": "인용 대조가 없어졌다. 근거는 kev 가 칸째로 본다",
+    "thresholds.quote_match_threshold": "인용 대조가 없어졌다",
+    "thresholds.evidence_min_quote_chars": "인용 대조가 없어졌다",
+    "thresholds.answer_quote_min_chars": "인용 대조가 없어졌다",
     "tools.search_names": "검색 실패와 도구 미호출을 가르지 않는다. 근거 묶음 하나다",
     **{f"llm.{kind}_{stage}": "일반 LLM 은 kev 에뮬레이션에만 쓴다. 단계별 모델이 없다"
        for kind in ("model", "url", "key") for stage in ("observe", "sufficiency", "legibility", "grounding")},
@@ -139,10 +139,6 @@ TO_SETTINGS = {
     "run.mode": "RUN_MODE",
     "llm.max_tokens": "DEFAULT_MAX_TOKENS",
     "llm.timeout_sec": "DEFAULT_TIMEOUT_SEC",
-    "thresholds.match_threshold": "MATCH_THRESHOLD",
-    "thresholds.quote_match_threshold": "QUOTE_MATCH_THRESHOLD",
-    "thresholds.evidence_min_quote_chars": "EVIDENCE_MIN_QUOTE_CHARS",
-    "thresholds.answer_quote_min_chars": "ANSWER_QUOTE_MIN_CHARS",
     "service_error.templates": "SERVICE_ERROR_TEMPLATES",
     "org.candidate_fields": "ORG_CANDIDATE_FIELDS",
     "filter.any_values": "FILTER_ANY_VALUES",
@@ -237,10 +233,6 @@ def validate(values: dict[str, Any]) -> list[str]:
     workers = values.get("run.workers")
     if isinstance(workers, int) and workers < 1:
         problems.append("run.workers: 1 이상이어야 한다")
-    for key in ("thresholds.match_threshold", "thresholds.quote_match_threshold"):
-        threshold = values.get(key)
-        if isinstance(threshold, (int, float)) and not 0 < threshold <= 1:
-            problems.append(f"{key}: 0 과 1 사이여야 한다 (연속 일치 비율이다)")
     threshold = values.get("thresholds.kev_confident")
     if isinstance(threshold, (int, float)) and not 0.5 < threshold <= 1:
         problems.append("thresholds.kev_confident: 0.5 와 1 사이여야 한다 (확신 확률이다. "

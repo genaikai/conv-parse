@@ -42,7 +42,7 @@ from ragdiag import contracts, features, settings
 from ragdiag.config import ConfigError, apply_overrides
 from ragdiag.config import apply as apply_config
 from ragdiag.config import load as load_config
-from ragdiag.judge import STAGES, Judge
+from ragdiag.judge import Judge
 from ragdiag.pipeline import (
     build_outcome,
     load_and_select,
@@ -51,6 +51,7 @@ from ragdiag.pipeline import (
 )
 from ragdiag.results import TurnResult
 from ragdiag.survey import chunk_metric, chunk_report
+from ragdiag.output import build_output
 from ragdiag.summary import (
     Conditions,
     RunSummary,
@@ -210,76 +211,8 @@ def make_backend(args, config=None, trace=None):
     ))
 
 
-def per_stage_backends(args, config, default, trace=None) -> dict:
-    """단계별 판정 모델. **적힌 단계만** 돌려준다 - 빈 사전이면 전부 기본 백엔드로 돈다.
-
-    단계마다 모델 · 주소 · 키를 따로 줄 수 있다. 모델이 서버마다 따로 떠 있는 경우가
-    있어서 주소까지 받는다. 안 준 것은 기본 백엔드에서 물려받고, 주소만 주고 모델을
-    비우면 그 서버의 /v1/models 에서 찾는다.
-
-    골든셋 측정에는 이걸 쓰지 않는다. 한 번에 한 모델만 재는 게 맞고, 그쪽은
-    --model 로 통째로 바꾸면 된다. 섞어 돌리는 건 실제 실행 경로뿐이다.
-    """
-    picked: dict = {}
-    for stage in STAGES:
-
-        def given(kind: str):
-            """(값, 어디서 왔나). 안 적혔으면 (None, "").
-
-            설정 키와 플래그 이름이 다르다 - 설정은 llm.url_* 인데 플래그는
-            --base-url-* 다. 위쪽 llm.url / --base-url 과 짝을 맞춘 것이다.
-            """
-            attr, flag_name = {
-                "model": (f"model_{stage}", f"--model-{stage}"),
-                "url": (f"base_url_{stage}", f"--base-url-{stage}"),
-                "key": (f"api_key_{stage}", f"--api-key-{stage}"),
-            }[kind]
-            flag = getattr(args, attr, None)
-            if flag is not None:
-                return flag, flag_name
-            key = f"llm.{kind}_{stage}"
-            if config is not None and config.get(key) is not None:
-                return config.get(key), config.origins.get(key) or f"설정 {key}"
-            return None, ""
-
-        model, model_src = given("model")
-        url, url_src = given("url")
-        key, key_src = given("key")
-        if model is None and url is None and key is None:
-            continue
-        # 주소가 같은데 모델 이름도 같으면 기본 백엔드와 구별되지 않는다. 키만 다른
-        # 경우는 남겨 둔다 - 같은 모델에 다른 키를 쓰는 배포가 있을 수 있다.
-        if url is None and key is None and model == default.model:
-            continue
-        where = model_src or url_src or key_src
-        if not hasattr(default, "variant"):
-            raise JudgeError(
-                f"{where} 는 이 백엔드에 쓸 수 없습니다 ({type(default).__name__}).\n"
-                "  단계별 모델은 OpenAI 호환 서버를 전제합니다. "
-                "--backend local 로 돌리세요.")
-        picked[stage] = default.variant(model=model, base_url=url, api_key=key)
-        if url is not None and model is not None:
-            # 모델 이름을 주면 생성자가 서버에 아무것도 묻지 않는다. 그러면 주소 오타가
-            # 판정 중에야 드러나서, 턴마다 ⑤ ⑦ 를 다 사고 나서 이 단계만 전부 실패한다.
-            # 모델을 안 줬으면 생성자가 이미 /v1/models 를 물어봤으니 여기서 또 안 묻는다.
-            try:
-                picked[stage].list_models()
-            except JudgeError as e:
-                raise JudgeError(f"{url_src} 의 주소에 붙지 못했습니다 "
-                                 f"({stage} 단계).\n  {e}") from e
-        if trace is not None:
-            # 단계마다 한 줄. 한 줄로 묶으면 어느 단계가 어디서 왔는지 사라진다.
-            # 키는 값을 절대 찍지 않는다 - 다른 키를 쓴다는 사실만 적는다.
-            said = [f"{picked[stage].model}" + ("" if model else " (자동 탐지)")]
-            if url is not None:
-                said.append(url)
-            if key is not None:
-                said.append("키 따로")
-            trace.add(f"판정 · {stage}", "  ".join(said), where)
-    return picked
-
-
-def _checkpointer(owners, turns, out_path, models=None, every_sec: float = 10.0):
+def _checkpointer(owners, turns, out_path, run_info=None, with_text=True,
+                  every_sec: float = 10.0):
     """끝난 턴만 모아 결과 파일에 쓴다. 마지막 저장은 collect 뒤의 outcome.save 가 한다."""
     import threading
     import time
@@ -293,32 +226,16 @@ def _checkpointer(owners, turns, out_path, models=None, every_sec: float = 10.0)
             if now - last[0] < every_sec:
                 return
             last[0] = now
-            done = [(o, t) for o, t in zip(owners, turns)
-                    if t.classification is not None or t.error is not None]
+            done = [(o, t) for o, t in zip(owners, turns) if not t.is_open]
             if not done:
                 return
             try:
                 build_outcome([o for o, _ in done], [t for _, t in done],
-                              models=models).save(out_path)
+                              run_info=run_info, with_text=with_text).save(out_path)
             except OSError:
                 pass                     # 중간 저장이 실패해도 판정은 계속 간다
 
     return save
-
-
-def _probe_case():
-    """점검용 최소 케이스. 문서에 답이 있는데 답변이 무시한 상황이라 정답은 ignored."""
-    from ragdiag.schema import Case
-
-    return Case(
-        case_id="probe", user_id="probe", dept="-", job_grade="-", job_name="-",
-        position_name="-", chat_id="-", turn=0,
-        pre_queries=["국내 출장 식비 상한이 얼마인가요?"],
-        llm_ans_on_last_q="출장 식비는 회사 규정에 따라 지급되며 부서별로 다를 수 있습니다.",
-        current_query="정확한 금액이요.",
-        rag_chunks=["국내 출장 식비는 1일 3만원을 상한으로 한다.",
-                    "국내 출장 숙박비는 1박 8만원을 상한으로 한다."],
-    )
 
 
 def check_llm(args, config=None) -> int:
@@ -328,13 +245,13 @@ def check_llm(args, config=None) -> int:
     진단이 되어야 하고, 전체를 돌리기 전에 서버 규약과 1회 소요시간을 확정해야
     한다 - 그래야 전체가 몇 분인지 알고 시작한다.
 
-    이 함수는 로컬 서버만 본다. 저장소에 없는 백엔드를 쓰지 않으므로 tools/ 가
-    아니라 여기 있다.
+    v4 에서 일반 LLM 은 kev 가 없을 때의 에뮬레이션에만 쓴다. 그래서 탐침도 에뮬레이션
+    1회다 — 불만 판정 문항 하나를 빈 답변에 묻는다. 이 함수는 로컬 서버만 본다.
     """
     import time
 
-    from ragdiag import prompts
-    from ragdiag.schema import GroundingCheck
+    from ragdiag import questions
+    from ragdiag.decide import LLMDecisionBackend, _emulation_model
 
     try:
         backend = make_backend(args, config)
@@ -351,9 +268,10 @@ def check_llm(args, config=None) -> int:
             print(f"       다른 걸 쓰려면 --model <이름>")
     print(f"추론 모드 : {backend.thinking}   (auto = 서버 기본값 유지)")
 
+    probe = {"truncated": questions.COMPLAINT["truncated"]}
     try:
         started = time.monotonic()
-        mode = backend.negotiate(GroundingCheck)
+        mode = backend.negotiate(_emulation_model(probe))
         print(f"구조화 출력 강제 방식 : {mode}   ({time.monotonic() - started:.1f}s)")
         if len(backend.negotiation_log) > 1:
             print("  협상 과정:")
@@ -369,365 +287,31 @@ def check_llm(args, config=None) -> int:
         print("  프록시(LiteLLM 등)를 거치고 있다면 파라미터를 버리고 있을 수 있습니다.")
 
     # 규약뿐 아니라 모델이 지시를 따르는지도 봐야 한다.
-    print("\n실제 판정 1회 시도...")
+    print("\nkev 에뮬레이션 1회 시도...")
     started = time.monotonic()
     try:
-        result, usage = backend.complete(
-            prompts.GROUNDING_SYSTEM,
-            prompts.grounding_user_message(_probe_case()),
-            GroundingCheck,
-            prompts.output_contract(GroundingCheck),
-        )
+        answers, usage = LLMDecisionBackend(backend).decide(
+            {"answer": "국내 출장 식비는 1일 3만원을 상한으로 하며, 숙박비는"}, probe)
     except JudgeError as e:
         print(f"\n판정 실패:\n{e}", file=sys.stderr)
         return 1
 
     elapsed = time.monotonic() - started
-    print(f"  answer_used_rag : {result.answer_used_rag}   (기대: ignored)")
+    print(f"  답변이 중간에 끊겼다 : p={answers['truncated'].p:.2f}   (기대: 예, p ≥ 0.9)")
     print(f"  소요            : {elapsed:.1f}s")
     print(f"  토큰            : 입력 {usage.input_tokens:,} / 출력 {usage.output_tokens:,}")
-    if result.answer_used_rag != "ignored":
-        print("\n  경고: 이 탐침은 'ignored' 가 정답입니다. 문서에 답이 있는데 답변이")
-        print("  일반론으로 때운 경우입니다. 모델이 지시를 못 따르고 있을 수 있습니다.")
+    if answers["truncated"].p < 0.9:
+        print("\n  경고: 이 탐침은 '예' 가 정답입니다. 문장이 중간에서 끊긴 답변입니다.")
+        print("  모델이 지시를 못 따르고 있거나 확신을 낮게 내고 있을 수 있습니다.")
 
     if backend.fallbacks:
         print(f"\n  추론이 답에 도달 못 해 {len(backend.fallbacks)}회 폴백했습니다.")
         print("  전체 실행은 --thinking off 로 시작하는 편이 낫습니다.")
 
     workers = args.workers or settings.DEFAULT_WORKERS
-    print(f"\n턴 1건당 LLM 호출은 최대 4회다. 1,000턴이면 대략 "
+    print(f"\n턴 1건당 kev 요청은 최대 3회다. 1,000턴이면 대략 "
           f"{elapsed * 1000 * 2 / max(workers, 1) / 60:.0f}분 "
-          f"(호출 2,000회 가정, 동시 {workers}).")
-    return 0
-
-
-def run_golden(args, backend=None) -> int:
-    """Step 1 관측을 돌려 필드별 일치율을 잰다. 케이스에 expect_case 가 있으면 라우팅도 잰다.
-
-    --golden-set messy 는 실제 로그 모양(오탈자 · 띄어쓰기 없음 · 단답 · 긴 발화 · 고유명사 ·
-    긴 대화)의 셋이다. 그쪽은 관측만이 아니라 판정 끝의 case 까지 본다.
-    """
-    sys.path.insert(0, str(Path(__file__).parent))
-    from ragdiag.fixtures import messy, observations
-
-    from ragdiag.conv import parse_conversations, to_case
-    from ragdiag.golden import FieldScore, render, score_observation
-
-    if args.golden_set == "legibility":
-        # ④′ 만 단독으로. **재는 것은 오탐이다** - 모양이 특이하지만 멀쩡한 답변을
-        # 읽을 수 없다고 하면 그 턴의 진짜 원인이 아무 단계에서도 판정받지 못한다.
-        try:
-            backend = backend or make_backend(args)
-        except JudgeError as e:
-            print(e, file=sys.stderr)
-            return 2
-        judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
-        print(f"읽기 골든셋 · {backend.model} · 동시 {args.workers}", file=sys.stderr)
-        return run_legibility_golden(args, judge)
-
-    if args.golden_set == "sufficiency":
-        # Step 2·3 만 단독으로. 관측 골든셋을 앞에 돌리지 않는다 - 호출을 아끼고 층을 가른다.
-        try:
-            backend = backend or make_backend(args)
-        except JudgeError as e:
-            print(e, file=sys.stderr)
-            return 2
-        judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
-        print(f"충족도 골든셋 · {backend.model} · 동시 {args.workers}", file=sys.stderr)
-        return run_judge_golden(args, judge)
-
-    fixture = messy if args.golden_set == "messy" else observations
-    raw, expected = fixture.build()
-    conversations = parse_conversations(raw)
-
-    cases = []
-    for conv in conversations:
-        followup = max(t.turn for t in conv.turns)
-        # 파이프라인과 같은 창으로 본다. 창 밖의 조건을 어긴 것은 판정자가 볼 수 없다 -
-        # 그 비용이 골든셋(hq03)에 드러나야 창 크기를 정할 근거가 된다.
-        case = to_case(conv, followup, args.history_turns or settings.MAX_HISTORY_TURNS)
-        if case and case.case_id in expected:
-            cases.append((case, expected[case.case_id]))
-    if args.limit:
-        cases = cases[: args.limit]
-
-    try:
-        backend = backend or make_backend(args)
-    except JudgeError as e:
-        print(e, file=sys.stderr)
-        return 2
-
-    judge = Judge(backend, cache_dir=None if args.no_cache else ".cache")
-    print(f"관측 골든셋 {len(cases)}건 · {backend.model} · 동시 {args.workers}",
-          file=sys.stderr)
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    from types import SimpleNamespace
-
-    from ragdiag.features import request_quote
-    from ragdiag.verify import verify_complaint_quote, verify_history_quote
-
-    def observe(entry):
-        case, meta = entry
-        try:
-            obs, _ = judge.observe(case)
-            # 파이프라인과 같은 값을 채점한다 - 요구는 이전 질문들의 어휘로 확인하고, 조건 인용은
-            # 앞 질문들(과 memory)과 대조한다 (expect 에 *_quote_verified 를 적을 수 있다).
-            obs, request = request_quote.corrected(obs, case.pre_queries)
-            history = (verify_history_quote(obs.history_quote,
-                                            case.pre_queries[:-1] + ([case.memory] if case.memory else []))
-                       if obs.history_quote else None)
-            complaint = (verify_complaint_quote(obs.complaint_quote, case.current_query)
-                         if obs.complaint_target == "none" else None)
-            graded = SimpleNamespace(
-                **obs.model_dump(),
-                complaint_quote_verified=complaint.verified if complaint else None,
-                request_quote_verified=request.verified if request else None,
-                history_quote_verified=history.verified if history else None)
-            return meta, graded, None
-        except Exception as e:
-            return meta, None, f"{type(e).__name__}: {e}"
-
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        outcomes = list(pool.map(observe, cases))
-
-    scores: dict[str, FieldScore] = {}
-    per_case: dict[str, list[str]] = {}
-    errors: list[tuple[str, str]] = []
-    for meta, obs, error in outcomes:
-        if error:
-            errors.append((meta["id"], error))
-            continue
-        per_case[meta["id"]] = score_observation(meta["id"], meta["expect"], obs, scores)
-
-    print(render(scores, per_case, errors))
-
-    if args.observe_only:
-        # Step 1 만 본다. 관측이 무너진 모델에서는 뒤 단계를 재도 원인이 섞여서,
-        # 라우팅 오답이 관측 탓인지 라우팅 탓인지 가릴 수 없다. 층을 가르면
-        # 호출도 아낀다 - 관측 65건이 라우팅 · 충족도까지 끌고 가면 호출이 네 배다.
-        return 0
-
-    routed = [(case, meta) for case, meta in cases if meta.get("expect_case")]
-    if routed:
-        run_routing_golden(routed, judge, args.workers)
-    if args.golden_set == "messy":
-        return 0
-    return run_judge_golden(args, judge)
-
-
-def run_routing_golden(cases, judge, workers) -> None:
-    """관측이 조합되어 case 로 가는 끝까지 돌려 기대 case 와 대조한다.
-
-    관측 필드가 다 맞아도 라우팅 순서가 틀리면 case 가 샌다 - 층이 달라 따로 잰다.
-    """
-    from ragdiag.pipeline import judge_cases
-
-    from ragdiag import taxonomy
-
-    def to_v3(ids) -> set:
-        """골든셋의 기대값은 v2 번호로 적혀 있다. 라벨로 옮기고, 태그로만 남는 것은 뺀다."""
-        out = set()
-        for cid in ids:
-            label, _ = taxonomy.from_v2(cid)
-            out.add(label or cid)
-        return out - {None}
-
-    results = judge_cases([case for case, _ in cases], judge, workers=workers)
-    rows, hits = [], 0
-    for (case, meta), result in zip(cases, results):
-        want = to_v3(meta["expect_case"])
-        got = (result.classification.primary_case if result.classification
-               else f"ERROR:{result.error}")
-        secondary = set(result.classification.secondary_cases) if result.classification else set()
-        # 부가 case 는 코드 검증기가 잡는 것(개인정보 · 인용 표기 · 계산 · 코드)을 확인하는 자리다.
-        ok = got in want and to_v3(meta.get("expect_secondary", set())) <= secondary
-        hits += ok
-        rows.append((ok, meta["id"], want, got, result))
-
-    print("=" * 78)
-    print(f"라우팅 채점   일치 {hits}/{len(rows)}")
-    print("=" * 78)
-    for (ok, cid, want, got, result), (_, meta) in zip(rows, cases):
-        extra = ""
-        if result.classification and result.classification.secondary_cases:
-            extra = "  +" + ",".join(result.classification.secondary_cases)
-        mark = "OK " if ok else "X  "
-        line = f"{mark}{cid:<10} -> {got}{extra}"
-        if not ok:
-            line += f"   기대 {sorted(want)}"
-            if meta_secondary := meta.get("expect_secondary"):
-                line += f" +{sorted(meta_secondary)}"
-            if result.classification:
-                line += f"   ({result.classification.reason[:60]})"
-        print(line)
-    print(f"\nLLM 호출 {sum(r.n_calls for r in results)}회")
-
-
-def run_legibility_golden(args, judge) -> int:
-    """④′ 읽기를 골든셋 72건으로 채점한다.
-
-    **오탐(정상을 붕괴로)과 미탐(붕괴를 정상으로)을 갈라 센다.** 둘의 대가가 다르다.
-    오탐이면 멀쩡한 턴이 case30 으로 닫혀 진짜 원인이 영영 안 나오고, 미탐이면
-    그냥 뒤 단계로 흘러가 다른 case 를 받는다 - 회수 가능한 쪽이다. 그래서
-    프롬프트가 "확신이 없으면 legible=true" 라고 못 박고 있고, 이 수치가 그
-    지시가 먹는지를 본다.
-
-    **두 층으로 센다.** LLM 이 뭐라 했나와, 코드 관문 셋을 지난 뒤 실제로 case30 이
-    됐나는 다르다. 파이프라인은 legible=false 를 그대로 믿지 않는다 - 인용이 답변에
-    있어야 하고, 코드 블록 안이 아니어야 하고, 그 구절이 실제로 깨져 보여야 한다.
-    관문이 LLM 의 오탐을 걷어내면 프롬프트는 그대로 둬도 된다.
-    """
-    from concurrent.futures import ThreadPoolExecutor
-
-    from ragdiag.features.legibility import inside_code_block, quote_looks_broken
-    from ragdiag.features.short_circuit.degenerate import check_degenerate
-    from ragdiag.fixtures.judgments import LEGIBILITY
-    from ragdiag.schema import Case
-    from ragdiag.textfmt import pad
-    from ragdiag.verify import verify_complaint_quote
-
-    cases = LEGIBILITY[: args.limit] if args.limit else LEGIBILITY
-
-    def ask(entry):
-        case = Case(case_id=entry["id"], dept="-", job_grade="-", job_name="-",
-                    chat_id="-", turn=2, pre_queries=["-"],
-                    llm_ans_on_last_q=entry["answer"], current_query="-", rag_chunks=[])
-        try:
-            check, _ = judge.check_legibility(case)
-            return entry, check, None
-        except Exception as e:
-            return entry, None, f"{type(e).__name__}: {e}"
-
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        outcomes = list(pool.map(ask, cases))
-
-    def closes_the_turn(check, answer: str) -> tuple[bool, str]:
-        """파이프라인이 실제로 case30 으로 닫는가. 관문에서 걸리면 그 이름을 돌려준다."""
-        if check.legible:
-            return False, ""
-        if not verify_complaint_quote(check.quote, answer).verified:
-            return False, "인용 대조"
-        if inside_code_block(answer, check.quote):
-            return False, "코드 블록 안"
-        if not quote_looks_broken(answer, check.quote):
-            return False, "구절이 안 깨짐"
-        return True, ""
-
-    fp, fn, ok, errors = [], [], 0, []
-    llm_fp = llm_fn = 0
-    saved: list[tuple] = []          # LLM 은 틀렸는데 관문이 살린 것
-    by_cat: dict[str, list[int]] = {}
-    for entry, check, error in outcomes:
-        if error:
-            errors.append((entry["id"], error))
-            continue
-        closed, gate = closes_the_turn(check, entry["answer"])
-        # 파이프라인 기준: 닫히면 붕괴, 안 닫히면 뒤 단계로 간다(= legible 취급)
-        hit = (not closed) == entry["legible"]
-        ok += hit
-        slot = by_cat.setdefault(entry["cat"], [0, 0])
-        slot[0] += hit
-        slot[1] += 1
-        if not check.legible and entry["legible"]:
-            llm_fp += 1
-            if gate:
-                saved.append((entry["id"], entry["cat"], gate))
-        if check.legible and not entry["legible"]:
-            llm_fn += 1
-        if not hit:
-            (fp if entry["legible"] else fn).append(
-                (entry["id"], entry["cat"], entry["answer"]))
-
-    graded = len(cases) - len(errors)
-    lines = ["", "=" * 78, "④′ 읽기 채점", "=" * 78, ""]
-    if graded:
-        lines.append(f"  {pad('전체', 22)}{ok:>3}/{graded:<3} {ok / graded:>5.0%}")
-    n_legible = sum(1 for c in cases if c["legible"])
-    n_broken = len(cases) - n_legible
-    lines += [
-        f"  {pad('오탐 (정상 → 붕괴)', 22)}{len(fp):>3}/{n_legible:<3}"
-        f"   멀쩡한 턴이 case30 으로 닫힌다 — 진짜 원인이 사라진다",
-        f"  {pad('미탐 (붕괴 → 정상)', 22)}{len(fn):>3}/{n_broken:<3}"
-        f"   뒤 단계로 흘러간다 — 회수 가능한 쪽",
-        "",
-    ]
-    for cat, (hits, total) in sorted(by_cat.items()):
-        lines.append(f"    {pad(cat, 20)}{hits:>3}/{total}")
-    lines += ["", f"  LLM 단독   오탐 {llm_fp}/{n_legible} · 미탐 {llm_fn}/{n_broken}"]
-    if saved:
-        lines.append(f"  코드 관문이 살린 오탐 {len(saved)}건 — 프롬프트가 아니라 관문이 막고 있다")
-        lines += [f"    {cid:<8} {cat:<12} {gate}" for cid, cat, gate in saved[:8]]
-    for title, rows in (("오탐", fp), ("미탐", fn)):
-        if rows:
-            lines += ["", f"  {title}"]
-            lines += [f"    {cid:<8} {cat:<12} {ans[:60]!r}" for cid, cat, ans in rows]
-    if errors:
-        lines += ["", f"  실패 {len(errors)}건"] + [f"    {i}  {e}" for i, e in errors[:5]]
-
-    # 코드 규칙이 이 셋에서 무엇을 잡는지도 함께 - 둘이 같은 case30 을 낸다.
-    caught = [c["id"] for c in cases if check_degenerate(c["answer"]).violated]
-    wrong = [c["id"] for c in cases if c["legible"] and check_degenerate(c["answer"]).violated]
-    lines += ["", f"  코드 규칙(degenerate)이 잡은 것 {len(caught)}건 · "
-                  f"그중 오탐 {len(wrong)}건 {wrong or ''}"]
-    print("\n".join(lines))
-    return 0
-
-
-def run_judge_golden(args, judge) -> int:
-    """Step 2·3 판정을 채점한다. 관측 채점과 층이 다르다."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    from ragdiag.fixtures.judgments import GROUNDING, SUFFICIENCY
-
-    from ragdiag.golden import JudgeScore, render_judge, score_sufficiency
-    from ragdiag.schema import Case
-    from ragdiag.verify import verify_evidence
-
-    def make_case(chunks, question="", answer=""):
-        return Case(case_id="golden", user_id="-", dept="-", job_grade="-",
-                    job_name="-", position_name="-", chat_id="-", turn=0,
-                    pre_queries=[question] if question else ["-"],
-                    llm_ans_on_last_q=answer, current_query="-", rag_chunks=chunks)
-
-    class _Need:
-        def __init__(self, q, n):
-            self.resolved_question, self.unmet_need = q, n
-
-    suf, gnd = JudgeScore(), JudgeScore()
-
-    def judge_suf(entry):
-        from ragdiag.features.sufficiency import narrow_need, question_looks_multi
-
-        case = make_case(entry["chunks"])
-        # 파이프라인과 같은 요구를 준다 - 골든셋엔 관측이 없어 질문 문장으로 복합 여부를 어림한다.
-        need = narrow_need(entry["unmet_need"], question_looks_multi(entry["question"]))
-        judgment, _ = judge.judge_sufficiency_from(case, _Need(entry["question"], need))
-        return entry, judgment, verify_evidence(judgment.evidence, entry["chunks"])
-
-    def judge_gnd(entry):
-        case = make_case(entry["chunks"], answer=entry["answer"])
-        check, _ = judge.check_grounding(case, entry.get("question", ""))
-        return entry, check
-
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for entry, judgment, citation in pool.map(judge_suf, SUFFICIENCY):
-            score_sufficiency(entry, judgment, citation, suf)
-        for entry, check in pool.map(judge_gnd, GROUNDING):
-            gnd.verdict_total += 1
-            accept = set(entry.get("accept") or {entry["expect"]})
-            hit = check.answer_used_rag in accept
-            if hit:
-                gnd.verdict_hits += 1
-            else:
-                gnd.misses.append((entry["id"], "/".join(sorted(accept)),
-                                   check.answer_used_rag, entry["note"]))
-            cat = gnd.by_category.setdefault(entry.get("category", "short"), [0, 0])
-            cat[0] += hit
-            cat[1] += 1
-
-    print(render_judge(suf, gnd))
+          f"(요청 2,000회 가정, 동시 {workers}).")
     return 0
 
 
@@ -749,15 +333,6 @@ def main(argv=None, backend=None) -> int:
 
     p.add_argument("--conv-data",
                    help="conv_eval JSON 경로, 또는 records.jsonl (eval.jsonl 경로 — --turns 와 짝)")
-    p.add_argument("--golden", action="store_true",
-                   help="Step 1 관측 골든셋을 돌려 필드별 일치율을 잰다")
-    p.add_argument("--observe-only", action="store_true",
-                   help="골든셋에서 Step 1 관측만 채점한다 (라우팅 · 충족도 호출을 안 한다)")
-    p.add_argument("--golden-set",
-                   choices=["observations", "messy", "sufficiency", "legibility"],
-                   default="observations",
-                   help="messy: 실제 로그 모양의 셋. 관측과 라우팅을 같이 잰다 / "
-                        "sufficiency: Step 2·3 판정만 (문서 충족도 · 근거 활용)")
     p.add_argument("--turns", metavar="FILE",
                    help="고른 턴 목록. conv-eval.json 이면 {chat_id, turn}, records.jsonl 이면 "
                         "assemble.py select 가 낸 selected.jsonl. 주면 여기 필터를 걸지 않는다")
@@ -778,16 +353,6 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--base-url", help="LLM 주소 (또는 $LLM_API_URL)")
     p.add_argument("--api-key", help="(또는 $LLM_API_KEY)")
     p.add_argument("--model", help="생략하면 서버의 /v1/models 에서 자동 탐지")
-    # 단계별 판정 모델. 적은 단계만 그쪽으로 가고 나머지는 --model 로 간다. 모델이
-    # 서버마다 따로 떠 있을 수 있어 주소 · 키도 받는다. 어디에 쓸 자리가 있는지는
-    # configs/env.example.yaml 의 llm.model_* 주석에 적어 두었다.
-    for _stage in STAGES:
-        p.add_argument(f"--model-{_stage}", metavar="이름",
-                       help=f"{_stage} 단계만 다른 모델로 (기본: --model)")
-        p.add_argument(f"--base-url-{_stage}", metavar="주소",
-                       help=f"{_stage} 단계가 붙을 서버. 모델을 비우면 그쪽에서 자동 탐지")
-        p.add_argument(f"--api-key-{_stage}", metavar="키",
-                       help=f"{_stage} 단계의 키가 다를 때만 (기본: --api-key)")
     p.add_argument("--json-mode",
                    choices=["auto", "json_schema", "guided_json", "json_object", "none"])
     p.add_argument("--thinking", choices=["auto", "on", "off"])
@@ -802,6 +367,8 @@ def main(argv=None, backend=None) -> int:
     p.add_argument("--history-turns", type=int,
                    help="Step 1 에 넘길 이전 질문 개수 상한. 0 이면 제한 없음")
     p.add_argument("--no-cache", action="store_true")
+    p.add_argument("--no-text", action="store_true",
+                   help="결과 파일에 질문 · 답변 · 근거 본문을 싣지 않는다 (전달본의 사례 절이 빈다)")
     p.add_argument("--no-progress", action="store_true",
                    help="LLM 단계의 진행 표시를 끈다 (기본은 stderr 에 한 줄)")
     p.add_argument("--dry-run", action="store_true",
@@ -834,8 +401,6 @@ def main(argv=None, backend=None) -> int:
 
     if args.check_llm:
         return check_llm(args, config)
-    if args.golden:
-        return run_golden(args, backend)
 
     conv_data = args.conv_data or config.get("paths.conv_data")
 
@@ -1053,27 +618,17 @@ def main(argv=None, backend=None) -> int:
         conditions.add("백엔드", type(backend).__name__, "주입됨 (tools/dev_run.py)")
         conditions.add("모델", backend.model, "주입됨")
 
-    try:
-        stage_backends = per_stage_backends(args, config, backend, trace=conditions)
-    except JudgeError as e:
-        print(conditions.render(), file=sys.stderr)
-        print(e, file=sys.stderr)
-        return finish("FAILED (백엔드)", 2)
-
     conditions.hint = (f"{config.source} 를 고친다" if config.source != "(기본값)" else
                            "--set 으로 준다" if config.values else
                        "configs/env.example.yaml 을 복사해 --config 로 주거나 위 플래그로 덮어쓴다")
     print("\n" + conditions.render(), file=sys.stderr)
     print(f"분류 대상 {len(selection)}턴", file=sys.stderr)
 
-    judge = make_judge(backend, use_cache=use_cache, per_stage=stage_backends)
+    judge = make_judge(backend, use_cache=use_cache)
     models = judge.models()
     summary.metrics.append(("model", f"{backend.model}"))
-    for stage, name in models.items():
-        if name != backend.model and stage != "decision":
-            summary.metrics.append((f"model · {stage}", name))
     # 결정 백엔드(kev). 에뮬레이션이면 확률이 보정돼 있지 않다 - 요약에 그 사실이 남아야
-    # 등급 2 · 1 을 읽는 사람이 그만큼 깎아 읽는다.
+    # 확신/검토를 읽는 사람이 그만큼 깎아 읽는다.
     kind = judge.decision_kind
     decision_note = {"kev": "", "emulated": "kev 에뮬레이션 — 확률 미보정",
                      "scripted": "테스트 대본"}.get(kind, kind)
@@ -1083,8 +638,14 @@ def main(argv=None, backend=None) -> int:
                             + (" (에뮬레이션)" if kind == "emulated" else "")))
     if kind == "emulated":
         summary.notes.append("kev 서버 없이 일반 LLM 으로 범주 판정을 에뮬레이션했다. "
-                             "확률이 보정돼 있지 않으므로 등급 2 · 1 은 참고치다 (kev.url 을 채울 것).")
+                             "확률이 보정돼 있지 않으므로 확신/검토 구분은 참고치다 (kev.url 을 채울 것).")
     summary.setup = conditions.compact()
+    # 결과 파일 머리. 언제 · 무엇을 · 어느 kev 로 돌렸나 — 파일만 들고 나와도 해석이 되게.
+    run_info = {"started": datetime.now().isoformat(timespec="seconds"),
+                "conv_data": str(conv_data), "filter_data": str(filter_path) if filter_path else None,
+                "turns": str(turns_path) if turns_path else None,
+                "kev": models["decision"], "kev_kind": kind,
+                "threshold": settings.KEV_CONFIDENT, "version": version()}
 
     # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도
     # 여기서 하나씩 부르지 않는다 - 기능이 늘 때마다 진입점을 고치게 된다.
@@ -1098,9 +659,11 @@ def main(argv=None, backend=None) -> int:
     )
     # 턴 단위 실행이면 끝난 턴부터 결과 파일에 쌓는다 (10초에 한 번). 중간에 끊겨도
     # (Ctrl+C · 서버 다운) 거기까지의 판정은 남는다 - 30분 돌린 것을 통째로 잃지 않는다.
-    ctx.on_turn_done = _checkpointer(selection.owners, ctx.turns, out_path, models)
+    ctx.on_turn_done = _checkpointer(selection.owners, ctx.turns, out_path, run_info,
+                                     with_text=not args.no_text)
     got, said = features.collect(ctx)
-    outcome = build_outcome(selection.owners, ctx.turns, selection.report, models)
+    outcome = build_outcome(selection.owners, ctx.turns, selection.report, run_info,
+                            with_text=not args.no_text)
 
     outcome.save(out_path)
     print(outcome.summary())

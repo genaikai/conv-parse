@@ -22,10 +22,13 @@ from stub_judge import ScriptedJudge, digest, make_case  # noqa: E402
 from test_snapshot import scenarios  # noqa: E402
 
 
+_CONV = SimpleNamespace(chat_id="chat", user=SimpleNamespace(dept="", job_grade="", job_name=""))
+
+
 def _digests(mode, monkeypatch):
     monkeypatch.setattr(settings, "RUN_MODE", mode)
     results = judge_cases([make_case(s) for s in scenarios()], ScriptedJudge(), workers=3)
-    return {r.case.case_id: digest(build_turn(r, r.case.turn - 1)["classification"])
+    return {r.case.case_id: digest(build_turn(r, _CONV)["verdict"] if r.verdict else {"error": r.error})
             for r in results}
 
 
@@ -37,22 +40,24 @@ def test_turn_mode_judges_exactly_like_stage_mode(monkeypatch):
 def test_registry_is_split_into_judges_and_reports():
     names = [f.NAME for f in features.FEATURES]
     assert names == [f.NAME for f in features.JUDGES] + [f.NAME for f in features.REPORTS]
-    assert len(features.REPORTS) == 5, "집계 다섯 - 판정이 끝난 뒤 한 번 돈다"
-    assert names[-len(features.REPORTS) - 1] == "arbitrate", \
-        "중재가 판정의 마지막이어야 집계가 라벨을 읽는다"
+    assert len(features.REPORTS) == 4, "집계 넷 - 판정이 끝난 뒤 한 번 돈다"
+    assert [f.NAME for f in features.JUDGES] == \
+        ["integrity", "code_rules", "complaint", "evidence", "complaint_evidence"], \
+        "결정 트리의 순서다 — 앞이 닫은 턴은 뒤로 안 간다"
 
 
 class _SlowJudge(ScriptedJudge):
-    """한 턴만 관측(텍스트)에서 오래 걸린다."""
+    """한 턴만 불만 판정(kev)에서 오래 걸린다."""
 
     def __init__(self, slow_id, seconds):
         super().__init__()
         self.slow_id, self.seconds = slow_id, seconds
 
-    def observe_text(self, case):
-        if case.case_id == self.slow_id:
+    def decide(self, stage, state, questions):
+        from ragdiag.features._shared import current_turn
+        if stage == "complaint" and current_turn().case.case_id == self.slow_id:
             time.sleep(self.seconds)
-        return super().observe_text(case)
+        return super().decide(stage, state, questions)
 
 
 @pytest.fixture
@@ -63,7 +68,7 @@ def quick_cutoff(monkeypatch):
 
 
 def test_a_slow_turn_does_not_block_the_others_and_is_abandoned_in_its_stage(quick_cutoff):
-    cases = [make_case(f"rich|missing|sufficient|supported|ok{i}") for i in range(12)]
+    cases = [make_case(f"generation-all{i}") for i in range(12)]
     slow = cases[4].case_id
 
     t0 = time.monotonic()
@@ -72,18 +77,18 @@ def test_a_slow_turn_does_not_block_the_others_and_is_abandoned_in_its_stage(qui
 
     assert took < 3.0, f"느린 턴을 기다렸다: {took:.1f}s"
     stuck = next(r for r in results if r.case.case_id == slow)
-    assert stuck.error and stuck.error.startswith("[observe] 낙오"), stuck.error
-    assert all(r.classification is not None for r in results if r.case.case_id != slow)
+    assert stuck.error and stuck.error.startswith("[complaint] 낙오"), stuck.error
+    assert all(r.verdict is not None for r in results if r.case.case_id != slow)
 
 
 def test_finished_turns_are_handed_over_as_they_complete(monkeypatch):
     monkeypatch.setattr(settings, "RUN_MODE", "turn")
-    cases = [make_case(f"rich|missing|sufficient|supported|ok{i}") for i in range(5)]
+    cases = [make_case(f"generation-all{i}") for i in range(5)]
     seen = []
     ctx = features.RunContext(turns=[TurnResult(case=c) for c in cases], judge=ScriptedJudge(),
                               workers=2, progress=False, on_turn_done=seen.append)
     features.collect(ctx)
-    assert len(seen) == 5 and all(t.classification is not None for t in seen)
+    assert len(seen) == 5 and all(t.verdict is not None for t in seen)
 
 
 def test_checkpoint_writes_only_finished_turns(tmp_path):
@@ -91,50 +96,32 @@ def test_checkpoint_writes_only_finished_turns(tmp_path):
 
     owners = [SimpleNamespace(chat_id=f"c{i}", user=SimpleNamespace(
         job_grade="", dept="", job_name="")) for i in range(3)]
-    turns = [TurnResult(case=make_case(f"rich|missing|sufficient|supported|ok{i}")) for i in range(3)]
+    turns = [TurnResult(case=make_case(f"generation-all{i}")) for i in range(3)]
     out = tmp_path / "out.json"
-    save = _checkpointer(owners, turns, out, every_sec=0)
+    save = _checkpointer(owners, turns, out, {"started": "x"}, every_sec=0)
 
     save(turns[0])
     assert not out.exists(), "끝난 턴이 없으면 쓰지 않는다"
-    turns[0].error = "[observe] 낙오"
+    turns[0].error = "[complaint] 낙오"
     save(turns[0])
     payload = json.loads(out.read_text(encoding="utf-8"))
-    written = [t for u in payload["analysis_results"] for c in u["conversations"] for t in c["turns"]]
-    assert len(written) == 1 and "error" in written[0]["classification"]
+    assert len(payload["turns"]) == 1 and "error" in payload["turns"][0]
 
 
 class _AnyJudge(ScriptedJudge):
-    """어떤 case 든 같은 시나리오(문서에 답 없음 → D1)로 답한다. 합성 로그용 - case_id 가 시나리오가 아니다."""
+    """어떤 case 든 같은 경로(근거 없음 → 근거)로 답한다. 합성 로그용 - case_id 가 경로가 아니다."""
 
     def __init__(self):
-        from ragdiag.backends import Usage
         from ragdiag.decide import ScriptedBackend
         from ragdiag.judge import Judge
 
         def script(state, questions):
-            if "complaint_target" in questions:
-                return dict(complaint_target="content_missing", question_domain="domain",
-                            question_clarity="clear")
-            if "answers" in questions:
-                return {"answers": 0.05}
-            if "absent" in questions:
-                return {"absent": True}
+            if "complains" in questions:
+                return {"complains": True}
+            if "any" in questions:
+                return {"any": "none"}
             return {}
         Judge.__init__(self, backend=None, cache_dir=None, decision=ScriptedBackend(script))
-        self._usage = lambda: Usage(input_tokens=1, output_tokens=1)
-
-    def decide(self, stage, state, questions):
-        return self.decision.decide(state, questions)
-
-    def observe_text(self, case):
-        from ragdiag.schema import ObservationText
-        return ObservationText(reasoning="r", resolved_question=case.pre_queries[-1],
-                               unmet_need="금액"), self._usage()
-
-    def extract_claims(self, case):
-        from ragdiag.schema import Claims
-        return Claims(reasoning="r", claims=[]), self._usage()
 
 
 def _four_turn_log() -> dict:
@@ -155,11 +142,10 @@ def _four_turn_log() -> dict:
     return {"users": [user]}
 
 
-def test_turn_mode_writes_the_same_user_conversation_turn_tree(tmp_path, monkeypatch):
-    """끝나는 순서가 뒤섞여도 결과 파일은 사용자 → 대화 → 턴 으로 묶인다.
+def test_turn_mode_writes_the_same_turn_list(tmp_path, monkeypatch):
+    """끝나는 순서가 뒤섞여도 결과 파일의 turns 는 입력 순서다.
 
-    묶는 것은 build_output 이 zip(owners, results) 의 원래 순서로 하므로 실행 순서와 무관하다.
-    같은 사용자의 대화 둘, 한 대화의 턴 셋이 단계별 실행과 똑같이 적혀야 한다.
+    build_output 이 zip(owners, results) 의 원래 순서로 쓰므로 실행 순서와 무관하다.
     """
     from ragdiag.pipeline import build_outcome, load_and_select
 
@@ -172,13 +158,11 @@ def test_turn_mode_writes_the_same_user_conversation_turn_tree(tmp_path, monkeyp
         monkeypatch.setattr(settings, "RUN_MODE", mode)
         results = judge_cases(selection.cases, _AnyJudge(), workers=4)
         assert all(r.error is None for r in results), [r.error for r in results]
-        return build_outcome(selection.owners, results).payload
+        return build_outcome(selection.owners, results, run_info={"started": "x"}).payload
 
     turn_mode, stage_mode = payload("turn"), payload("stage")
     assert turn_mode == stage_mode
 
-    (user,) = turn_mode["analysis_results"]
-    by_conv = {c["chat_id"]: [t["turn"] for t in c["turns"]] for c in user["conversations"]}
-    assert by_conv == {"E1_conv_1": [2, 3, 4], "E1_conv_2": [2]}
-    assert all(t["classification"]["case_id"] == "D1"
-               for c in user["conversations"] for t in c["turns"])
+    assert [(t["chat_id"], t["turn"]) for t in turn_mode["turns"]] == \
+        [("E1_conv_1", 2), ("E1_conv_1", 3), ("E1_conv_1", 4), ("E1_conv_2", 2)]
+    assert all(t["verdict"]["bucket"] == "근거" for t in turn_mode["turns"])

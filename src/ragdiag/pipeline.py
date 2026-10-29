@@ -87,17 +87,17 @@ def judge_cases(cases: list[Case], judge: Judge,
 
 def build_outcome(owners: list, results: list[TurnResult],
                   filter_report: str = "",
-                  models: Optional[dict] = None) -> Outcome:
+                  run_info: Optional[dict] = None,
+                  with_text: bool = True) -> Outcome:
     """판정 결과를 출력 JSON 모양으로 묶는다.
 
     owners 는 결과를 되돌릴 대화 객체들이다. chat_id 와 user 두 속성만
     쓰므로 실행 환경의 파서가 만든 객체를 그대로 넣어도 된다.
 
-    models 는 Judge.models() - 단계별로 어느 모델이 판정했는지. 생략하면 결과
-    파일에 그 칸이 안 생긴다 (dry-run · 테스트).
+    run_info 는 결과 파일 머리의 `run` 칸 — 언제 · 무엇을 · 어느 kev 로. 생략하면 빈 dict.
     """
     pairs = list(zip(owners, results))
-    return Outcome(results=results, payload=build_output(pairs, models),
+    return Outcome(results=results, payload=build_output(pairs, run_info or {}, with_text),
                    filter_report=filter_report, _pairs=pairs)
 
 
@@ -334,7 +334,6 @@ def make_decision_backend():
                       settings.KEV_TIMEOUT_SEC)
 
 
-def make_judge(backend: Any, use_cache: bool = True,
-               per_stage: Optional[dict] = None, decision: Any = None) -> Judge:
+def make_judge(backend: Any, use_cache: bool = True, decision: Any = None) -> Judge:
     return Judge(backend, cache_dir=settings.CACHE_DIR if use_cache else None,
-                 per_stage=per_stage, decision=decision or make_decision_backend())
+                 decision=decision or make_decision_backend())

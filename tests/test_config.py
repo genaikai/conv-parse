@@ -33,9 +33,7 @@ yaml = pytest.importorskip("yaml")
 @pytest.fixture
 def restore_settings():
     """설정 적용은 모듈 전역을 바꾼다. 테스트끼리 새지 않게 되돌린다."""
-    names = ["MATCH_THRESHOLD", "QUOTE_MATCH_THRESHOLD", "QUOTE_EDIT_TOLERANT_MIN_CHARS",
-             "EVIDENCE_MIN_QUOTE_CHARS",
-             "ANSWER_QUOTE_MIN_CHARS",
+    names = ["KEV_CONFIDENT",
              "SERVICE_ERROR_TEMPLATES",
              "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
              "ORG_CANDIDATE_FIELDS", "FILTER_ANY_VALUES", "CACHE_DIR"]
@@ -107,11 +105,11 @@ def test_choice_fields_list_what_is_allowed(tmp_path):
 def test_out_of_range_threshold_is_rejected(tmp_path):
     path = write(tmp_path, """
         thresholds:
-          match_threshold: 90
+          kev_confident: 90
     """)
     with pytest.raises(ConfigError) as e:
         load(path)
-    assert "match_threshold" in str(e.value)
+    assert "kev_confident" in str(e.value)
 
 
 def test_empty_service_error_template_is_rejected(tmp_path):
@@ -148,10 +146,10 @@ def test_all_problems_are_reported_at_once(tmp_path):
 
 def test_service_error_templates_reach_the_checker(tmp_path, restore_settings):
     """설정에 적은 문구로 판정이 바뀌어야 한다."""
-    from ragdiag.features.short_circuit.service_error import check_service_error
+    from ragdiag.features.code_rules.service_error import check as check_service_error
 
     캔드 = "지금은 응답할 수 없습니다. 관리자에게 문의하세요"
-    assert not check_service_error(캔드).violated, "바꾸기 전에는 안 잡혀야 한다"
+    assert not check_service_error(캔드)[0], "바꾸기 전에는 안 잡혀야 한다"
 
     path = write(tmp_path, f"""
         service_error:
@@ -159,7 +157,7 @@ def test_service_error_templates_reach_the_checker(tmp_path, restore_settings):
             - "{캔드}"
     """)
     apply(load(path))
-    assert check_service_error(캔드).violated, "설정이 검증기까지 도달하지 않았다"
+    assert check_service_error(캔드)[0], "설정이 검증기까지 도달하지 않았다"
 
 
 def test_retired_keys_are_accepted_but_change_nothing(tmp_path, restore_settings):
@@ -191,21 +189,16 @@ def test_retired_keys_are_accepted_but_change_nothing(tmp_path, restore_settings
     assert [n.split(":")[0] for n in over.retired()] == ["service_error.max_chars"]
 
 
-def test_match_threshold_reaches_the_verifier(tmp_path, restore_settings):
-    from ragdiag.schema import Evidence
-    from ragdiag.verify import verify_evidence
+def test_kev_confident_reaches_the_reader(tmp_path, restore_settings):
+    from ragdiag.decide import Answer
+    from ragdiag.results import read_noul
 
-    chunks = ["국내 출장 식비는 1일 3만원을 상한으로 한다."]
-    # 실제 연속 일치율이 0.7 인 인용(꼬리를 바꿈). 기본 0.9 에서는 떨어진다. 숫자는 그대로
-    # 둔다 - 숫자가 다르면 임계값과 무관하게 떨어진다(verify._numbers_intact).
-    ev = [Evidence(chunk_index=0, quote="국내 출장 식비는 1일 3만원을 최대로 본다.")]
-    assert verify_evidence(ev, chunks).n_kept == 0
-
+    assert read_noul(Answer("noul", p=0.8)) == "모름"
     apply(load(write(tmp_path, """
         thresholds:
-          match_threshold: 0.4
+          kev_confident: 0.75
     """)))
-    assert verify_evidence(ev, chunks).n_kept == 1, "임계값이 대조기까지 도달하지 않았다"
+    assert read_noul(Answer("noul", p=0.8)) == "예", "임계값이 읽는 쪽까지 도달하지 않았다"
 
 
 def test_history_turns_reaches_the_parser(tmp_path, restore_settings):
@@ -250,10 +243,10 @@ def test_apply_reports_what_it_changed(tmp_path, restore_settings):
         run:
           workers: 9
         thresholds:
-          match_threshold: 0.8
+          kev_confident: 0.8
     """)))
     assert any("DEFAULT_WORKERS" in c for c in changed)
-    assert any("MATCH_THRESHOLD" in c for c in changed)
+    assert any("KEV_CONFIDENT" in c for c in changed)
 
 
 def test_example_yaml_passes_its_own_validation():
@@ -990,18 +983,18 @@ def test_set_covers_keys_that_have_no_flag():
     """
     got = apply_overrides(Config(), [
         "labels.query=configs/q.md",
-        "thresholds.match_threshold=0.85",
+        "thresholds.kev_confident=0.85",
         "run.workers=8"])
     assert got.get("labels.query") == "configs/q.md"
-    assert got.get("thresholds.match_threshold") == 0.85
+    assert got.get("thresholds.kev_confident") == 0.85
     assert got.get("run.workers") == 8
 
 
 def test_set_inherits_the_spec_checks():
     """SPEC 을 그대로 물려받으므로 오타 탐지와 타입 검증이 공짜다."""
     with pytest.raises(ConfigError) as e:
-        apply_overrides(Config(), ["thresholds.match_treshold=0.85"])
-    assert "혹시 thresholds.match_threshold" in str(e.value)
+        apply_overrides(Config(), ["thresholds.kev_confidnet=0.85"])
+    assert "혹시 thresholds.kev_confident" in str(e.value)
 
     with pytest.raises(ConfigError) as e:
         apply_overrides(Config(), ["run.workers=여덟"])
@@ -1009,8 +1002,8 @@ def test_set_inherits_the_spec_checks():
 
     # 값 자체의 앞뒤도 본다 - validate() 를 다시 돌린다.
     with pytest.raises(ConfigError) as e:
-        apply_overrides(Config(), ["thresholds.match_threshold=1.5"])
-    assert "0 과 1 사이" in str(e.value)
+        apply_overrides(Config(), ["thresholds.kev_confident=1.5"])
+    assert "0.5 와 1 사이" in str(e.value)
 
     with pytest.raises(ConfigError) as e:
         apply_overrides(Config(), ["run.workers"])
