@@ -26,83 +26,25 @@ from ragdiag.progress import Progress
 from ._context import RunContext
 from ._shared import straggler_limit
 from . import (
-    arbitrate,
-    arithmetic,
-    carried,
-    claims,
     classification,
-    consistency,
-    dates,
+    code_rules,
     failures,
     filter_fp,
-    format,
-    history_quote,
-    injection,
     integrity,
-    language,
-    legibility,
-    length,
     llm_fallback,
-    memory_check,
-    observe,
-    pii,
-    python_syntax,
-    quoted_spans,
-    quotes,
-    request_quote,
-    short_circuit,
-    sql_shape,
-    sufficiency,
-    tool_numbers,
 )
 
-__all__ = ["CHECKS", "CHECKS_EARLY", "CHECKS_LATE", "FEATURES", "JUDGES", "REPORTS",
-           "RunContext", "collect"]
+__all__ = ["FEATURES", "JUDGES", "REPORTS", "RunContext", "collect"]
 
-# 코드 검증기. LLM 없이 문자열만 본다 - 언어가 맞는지, 등식이 맞는지는 문자열만 보면 안다.
-# 서로의 결과를 읽지 않으므로 이 안의 순서는 판정에 영향이 없다 (출력에 실리는 순서다).
-#
-# 둘로 가른 이유: 앞 묶음은 입력만 보므로 **일찍 닫히는 턴(I · S2 · S3)에도 돈다** — 태그는
-# 주 라벨이 무엇이든 전부 남아야 한다. 뒤 묶음은 관측이 뽑은 요구값을 읽어 observe 뒤여야 한다.
-CHECKS_EARLY = (
-    pii,
-    quoted_spans,
-    python_syntax,
-    sql_shape,
-    arithmetic,
-    dates,
-    injection,
-    tool_numbers,
-)
-CHECKS_LATE = (
-    language,
-    format,
-    length,
-)
-CHECKS = CHECKS_EARLY + CHECKS_LATE
-
-# 판정 순서. docs/design/taxonomy_v3.md "판정 — 단계와 호출".
+# 판정 순서 — 결정 트리 (docs/design/decision_tree_v4.md). 앞 기능이 닫은 턴은 뒤로 안 간다.
 JUDGES = (
-    integrity,         # ③ C1 · C2 플래그 · U2 이벤트 — 멈추지 않음
-    *CHECKS_EARLY,
-    short_circuit,     # ④ I1 · I2 · S2 · S3 — 코드 확정, 걸리면 끝
-    legibility,        # ④ I2 읽을 수 없음 — kev ①, 걸리면 끝
-    observe,           # ⑤ 관측 — kev ②a 12문항 + LLM ②b 텍스트
-    request_quote,     #    요구 확인 (코드) — 이전 질문들에 그 어휘가 있나
-    history_quote,     #    조건 인용 대조 (코드)
-    *CHECKS_LATE,
-    sufficiency,       # ⑥ ③ 충족도 (청크 단위 kev) + ⑦ 2차 검증
-    claims,            #    ④a 주장 추출 (LLM) + ④b 주장별 판정 (kev)
-    memory_check,      #    ⑤ memory 반영 (kev)
-    consistency,       #    ⑥ 답변 일관성 (kev)
-    quotes,            #    조건부 인용 (LLM) — 전달본용
-    arbitrate,         # ⑦ 후보 → 주 라벨 · 태그 · 등급
+    integrity,         # 플래그 열 — 멈추지 않음
+    code_rules,        # 코드 확정 — 자원 부족 문구 · 빈 답변 · 붕괴 → 시스템
 )
 
 # 집계. 화면에 뜨는 순서다 — 사람이 사이클 사이에 눈으로 대조하므로 순서를 바꾸지 않는다.
 REPORTS = (
     classification,
-    carried,
     llm_fallback,
     filter_fp,
     failures,
@@ -193,8 +135,8 @@ def _judge_per_turn(ctx: RunContext) -> None:
                     if id(turn) in abandoned:
                         break                # 이미 닫혔다 - 늦은 결과는 버려진다
                     stage[id(turn)] = feature.NAME
-                if turn.classification is not None or turn.error is not None:
-                    break                    # 앞 기능이 닫았다 (short_circuit · legibility · 실패)
+                if not turn.is_open:
+                    break                    # 앞 기능이 닫았다 (코드 확정 · 불만 판정 · 실패)
                 feature.process_data(one)
             with changed:
                 if id(turn) not in abandoned:

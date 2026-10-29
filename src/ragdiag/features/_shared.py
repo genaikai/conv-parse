@@ -24,10 +24,9 @@ def current_turn():
     return _CURRENT_TURN.get()
 
 
-def top_cases(turns, limit: int = 5):
-    """상위 case 몇 개. 지표 이름은 사이클 사이에 바뀌지 않아야 한다."""
-    counts = Counter(t.classification.primary_case for t in turns if t.classification)
-    return counts.most_common(limit)
+def bucket_counts(turns) -> Counter:
+    """묶음별 건수. 지표 이름은 사이클 사이에 바뀌지 않아야 한다."""
+    return Counter(t.verdict.bucket for t in turns if t.verdict)
 
 
 def each_turn(ctx, name, fn, *, where=None, parallel=False) -> None:
@@ -141,24 +140,6 @@ def _run_parallel(name, run, turns, workers: int, bar: Progress) -> None:
                     bar.abandon()
 
 
-def call_llm(turn, pair):
-    """(결과, 사용량) 을 받아 사용량을 그 턴에 쌓고 결과만 돌려준다.
-
-    캐시 적중은 사용량이 0 이라 호출로 세지 않는다. 공유 카운터에 쌓으면 스레드가
-    섞여 사용량이 부풀려지므로 턴 객체에 쌓는다.
-    """
-    value, used = pair
-    turn.usage.add(used)
-    turn.n_calls += bool(used.input_tokens or used.output_tokens or used.cost_usd)
-    return value
-
-
-def run_check(ctx, name, check) -> tuple[list, list]:
-    """코드 검증기 하나를 열린 턴마다 돌려 turn.checks[name] 에 남긴다."""
-    each_turn(ctx, name, lambda t: t.checks.__setitem__(name, check(t)))
-    return [], []
-
-
 def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
     """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다."""
     answers, used = ctx.judge.decide(stage, state, questions)
@@ -166,11 +147,3 @@ def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
     turn.n_kev_calls += bool(used.input_tokens or used.output_tokens)
     return answers
 
-
-def grade_from_p(p: float) -> int:
-    """확률 → 증거 등급. 2 = 확신, 1 = 기울어짐, 0 = 후보 아님 (taxonomy_v3.md)."""
-    if p >= settings.KEV_CONFIDENT:
-        return 2
-    if p >= settings.KEV_LEAN:
-        return 1
-    return 0

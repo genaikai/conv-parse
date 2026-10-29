@@ -4,8 +4,9 @@
 호출부(`__main__.py`)를 고쳐야 한다. 진입점은 기능이 늘어도 손대지 않아야 하는
 파일이라, 문맥을 한 덩이로 넘기고 각자 필요한 것만 꺼내 쓰게 한다.
 
-**판정 기능은 앞 기능이 턴마다 남긴 것을 읽는다.** 관측이 있어야 충족도를 묻고,
-충족도가 있어야 인용을 대조한다. 그래서 등록부의 순서가 곧 실행 순서다.
+**판정 기능은 앞 기능이 닫지 않은 턴만 본다.** 코드 확정이 닫은 턴은 불만 판정에
+안 가고, 근거 판정이 "일부" 로 열어 둔 턴만 불만 부분 근거 판정에 간다. 등록부의 순서가 곧
+실행 순서다.
 """
 
 from __future__ import annotations
@@ -28,5 +29,5 @@ class RunContext:
     on_turn_done: Any = None
 
     def open_turns(self) -> list:
-        """case 가 아직 정해지지 않았고 실패하지도 않은 턴. 판정 기능은 이것만 본다."""
-        return [t for t in self.turns if t.classification is None and t.error is None]
+        """묶음이 아직 정해지지 않았고 실패하지도 않은 턴. 판정 기능은 이것만 본다."""
+        return [t for t in self.turns if t.is_open]

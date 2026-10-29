@@ -1,17 +1,13 @@
-"""개인정보 — U2 이벤트 · S3 의 재료. 질문에 개인 · 민감정보가 들어 있나."""
+"""개인정보 패턴 — "질문에 개인정보" 플래그의 재료. integrity 가 부른다.
+
+앵커가 분명한 패턴만 잡는다. 숫자 나열을 전부 의심하면 오탐이 쏟아진다. 결과에는 종류와
+건수만 남기고 원본 값은 남기지 않는다 — 안 그러면 결과 파일이 개인정보 사본이 된다.
+"""
 
 from __future__ import annotations
 
 import re
 
-from ragdiag.results import Check
-
-from .._shared import run_check
-
-NAME = "pii"
-
-
-# 앵커가 분명한 패턴만 잡는다. 숫자 나열을 전부 의심하면 오탐이 쏟아진다.
 _PII_PATTERNS = {
     "주민등록번호": re.compile(r"\b\d{6}[-\s]?[1-4]\d{6}\b"),
     "휴대전화": re.compile(r"\b01[016-9][-\s]?\d{3,4}[-\s]?\d{4}\b"),
@@ -24,21 +20,6 @@ _PII_PATTERNS = {
 def find_pii(text: str) -> list[dict]:
     hits = []
     for kind, pattern in _PII_PATTERNS.items():
-        for match in pattern.finditer(text):
+        for match in pattern.finditer(text or ""):
             hits.append({"kind": kind, "text": match.group()})
     return hits
-
-
-def check_pii(text: str) -> Check:
-    """U2 — 질문에 개인·민감정보가 포함됨 (이벤트)."""
-    hits = find_pii(text)
-    if not hits:
-        return Check("pii", "ok", "검출 없음")
-    kinds = sorted({h["kind"] for h in hits})
-    # 원본 값은 남기지 않는다. 종류와 개수만으로 충분하다.
-    return Check("pii", "violated", f"{', '.join(kinds)} {len(hits)}건")
-
-
-def process_data(ctx) -> tuple[list, list]:
-    # 답변이 아니라 그 답변을 부른 질문을 본다 - U2 는 "질문에" 개인정보가 있는 경우다. 답변 쪽은 short_circuit/leak(S3).
-    return run_check(ctx, NAME, lambda t: check_pii(t.case.last_query))
