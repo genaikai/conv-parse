@@ -87,7 +87,7 @@ DEFAULT_TIMEOUT_SEC = 600
 # ---------------------------------------------------------------------------
 
 # kev 서버. 비어 있으면 일반 LLM 이 같은 문항에 답하는 에뮬레이션으로 돈다.
-KEV_URL = ""
+KEV_URL: str | list[str] = ""      # 한 대면 문자열, 여러 대면 목록 — KevBackend 가 돌아가며 보낸다
 KEV_KEY = ""
 KEV_MODEL = "kev-latest"
 KEV_TIMEOUT_SEC = 120

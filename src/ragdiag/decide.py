@@ -18,7 +18,9 @@ kev (https://github.com/jaredpalmer/kev) 는 텍스트 하나(state)에 대해 y
 
 from __future__ import annotations
 
+import itertools
 import json
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -76,32 +78,60 @@ def _answer_from_kev(raw: dict) -> Answer:
 
 
 class KevBackend:
-    """kev 서버. 요청 · 응답 모양은 README 의 System One API 그대로다."""
+    """kev 서버. 요청 · 응답 모양은 README 의 System One API 그대로다.
+
+    서버가 여러 대(사내는 8008~8011 네 대)면 url 을 목록으로 받아 요청을 **돌아가며** 보낸다.
+    한 대가 안 받으면(연결 거부 · 타임아웃) 다음 대로 넘어가고, 전부 안 받을 때만 실패다. 죽은 대를
+    목록에서 빼지는 않는다 — 다음 요청에서 다시 시도한다 (재기동하면 저절로 돌아온다). HTTP 오류
+    (4xx · 5xx) 는 그 서버가 답한 것이라 넘기지 않고 그대로 올린다.
+    """
 
     kind = "kev"
 
-    def __init__(self, url: str, api_key: str = "", model: str = "kev-latest",
+    def __init__(self, url: str | list[str], api_key: str = "", model: str = "kev-latest",
                  timeout: int = 120):
-        self.url = url.rstrip("/")
+        urls = [url] if isinstance(url, str) else list(url)
+        self.urls = [u.rstrip("/") for u in urls if u and u.strip()]
+        if not self.urls:
+            raise ValueError("kev 서버 주소가 비어 있다")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self._next = itertools.count()
+        self._lock = threading.Lock()
 
-    def decide(self, state: Any, questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage]:
-        body = json.dumps({"state": state, "model": self.model, "questions": questions},
-                          ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(f"{self.url}/v1/systemone", data=body, method="POST",
+    def _order(self) -> list[str]:
+        """이번 요청이 시도할 순서 — 돌아가며 시작점을 옮기고 나머지는 그 뒤로."""
+        with self._lock:
+            start = next(self._next) % len(self.urls)
+        return self.urls[start:] + self.urls[:start]
+
+    def _post(self, url: str, body: bytes) -> dict:
+        req = urllib.request.Request(f"{url}/v1/systemone", data=body, method="POST",
                                      headers={"Content-Type": "application/json"})
         if self.api_key:
             req.add_header("Authorization", f"Bearer {self.api_key}")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:300]
-            raise JudgeError(f"kev {e.code}: {detail}") from e
-        except urllib.error.URLError as e:
-            raise JudgeError(f"kev 서버에 닿지 않는다 ({self.url}): {e.reason}") from e
+            raise JudgeError(f"kev {e.code} ({url}): {detail}") from e
+
+    def decide(self, state: Any, questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage]:
+        body = json.dumps({"state": state, "model": self.model, "questions": questions},
+                          ensure_ascii=False).encode("utf-8")
+        failures: list[str] = []
+        payload = None
+        for url in self._order():
+            try:
+                payload = self._post(url, body)
+                break
+            except (urllib.error.URLError, TimeoutError, OSError) as e:    # 연결 자체가 안 됨 — 다음 대로
+                reason = getattr(e, "reason", e)
+                failures.append(f"{url}: {reason}")
+        if payload is None:
+            raise JudgeError(f"kev 서버 {len(self.urls)}대 어디에도 닿지 않는다 — " + " · ".join(failures))
         answers = {qid: _answer_from_kev(raw) for qid, raw in (payload.get("answers") or {}).items()}
         missing = set(questions) - set(answers)
         if missing:

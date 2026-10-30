@@ -326,7 +326,7 @@ def run_from_conv_eval(conv_path: str | Path, judge: Judge,
 
 
 def make_decision_backend():
-    """설정의 kev.url 이 있으면 kev, 없으면 None (Judge 가 일반 LLM 에뮬레이션으로 떨어진다)."""
+    """설정의 kev.url 이 있으면 kev (여러 대면 돌아가며), 없으면 None (Judge 가 일반 LLM 에뮬레이션으로)."""
     if not settings.KEV_URL:
         return None
     from ragdiag.decide import KevBackend

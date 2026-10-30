@@ -607,10 +607,17 @@ def main(argv=None, backend=None) -> int:
     try:
         backend = backend or make_backend(args, config, trace=conditions)
     except JudgeError as e:
-        print(conditions.render(), file=sys.stderr)
-        print(e, file=sys.stderr)
-        summary.notes.append("LLM 백엔드를 만들지 못했다. 위 메시지를 옮겨 적을 것.")
-        return finish("FAILED (백엔드)", 2)
+        if not settings.KEV_URL:
+            print(conditions.render(), file=sys.stderr)
+            print(e, file=sys.stderr)
+            summary.notes.append("LLM 백엔드를 만들지 못했다. 위 메시지를 옮겨 적을 것.")
+            return finish("FAILED (백엔드)", 2)
+        # kev 가 있으면 일반 LLM 없이도 돈다 — 일반 LLM 은 2차 판정(kev 모름 문항)에만 쓰므로
+        # 그 단계만 건너뛰고 모름은 바로 검토다. 사내 기본 모양(kev 네 대, LLM 없음)이 이것이다.
+        backend = None
+        conditions.add("백엔드", "(없음)", "llm 주소 없음", "kev 만으로 돈다 — 2차 판정 건너뜀")
+        summary.notes.append("일반 LLM 이 없어 2차 판정(LLM)을 건너뛰었다. kev 모름은 바로 검토다 "
+                             "(llm.url 을 채우면 그 문항을 LLM 이 한 번 더 본다).")
 
     if injected:
         # 백엔드를 밖에서 넣으면 make_backend 를 안 거쳐 이 줄들이 빈다.
@@ -626,14 +633,15 @@ def main(argv=None, backend=None) -> int:
 
     judge = make_judge(backend, use_cache=use_cache)
     models = judge.models()
-    summary.metrics.append(("model", f"{backend.model}"))
+    summary.metrics.append(("model", backend.model if backend is not None else "(없음)"))
     # 결정 백엔드(kev). 에뮬레이션이면 확률이 보정돼 있지 않다 - 요약에 그 사실이 남아야
     # 확신/검토를 읽는 사람이 그만큼 깎아 읽는다.
     kind = judge.decision_kind
     decision_note = {"kev": "", "emulated": "kev 에뮬레이션 — 확률 미보정",
                      "scripted": "테스트 대본"}.get(kind, kind)
+    servers = getattr(judge.decision, "urls", [])
     conditions.add("판정(kev)", models.get("decision", "(없음)"),
-                   "설정 kev.url" if kind == "kev" else "kev.url 비어 있음", decision_note)
+                   f"설정 kev.url {len(servers)}대" if kind == "kev" else "kev.url 비어 있음", decision_note)
     summary.metrics.append(("decision", models.get("decision", "(없음)")
                             + (" (에뮬레이션)" if kind == "emulated" else "")))
     if kind == "emulated":
@@ -644,9 +652,9 @@ def main(argv=None, backend=None) -> int:
     run_info = {"started": datetime.now().isoformat(timespec="seconds"),
                 "conv_data": str(conv_data), "filter_data": str(filter_path) if filter_path else None,
                 "turns": str(turns_path) if turns_path else None,
-                "kev": models["decision"], "kev_kind": kind,
+                "kev": models["decision"], "kev_kind": kind, "kev_servers": list(servers),
                 "threshold": settings.KEV_CONFIDENT, "pass_through": settings.KEV_PASS_THROUGH,
-                "second_pass": backend.model if settings.SECOND_PASS else "",
+                "second_pass": backend.model if (settings.SECOND_PASS and backend is not None) else "",
                 "version": version()}
 
     # 판정부터 집계까지 features.FEATURES 순서대로 한 번에 돈다. 판정 단계도 지표도

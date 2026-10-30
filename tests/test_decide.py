@@ -148,3 +148,42 @@ def test_judge_refuses_an_unknown_decision_stage():
 def test_answer_serialises_without_losing_the_distribution():
     a = Answer("choice", p=0.7, choice="a", probabilities={"a": 0.7, "b": 0.3}, confidence=0.4)
     assert a.as_dict() == {"type": "choice", "p": 0.7, "choice": "a", "probabilities": {"a": 0.7, "b": 0.3}}
+
+
+# --- kev 여러 대 -----------------------------------------------------------------
+
+def test_kev_requests_go_round_robin_over_every_server():
+    with _KevServer() as a, _KevServer() as b:
+        backend = KevBackend([a.url, b.url])
+        for _ in range(4):
+            backend.decide("s", {"q": questions.COMPLAINT["illegible"]})
+    assert len(a.received) == 2 and len(b.received) == 2
+    assert backend.urls == [a.url, b.url]
+
+
+def test_kev_skips_a_dead_server_and_keeps_going():
+    """한 대가 죽어도 나머지로 돈다. 죽은 대는 다음 요청에서 다시 시도한다 (돌아올 수 있다)."""
+    import socket
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); dead = f"http://127.0.0.1:{s.getsockname()[1]}"; s.close()
+    with _KevServer() as live:
+        backend = KevBackend([dead, live.url], timeout=2)
+        for _ in range(3):
+            answers, _ = backend.decide("s", {"q": questions.COMPLAINT["illegible"]})
+            assert answers["q"].p == 0.88
+    assert len(live.received) == 3
+
+
+def test_kev_reports_every_server_when_all_are_down():
+    import socket
+    from ragdiag.backends import JudgeError
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); dead = f"http://127.0.0.1:{s.getsockname()[1]}"; s.close()
+    with pytest.raises(JudgeError) as e:
+        KevBackend([dead, dead + "/"], timeout=2).decide("s", {"q": questions.COMPLAINT["illegible"]})
+    assert "2대" in str(e.value) and dead in str(e.value)
+
+
+def test_a_single_url_string_still_works():
+    with _KevServer() as kev:
+        backend = KevBackend(kev.url + "/")
+        backend.decide("s", {"q": questions.COMPLAINT["illegible"]})
+    assert backend.urls == [kev.url]

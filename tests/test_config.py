@@ -33,7 +33,7 @@ yaml = pytest.importorskip("yaml")
 @pytest.fixture
 def restore_settings():
     """설정 적용은 모듈 전역을 바꾼다. 테스트끼리 새지 않게 되돌린다."""
-    names = ["KEV_CONFIDENT", "KEV_PASS_THROUGH",
+    names = ["KEV_CONFIDENT", "KEV_PASS_THROUGH", "KEV_URL",
              "SERVICE_ERROR_TEMPLATES",
              "MAX_HISTORY_TURNS", "DEFAULT_WORKERS",
              "ORG_CANDIDATE_FIELDS", "FILTER_ANY_VALUES", "CACHE_DIR"]
@@ -1059,3 +1059,24 @@ def test_pass_through_is_bounded_and_reaches_the_reader(tmp_path, restore_settin
           kev_pass_through: 0.3
     """)))
     assert read_gate(Answer("noul", p=0.35)) == "모름", "임계값이 읽는 쪽까지 도달하지 않았다"
+
+
+def test_kev_url_accepts_a_list_of_servers(tmp_path, restore_settings):
+    from ragdiag.pipeline import make_decision_backend
+
+    apply(load(write(tmp_path, """
+        kev:
+          url:
+            - http://localhost:8008
+            - http://localhost:8009
+    """)))
+    backend = make_decision_backend()
+    assert backend.urls == ["http://localhost:8008", "http://localhost:8009"]
+
+    path = write(tmp_path, """
+        kev:
+          url: [http://localhost:8008, 8009]
+    """)
+    with pytest.raises(ConfigError) as e:
+        load(path)
+    assert "kev.url" in str(e.value)

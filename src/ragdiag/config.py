@@ -92,7 +92,7 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     "filter.any_values": (list, False),
 
     # v3 — 결정 백엔드(kev). url 이 비면 일반 LLM 에뮬레이션.
-    "kev.url": (str, False),
+    "kev.url": ((str, list), False),     # 한 대면 문자열, 여러 대면 주소 목록 (돌아가며 보낸다)
     "kev.key": (str, False),
     "kev.model": (str, False),
     "kev.timeout_sec": (int, False),
@@ -241,6 +241,9 @@ def validate(values: dict[str, Any]) -> list[str]:
     if isinstance(threshold, (int, float)) and not 0.5 < threshold <= 1:
         problems.append("thresholds.kev_confident: 0.5 와 1 사이여야 한다 (확신 확률이다. "
                         "0.5 이하면 예와 아니오가 겹친다)")
+    urls = values.get("kev.url")
+    if isinstance(urls, list) and (not urls or any(not isinstance(u, str) or not u.strip() for u in urls)):
+        problems.append("kev.url: 목록이면 비어 있지 않은 주소 문자열만 — 예: [http://host:8008, http://host:8009]")
     lean = values.get("thresholds.kev_pass_through")
     if isinstance(lean, (int, float)) and not 0 < lean <= 0.5:
         problems.append("thresholds.kev_pass_through: 0 과 0.5 사이여야 한다 (P(예) 가 이 값 이하면 "
