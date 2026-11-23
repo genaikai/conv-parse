@@ -101,6 +101,9 @@ class TurnResult:
     flags: dict[str, Any] = field(default_factory=dict)
     # 2차 판정 기록 — {step, qid, kev_p, llm}. 하나라도 있으면 이 턴은 sure=False 다.
     second: list[dict] = field(default_factory=list)
+    # 함께 선 문항 — 불만 판정이 멈춘 문항 **뒤**에서 kev 가 확신 예라 한 문항의 문장들. 묶음이 아니다.
+    # 정상 턴에도 채운다 (불평은 없었지만 답이 끊긴 턴이 보인다). ⑤·⑥ 에서 닫힌 턴은 정의상 빈다.
+    also: list[str] = field(default_factory=list)
     error: Optional[str] = None
     usage: Usage = field(default_factory=Usage)
     n_calls: int = 0           # 일반 LLM 호출 (kev 에뮬레이션일 때만 0 이 아니다)

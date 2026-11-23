@@ -25,7 +25,7 @@ def test_turn_keys_are_in_reading_order(results):
     turn = build_turn(results["generation-all"], CONV)
     assert list(turn) == ["chat_id", "turn", "event_time", "target_turn", "target_event_time",
                           "verdict", "steps", "flags", "axes", "text"]
-    assert list(turn["verdict"]) == ["bucket", "sure", "stopped_at", "because", "where", "second_pass"]
+    assert list(turn["verdict"]) == ["bucket", "sure", "stopped_at", "because", "where", "second_pass", "also"]
     assert turn["verdict"]["second_pass"] == ""
     assert turn["verdict"]["bucket"] == "생성" and turn["verdict"]["sure"] is True
     assert turn["verdict"]["where"] == ["이번 턴 검색 청크"]

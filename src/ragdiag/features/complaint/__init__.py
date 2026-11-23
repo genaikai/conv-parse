@@ -77,9 +77,22 @@ def _apply(turn, ctx) -> None:
     turn.flags[LEAN] = lean
     if bucket == taxonomy.REVIEW:
         turn.review(taxonomy.STEP_COMPLAINT, key, p)
+        turn.also = also_after(answers, key)
     elif bucket:
         turn.close(bucket, taxonomy.STEP_COMPLAINT,
                    taxonomy.BECAUSE[f"{taxonomy.STEP_COMPLAINT}:{key}"])
+        turn.also = also_after(answers, key.split(":")[0])
+
+
+def also_after(answers: dict, stop_qid: str) -> list[str]:
+    """멈춘 문항 뒤에서 확신 예(P(예) ≥ KEV_CONFIDENT)인 문항의 문장들. 기울기 · 모름은 안 넣는다.
+
+    묶음을 정한 것과 별개로 같이 참이었던 사실이다 — "끊김 + 감정뿐" 처럼. 집계의 분모가 아니라
+    곁 정보라 kev 를 더 부르지 않고, 멈춘 뒤 문항은 2차 판정을 안 거쳤으니 모름은 모름대로 뺀다.
+    """
+    order = list(questions.COMPLAINT)
+    after = order[order.index(stop_qid) + 1:]
+    return [questions.TEXT[q] for q in after if read_noul(answers[q]) == YES]
 
 
 def process_data(ctx) -> tuple[list, list]:

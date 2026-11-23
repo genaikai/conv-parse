@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from ragdiag import taxonomy
+from ragdiag import questions, taxonomy
 from ragdiag.backends import Usage
 from ragdiag.conv import parse_conversations, to_case
 from ragdiag.decide import ScriptedBackend
@@ -96,6 +96,8 @@ def test_each_case_lands_where_the_design_says(fx):
     assert v.second_pass == e.get("second_pass", ""), detail
     if "flags" in e:
         assert r.flags == e["flags"], detail
+    if "also" in e:
+        assert r.also == [questions.TEXT[q] for q in e["also"]], detail
 
 
 def test_every_exit_is_covered():

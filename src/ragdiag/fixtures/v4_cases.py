@@ -20,7 +20,8 @@
          evidence={문항 id: …},            # 근거 판정의 kev 답 (any 는 all · partial · none)
          targeted=bool | p,                # 불만 부분 근거 판정의 답
          second={문항 id: 답},             # 2차 판정에서 LLM 이 낼 답. 안 적으면 모름
-         expect=dict(bucket, stopped_at, because_key, where?, sure, kev_calls, llm_calls?, second_pass?, flags?))
+         expect=dict(bucket, stopped_at, because_key, where?, sure, kev_calls, llm_calls?, second_pass?, flags?,
+                     also?))                    # also = 멈춘 문항 뒤에서 확신 예인 불만 판정 문항 id 들
 """
 
 from __future__ import annotations
@@ -66,13 +67,13 @@ CASES = [
                      sure=True, kev_calls=0)),
 
     # ================================================================== 불만 판정 — 아홉 출구
-    dict(id="normal", note="앞 답을 받아들이고 다음을 묻는다",
+    dict(id="normal", note="앞 답을 받아들이고 다음을 묻는다 — 답이 끊겼는데도. 함께 선 문항으로 남는다",
          prior=[], history_chat=[],
-         question="반차는 어떻게 신청해요?", answer="그룹웨어에서 사전 신청하시면 됩니다.",
+         question="반차는 어떻게 신청해요?", answer="그룹웨어에서 사전 신청하시면 됩니다. 경로는 1. 근태 메뉴 2.",
          followup="고마워요. 그럼 연차는요?",
-         retrieved=ATTEND, complaint={"complains": False, "no_doc": True},
+         retrieved=ATTEND, complaint={"complains": False, "truncated": True},
          expect=dict(bucket="normal", stopped_at="불만 판정", because_key="불만 판정:complains:no",
-                     sure=True, kev_calls=1)),
+                     sure=True, kev_calls=1, also=["truncated"])),
     dict(id="sys-refusal", note="보안 정책 거절에 불만",
          prior=[], history_chat=[],
          question="고객사별 출하 수량 알려줘", answer="정보보호 지침에 따라 안내할 수 없습니다.",

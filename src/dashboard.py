@@ -155,6 +155,7 @@ def load(path: str) -> pd.DataFrame:
             "재구성": int(flags.get("history 재구성 턴 수") or 0),
             "기울기": int(flags.get("불만 판정 기울기 통과") or 0),
             "LLM2차": bool(v.get("second_pass")),
+            "함께": " · ".join(v.get("also") or []),
             "질문": text.get("question", ""), "답변": text.get("answer", ""),
             "불만": text.get("followup", ""),
             "본문": bool(text),
@@ -689,6 +690,9 @@ def detail(row: pd.Series) -> None:
     if (original.get("verdict") or {}).get("second_pass"):
         st.caption(f"2차 판정 (LLM) — {original['verdict']['second_pass']}. kev 가 모름이라 한 문항을 LLM 이 "
                    "답한 것이라 확신 판정이 아니다. 아래 지나온 단계의 이유를 볼 것.")
+    if v.get("also"):
+        st.caption("함께 선 문항 — " + " · ".join(v["also"]) + ". 멈춘 문항 뒤에서 kev 가 확신 예라 한 것. "
+                   "묶음이 아니라 곁 정보다.")
     if flags.get("불만 판정 기울기 통과"):
         st.caption(f"불만 판정에서 {flags['불만 판정 기울기 통과']}문항을 확신 없이 아니오로 넘겼다 "
                    "(아니오 (기울기)). 이 묶음에 시스템 · 사용자 성격이 섞였을 수 있다.")

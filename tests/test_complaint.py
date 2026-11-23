@@ -2,7 +2,7 @@
 
 import pytest
 
-from ragdiag import taxonomy
+from ragdiag import questions, taxonomy
 from ragdiag.decide import ScriptedBackend
 from ragdiag.features import complaint
 from ragdiag.judge import Judge
@@ -71,3 +71,27 @@ def test_state_has_history_and_no_documents():
 def test_one_kev_call_per_turn():
     t = _run({"complains": True})
     assert t.n_kev_calls == 1 and t.n_calls == 0
+
+
+# ---- 함께 선 문항 — 멈춘 문항 뒤에서 확신 예인 것들. kev 를 더 부르지 않는다.
+
+def test_also_lists_confident_yes_after_the_stop():
+    t = _run({"complains": True, "truncated": True, "emotion_only": True, "format": 0.95})
+    assert t.verdict.bucket == "system"
+    assert t.also == [questions.TEXT["emotion_only"], questions.TEXT["format"]]
+
+
+def test_also_is_filled_on_normal_turns_too():
+    """불평이 없어도 답이 끊긴 사실은 남는다 — 조용한 결함."""
+    t = _run({"complains": False, "truncated": True})
+    assert t.verdict.bucket == "normal" and t.also == [questions.TEXT["truncated"]]
+
+
+def test_also_skips_lean_and_unsure():
+    t = _run({"complains": True, "truncated": True, "new_demand": 0.6, "no_doc": 0.3})
+    assert t.also == []
+
+
+def test_also_is_empty_when_nothing_stopped():
+    t = _run({"complains": True})
+    assert t.verdict is None and t.also == []

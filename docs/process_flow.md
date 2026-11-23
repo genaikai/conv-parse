@@ -327,7 +327,8 @@ eval.jsonl 경로에서는 이 필터가 `assemble.py select` 안에서 **같은
 {
   "chat_id": "c-0192", "turn": 4, "event_time": "…", "target_turn": 3, "target_event_time": "…",
   "verdict": { "bucket": "생성", "sure": true, "stopped_at": "근거 판정",
-               "because": "근거에 답이 전부 있었는데 답변이 살리지 못했다", "where": ["이번 턴 검색 청크"] },
+               "because": "근거에 답이 전부 있었는데 답변이 살리지 못했다", "where": ["이번 턴 검색 청크"],
+               "second_pass": "", "also": [] },
   "steps":  [ { "step": "코드 확정", "rules": { "자원 부족 문구": "아니오", "빈 답변": "아니오", "붕괴": "아니오" } },
               { "step": "불만 판정", "answers": { "후속 발화가 답변을 문제 삼는다": { "answer": "예", "p": 0.97 }, "…": "…" } },
               { "step": "근거 판정", "answers": { "이번 턴 검색 청크에 답이 있다": { "answer": "예", "p": 0.95 },
@@ -338,10 +339,12 @@ eval.jsonl 경로에서는 이 필터가 `assemble.py select` 안에서 **같은
 }
 ```
 
-- `verdict` 여섯 키 고정. `because` 는 멈춘 자리마다 **고정 문장**(`taxonomy.BECAUSE`)이라 같은
+- `verdict` 일곱 키 고정. `because` 는 멈춘 자리마다 **고정 문장**(`taxonomy.BECAUSE`)이라 같은
   결론은 늘 같은 문장이다. 검토면 `stopped_at` 이 `"불만 판정 · <문항 문장>"` 이고 `because` 에
   확률이 붙는다. `second_pass` 는 2차 판정이 있었을 때만 `"<단계> · <문항> — kev p 0.62, LLM 아니오"`,
-  그 턴은 묶음을 받아도 `sure` 가 false 다.
+  그 턴은 묶음을 받아도 `sure` 가 false 다. `also` 는 **함께 선 문항** — 불만 판정이 멈춘 문항 **뒤**에서
+  kev 가 확신 예(P ≥ 0.9)라 한 문항의 문장들. 묶음이 아니라 곁 정보라 건수에 더하지 않는다. 정상 턴에도
+  채운다 (불평은 없었지만 답이 끊긴 턴이 보인다). ⑤·⑥ 에서 닫힌 턴은 2~9 가 전부 아니오라 정의상 빈다.
 - `steps` 는 돈 단계만, 순서대로. 문항 문장이 키다 (`questions.TEXT`). `p` 는 **보인 답의
   확신**이고 ("아니오 0.95" = 확신 있는 아니오), 모름일 때만 P(예) 그대로다. `아니오 (기울기)` 는
   확신 없이 넘긴 답. `2차 판정 (LLM)` 단계는 `{ kev_p, answer, 이유 }` 로 멈춘 단계 뒤에 선다.

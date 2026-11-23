@@ -60,6 +60,8 @@ def build_example(turn: dict) -> dict:
     }
     if v.get("second_pass"):
         analysis["2차_판정"] = v["second_pass"]
+    if v.get("also"):
+        analysis["함께_선_문항"] = list(v["also"])
     if v.get("where"):
         analysis["근거_위치"] = list(v["where"])
         if text:
@@ -109,7 +111,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         name = t["verdict"]["bucket"]
         g = groups.setdefault(name, {"묶음": name, "고칠_곳": _BY_NAME[name].owner, "건수": 0,
                                      "그중_기울기_통과": 0, "그중_LLM_2차": 0,
-                                     "들어온_길": Counter(), "사례": []})
+                                     "들어온_길": Counter(), "함께_선_문항": Counter(), "사례": []})
         g["건수"] += 1
         # 기울기로 지난 턴은 거절·감정·새 요구를 확신 없이 아니오로 넘긴 것이라 이 묶음에 시스템 ·
         # 사용자 성격이 섞였을 수 있다. 묶음 옆에 수로 남긴다 (설계 "기울기 통과").
@@ -117,11 +119,17 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         # 2차 판정으로 닫힌 턴은 묶음을 받았지만 kev 는 모름이었다 — 사례의 2차_판정을 검수할 것.
         g["그중_LLM_2차"] += bool(t["verdict"].get("second_pass"))
         g["들어온_길"][t["verdict"]["because"]] += 1
+        # 함께 선 문항 — 멈춘 문항 뒤에서 같이 예였던 것. 묶음이 아니라 곁 정보라 건수에 더하지 않는다.
+        for sentence in t["verdict"].get("also") or []:
+            g["함께_선_문항"][sentence] += 1
         g["사례"].append(build_example(t))
     order = [b.name for b in taxonomy.BUCKETS.values()]
     listed = sorted(groups.values(), key=lambda g: (-g["건수"], order.index(g["묶음"])))
     for g in listed:
         g["들어온_길"] = dict(g["들어온_길"].most_common())
+        g["함께_선_문항"] = dict(g["함께_선_문항"].most_common())
+    # 정상 턴의 조용한 결함 — 불평은 없었지만 답이 끊겼거나 깨졌거나 다른 언어였던 턴.
+    quiet = Counter(s for t in normal for s in (t["verdict"].get("also") or []))
 
     flags = _flag_section(judged)
     by_llm = sum(1 for t in judged if t["verdict"].get("second_pass") and t["verdict"]["bucket"] != _REVIEW)
@@ -129,6 +137,7 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         "생성일시": generated_at or datetime.now().isoformat(timespec="seconds"),
         "대상": {"로그": source, "분석한 턴": len(judged), "실패로 판정": len(failed),
                  "정상으로 판정": len(normal), "검토": len(review), "LLM 2차로 닫힘": by_llm, "오류": errors},
+        "정상_중_함께_선_문항": dict(quiet.most_common()),
         "제외한_실패": EXCLUDED_NOTE,
     }
     # 머리의 주의 — 앞 턴 누락은 모델이 못 본 것인지 로그가 떨어뜨린 것인지 못 가른다 (설계 "history

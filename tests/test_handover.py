@@ -60,6 +60,21 @@ def test_groups_are_owner_first_and_ordered_by_count():
     assert out["분류"][0]["들어온_길"] == {"근거 어디에도 질문의 답이 없었다": 2}
 
 
+def test_also_is_counted_beside_the_bucket_not_in_it():
+    """함께 선 문항은 묶음 × 문장으로 따로 센다. 건수에는 안 더한다. 정상 턴의 것은 머리에 따로."""
+    a = turn("시스템", stopped_at="불만 판정", because="답변이 중간에 끊겼다")
+    a["verdict"]["also"] = ["후속 발화가 감정 표출뿐이다"]
+    b = turn("시스템", stopped_at="불만 판정", because="답변이 중간에 끊겼다", no=5)
+    n = turn("정상", stopped_at="불만 판정", because="후속 발화가 앞 답변을 문제 삼지 않는다 — 필터가 넓게 잡은 턴", no=7)
+    n["verdict"]["also"] = ["답변이 중간에 끊겼다"]
+    out = handover.build(result(a, b, n))
+    g = out["분류"][0]
+    assert g["건수"] == 2 and g["함께_선_문항"] == {"후속 발화가 감정 표출뿐이다": 1}
+    assert out["정상_중_함께_선_문항"] == {"답변이 중간에 끊겼다": 1}
+    assert out["분류"][0]["사례"][0]["분석"]["함께_선_문항"] == ["후속 발화가 감정 표출뿐이다"]
+    assert "함께_선_문항" not in out["분류"][0]["사례"][1]["분석"]
+
+
 def test_normal_is_left_out_but_counted_and_review_goes_last():
     out = handover.build(result(
         turn("정상", stopped_at="불만 판정", because="후속 발화가 앞 답변을 문제 삼지 않는다 — 필터가 넓게 잡은 턴"),

@@ -64,7 +64,8 @@ def build_turn(result: TurnResult, conv, with_text: bool = True) -> dict:
     v = result.verdict
     case = result.case
     turn["verdict"] = {"bucket": taxonomy.name(v.bucket), "sure": v.sure, "stopped_at": v.stopped_at,
-                       "because": v.because, "where": list(v.where), "second_pass": v.second_pass}
+                       "because": v.because, "where": list(v.where), "second_pass": v.second_pass,
+                       "also": list(result.also)}
     turn["steps"] = [_step_payload(s) for s in result.steps]
     turn["flags"] = dict(result.flags)
     meta = conv.user
