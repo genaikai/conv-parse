@@ -1,0 +1,192 @@
+kev 불만 판정(④) 요청 예시 — 코드가 실제로 보내는 본문을 그대로 덤프한 것
+==============================================================================
+
+출처
+  state      : src/ragdiag/features/complaint/__init__.py  state_of()
+  questions  : src/ragdiag/questions.py  COMPLAINT  (삽입 순서 = 코드가 읽는 순서)
+  본문 조립   : src/ragdiag/decide.py  KevBackend.decide()  → POST {url}/v1/systemone
+  읽기       : features/complaint/__init__.py  read()  — 1→8 순서로 처음 걸리는 묶음
+
+kev 는 프롬프트를 받지 않는다. state(사실) 와 questions(기준) 를 JSON 으로 받고, 문항마다
+독립으로 P(예) 를 낸다. '1 이 예일 때만 2 를 봐라' 같은 순서는 kev 가 모르고 코드가 읽는다.
+
+예시 대화
+  1턴  user: 연차 이월 규정 알려줘          → assistant: 줄글 설명
+  2턴  user: 표로 정리해 달라고요 (question) → assistant: 또 줄글 (answer)
+  3턴  user: 아 됐어요                      (followup)
+
+------------------------------------------------------------------------------
+POST /v1/systemone   request body
+------------------------------------------------------------------------------
+{
+  "state": {
+    "history": [
+      {
+        "role": "user",
+        "content": "연차 이월 규정 알려줘"
+      },
+      {
+        "role": "assistant",
+        "content": "연차는 발생 연도 다음 해 말까지 사용할 수 있으며, 미사용분은 ... (줄글 설명)"
+      }
+    ],
+    "question": "표로 정리해 달라고요",
+    "answer": "연차 이월에 대해 다시 설명드리면, 발생 연도 다음 해 말까지 사용 가능하고 미사용분은 ... (다시 줄글)",
+    "followup": "아 됐어요"
+  },
+  "model": "kev-latest",
+  "questions": {
+    "complains": {
+      "type": "noul",
+      "instructions": "followup(후속 발화)이 answer(앞 답변)를 문제 삼는가. 가르는 기준은 주제가 바뀌었는가가 아니라 앞 답변을 문제 삼는가다. 앞 답변을 받아들이고 다음을 묻거나 범위를 넓히는 것, 수긍 · 감사는 아니오다. 범위나 조건을 바로잡는 발화('국내 말고 해외요', '○○라고 했잖아요')와 답이 틀렸다 · 부족하다 · 엉뚱하다는 지적은 예다. history 는 가리킴('아까 그거')을 풀 때만 쓴다.",
+      "criteria": {
+        "true": "앞 답변을 문제 삼는다",
+        "false": "문제 삼지 않는다 — 새 질문 · 수긍 · 감사"
+      }
+    },
+    "refusal": {
+      "type": "noul",
+      "instructions": "answer 가 정책 · 권한 · 보안을 이유로 답을 거절했고, followup 이 그 거절을 불평하는가. '자료를 찾지 못했다' · '확인되지 않는다' 는 거절이 아니라 못 찾았다는 안내다. 거절했어도 followup 이 다른 것을 문제 삼으면 아니오다.",
+      "criteria": {
+        "true": "정책·권한 거절이고 사용자가 그걸 불평한다",
+        "false": "거절이 아니거나 거절을 불평하는 것이 아니다"
+      }
+    },
+    "illegible": {
+      "type": "noul",
+      "instructions": "answer 를 사람이 읽고 뜻을 잡을 수 없는가. 부실하거나 짧거나 틀린 답변, 문장 중간에서 끊긴 답변, 문법이 틀린 코드, 내용이 이상한 답변은 전부 읽을 수 있는 글이다. 무의미한 문자열 · 여러 언어 토큰이 뒤섞여 문장이 안 되는 것 · 어느 지점부터 깨지는 것 · 같은 문단이 조금씩 바뀌며 되풀이되는 것 · 스택 트레이스 · 서버 에러 JSON · <think> · 채팅 템플릿 토큰(<|im_start|> 등) · {{…}} 템플릿이 그대로 나온 것만 읽을 수 없는 것이다. 확신이 없으면 아니오다.",
+      "criteria": {
+        "true": "읽을 수 없다 (붕괴 · 토큰 잡탕 · 내부 유출)",
+        "false": "읽을 수 있는 글이다"
+      }
+    },
+    "truncated": {
+      "type": "noul",
+      "instructions": "answer 가 중간에 끊겼는가. 문장이 끝맺지 못하고 멈춤 · 목록이 번호만 남기고 끝남 · 코드 블록이 닫히지 않음 · 표가 중간 행에서 끝남이 끊김이다. 짧지만 끝맺은 답, 되묻고 끝난 답은 아니오다. 끝 부분을 중점적으로 봐라.",
+      "criteria": {
+        "true": "중간에 끊겼다",
+        "false": "끝까지 썼다"
+      }
+    },
+    "language": {
+      "type": "noul",
+      "instructions": "answer 가 question 과 다른 언어로 쓰였는가. question 이 특정 언어로 답하라고 요구했으면 그 언어가 기준이다. 전문 용어 · 고유명사 · 코드가 섞인 것은 다른 언어가 아니다. 본문의 절반 이상이 다른 언어이거나, 문단 단위로 언어가 바뀌면 예다.",
+      "criteria": {
+        "true": "질문(또는 요구한) 언어와 다르다",
+        "false": "같은 언어다"
+      }
+    },
+    "emotion_only": {
+      "type": "noul",
+      "instructions": "followup 이 감정 표출(짜증 · 욕설 · 한숨 · '됐어요')뿐이고, 답변의 무엇이 틀렸거나 부족한지 단서가 **followup · question · history 의 user 발화 어디에도** 없는가. followup 에 '○○가 아니잖아요' 처럼 가리키는 말이 있으면 아니오다. followup 이 감정뿐이어도 question 이나 history 의 user 발화가 무엇을 요구했거나 무엇이 틀렸다고 했으면 그것이 단서이므로 아니오다. assistant 발화는 단서로 삼지 않는다.",
+      "criteria": {
+        "true": "대화 어디에도 단서 없이 감정 표출뿐",
+        "false": "후속 · 질문 · 앞 턴 user 발화 중 어딘가가 무엇이 문제인지 가리킨다"
+      }
+    },
+    "new_demand": {
+      "type": "noul",
+      "instructions": "followup 이 question 과 history 의 user 발화 어디에도 없던 **새 요구**를 하면서, 그것을 안 했다고 불평하는가. 앞에서 한 요구를 되짚는 것('아까 표로 달라고 했잖아요')은 아니오다. 앞 질문의 일부를 빠뜨렸다는 지적도 아니오다 — 그 요구는 앞 질문에 있었다.",
+      "criteria": {
+        "true": "앞에 없던 새 요구를 하며 불평한다",
+        "false": "앞 질문에 있던 것을 문제 삼는다"
+      }
+    },
+    "no_doc": {
+      "type": "noul",
+      "instructions": "question 이 사내 문서 · 도구 없이 답할 수 있는 종류인가 — 산수 · 날짜 계산, 코드 작성 · 오류, 번역 · 요약 · 문장 다듬기, 공개된 일반 상식. 회사 규정 · 절차 · 제도 · 공정 · 장비 · 데이터처럼 회사마다 답이 다른 것은 아니오다. 법령을 언급해도 '우리 회사는 어떻게 하나' 면 아니오다. 애매하면 아니오다.",
+      "criteria": {
+        "true": "문서 · 도구 없이 답할 질문",
+        "false": "사내 문서나 도구가 있어야 답할 질문"
+      }
+    }
+  }
+}
+
+------------------------------------------------------------------------------
+response body (예시 값)
+------------------------------------------------------------------------------
+{
+  "answers": {
+    "complains": {
+      "noul": true,
+      "probabilities": {
+        "true": 0.97,
+        "false": 0.03
+      }
+    },
+    "refusal": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.02,
+        "false": 0.98
+      }
+    },
+    "illegible": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.01,
+        "false": 0.99
+      }
+    },
+    "truncated": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.04,
+        "false": 0.96
+      }
+    },
+    "language": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.01,
+        "false": 0.99
+      }
+    },
+    "emotion_only": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.12,
+        "false": 0.88
+      }
+    },
+    "new_demand": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.06,
+        "false": 0.94
+      }
+    },
+    "no_doc": {
+      "noul": false,
+      "probabilities": {
+        "true": 0.03,
+        "false": 0.97
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 1830,
+    "output_tokens": 0
+  }
+}
+
+------------------------------------------------------------------------------
+코드가 읽는 순서와 결과
+------------------------------------------------------------------------------
+  1 complains     P(예)=0.97 ≥ 0.9     → 예    → 다음
+  2 refusal       P(예)=0.02 ≤ 0.1     → 아니오 → 다음
+  3 illegible     P(예)=0.01           → 아니오 → 다음
+  4 truncated     P(예)=0.04           → 아니오 → 다음
+  5 language      P(예)=0.01           → 아니오 → 다음
+  6 emotion_only  P(예)=0.12 (0.1~0.9) → 모름이지만 ≤ 0.5 라 '아니오 (기울기)' → 다음
+                  * followup '아 됐어요' 만 보면 예였을 것. question '표로 정리해 달라고요' 가
+                    단서라서 아니오. 이번 변경으로 6 이 question · history 의 user 발화까지 본다.
+  7 new_demand    P(예)=0.06           → 아니오 → 다음  (표 요구는 question 에 이미 있었다)
+  8 no_doc        P(예)=0.03           → 아니오 → ⑤ 근거 판정으로
+
+  임계: settings.KEV_CONFIDENT=0.9 (예/아니오 확정), KEV_PASS_THROUGH=0.5 (2~8 의 기울기 통과)
+  2~8 의 모름 중 P(예) > 0.5 는 검토로 가고, SECOND_PASS=True 면 LLM 2차가 그 문항을 다시 본다.
+
+state 에 넣지 않는 것: 검색 청크 · 도구 결과 · memory · 앞 턴 청크.
+넣으면 kev 가 '답이 맞았나' 를 재기 시작하는데 그건 ⑤ 근거 판정의 일이다.

@@ -61,8 +61,11 @@ COMPLAINT: dict[str, dict] = {
         true="질문(또는 요구한) 언어와 다르다", false="같은 언어다"),
     "emotion_only": noul(
         "followup 이 감정 표출(짜증 · 욕설 · 한숨 · '됐어요')뿐이고, 답변의 무엇이 틀렸거나 부족한지 "
-        "단서가 하나도 없는가. 감정과 함께 '○○가 아니잖아요' 처럼 가리키는 말이 있으면 아니오다.",
-        true="감정 표출뿐, 단서 없음", false="무엇이 문제인지 가리킨다"),
+        "단서가 **followup · question · history 의 user 발화 어디에도** 없는가. followup 에 "
+        "'○○가 아니잖아요' 처럼 가리키는 말이 있으면 아니오다. followup 이 감정뿐이어도 question "
+        "이나 history 의 user 발화가 무엇을 요구했거나 무엇이 틀렸다고 했으면 그것이 단서이므로 "
+        "아니오다. assistant 발화는 단서로 삼지 않는다.",
+        true="대화 어디에도 단서 없이 감정 표출뿐", false="후속 · 질문 · 앞 턴 user 발화 중 어딘가가 무엇이 문제인지 가리킨다"),
     "new_demand": noul(
         "followup 이 question 과 history 의 user 발화 어디에도 없던 **새 요구**를 하면서, 그것을 안 "
         "했다고 불평하는가. 앞에서 한 요구를 되짚는 것('아까 표로 달라고 했잖아요')은 아니오다. 앞 "
