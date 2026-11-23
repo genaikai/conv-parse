@@ -1,4 +1,4 @@
-"""불만 판정 — kev 8문항 한 요청, 코드가 순서로 읽는다."""
+"""불만 판정 — kev 9문항 한 요청, 코드가 순서로 읽는다."""
 
 import pytest
 
@@ -25,14 +25,14 @@ def test_no_complaint_is_normal_even_if_later_questions_say_yes():
     assert t.verdict.bucket == "normal" and t.verdict.stopped_at == "불만 판정"
     assert t.verdict.because == taxonomy.BECAUSE["불만 판정:complains:no"]
     step = t.steps[-1]
-    assert step.step == "불만 판정" and step.answers["illegible"]["answer"] == "예"   # 여덟 전부 실린다
-    assert len(step.answers) == 8
+    assert step.step == "불만 판정" and step.answers["illegible"]["answer"] == "예"   # 아홉 전부 실린다
+    assert len(step.answers) == 9
 
 
 @pytest.mark.parametrize("qid,bucket", [("refusal", "system"), ("illegible", "system"),
                                         ("truncated", "system"), ("language", "generation"),
                                         ("emotion_only", "user"), ("new_demand", "user"),
-                                        ("no_doc", "generation")])
+                                        ("no_doc", "generation"), ("format", "generation")])
 def test_each_yes_exit(qid, bucket):
     t = _run({"complains": True, qid: True})
     assert t.verdict.bucket == bucket

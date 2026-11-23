@@ -65,7 +65,7 @@ CASES = [
          expect=dict(bucket="system", stopped_at="코드 확정", because_key="코드 확정:degenerate",
                      sure=True, kev_calls=0)),
 
-    # ================================================================== 불만 판정 — 여덟 출구
+    # ================================================================== 불만 판정 — 아홉 출구
     dict(id="normal", note="앞 답을 받아들이고 다음을 묻는다",
          prior=[], history_chat=[],
          question="반차는 어떻게 신청해요?", answer="그룹웨어에서 사전 신청하시면 됩니다.",
@@ -122,6 +122,13 @@ CASES = [
          followup="12만원 아니에요?",
          retrieved=[], complaint={"complains": True, "no_doc": True},
          expect=dict(bucket="generation", stopped_at="불만 판정", because_key="불만 판정:no_doc:yes",
+                     sure=True, kev_calls=1)),
+    dict(id="gen-format", note="내용은 맞는데 형식만 불평 — 근거를 안 보고 생성",
+         prior=[], history_chat=[],
+         question="연차 이월 규정 알려줘", answer="연차는 발생 연도 다음 해 말까지 쓸 수 있고, 미사용분은 수당으로 정산됩니다.",
+         followup="너무 길어요. 한 줄로 요약해 주세요",
+         retrieved=ATTEND, complaint={"complains": True, "format": True},
+         expect=dict(bucket="generation", stopped_at="불만 판정", because_key="불만 판정:format:yes",
                      sure=True, kev_calls=1)),
 
     # ================================================================== 근거 판정

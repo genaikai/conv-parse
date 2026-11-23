@@ -778,7 +778,7 @@ def test_taxonomy_doc_lists_the_complaint_questions_in_reading_order():
     from ragdiag import questions as qs
 
     doc = _doc("docs/taxonomy.md")
-    section = doc.split("### 불만 판정의 문항 여덟")[1].split("### 근거 판정")[0]
+    section = doc.split("### 불만 판정의 문항 아홉")[1].split("### 근거 판정")[0]
     positions = [section.index(qs.TEXT[qid]) for qid in qs.COMPLAINT]
     assert positions == sorted(positions), "문서의 문항 순서가 questions.COMPLAINT 와 다르다"
     for qid in (*qs.EVIDENCE_SLOT, "any"):

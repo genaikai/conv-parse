@@ -11,7 +11,7 @@ def test_buckets_are_five_plus_review_in_order():
 
 def test_complaint_questions_keep_the_reading_order():
     assert list(questions.COMPLAINT) == ["complains", "refusal", "illegible", "truncated",
-                                         "language", "emotion_only", "new_demand", "no_doc"]
+                                         "language", "emotion_only", "new_demand", "no_doc", "format"]
     assert set(questions.COMPLAINT_ROUTE) == set(questions.COMPLAINT)
     assert questions.COMPLAINT_ROUTE["complains"] == (None, "normal")
 

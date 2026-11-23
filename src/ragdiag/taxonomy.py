@@ -63,6 +63,7 @@ BECAUSE: dict[str, str] = {
     f"{STEP_COMPLAINT}:emotion_only:yes": "후속 발화가 감정 표출뿐이라 무엇이 틀렸는지 단서가 없다",
     f"{STEP_COMPLAINT}:new_demand:yes": "앞 질문에 없던 새 요구를 하며 그걸 안 했다고 불평한다",
     f"{STEP_COMPLAINT}:no_doc:yes": "문서·도구 없이 답할 질문(계산 · 코드 · 상식)인데 불만이 있다",
+    f"{STEP_COMPLAINT}:format:yes": "후속 발화가 내용이 아니라 형식·길이·말투만 문제 삼는다",
 
     f"{STEP_EVIDENCE}:any:all": "근거에 답이 전부 있었는데 답변이 살리지 못했다",
     f"{STEP_EVIDENCE}:any:none": "근거 어디에도 질문의 답이 없었다",

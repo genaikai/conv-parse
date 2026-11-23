@@ -43,7 +43,7 @@ __all__ = ["FEATURES", "JUDGES", "REPORTS", "RunContext", "collect"]
 JUDGES = (
     integrity,         # 플래그 열 — 멈추지 않음
     code_rules,        # 코드 확정 — 자원 부족 문구 · 빈 답변 · 붕괴 → 시스템
-    complaint,         # 불만 판정 — kev 8문항 → 정상 · 시스템 · 생성 · 사용자
+    complaint,         # 불만 판정 — kev 9문항 → 정상 · 시스템 · 생성 · 사용자
     evidence,          # 근거 판정 — kev 5문항 → 생성 · 근거, 일부면 열어 둠
     complaint_evidence,  # 불만 부분 근거 판정 — kev 1문항, 일부일 때만 → 생성 · 근거
 )
