@@ -105,7 +105,7 @@ class Judge:
             # 옛 캐시는 {문항: 답} 그대로, 새 캐시는 {"answers": …, "abbrev": …}
             answers_raw = raw["answers"] if "answers" in raw else raw
             notes = raw.get("abbrev") if "answers" in raw else None
-            retry = {"abbrev": notes, "llm_usage": Usage(), "llm_calls": 0} if notes else None
+            retry = {"abbrev": notes, "kev_failed": 0, "llm_usage": Usage(), "llm_calls": 0} if notes else None
             return {k: Answer(**v) for k, v in answers_raw.items()}, Usage(), retry
         answers, usage, retry = self._decide_with_fallback(backend, stage, state, questions)
         if path:
@@ -115,24 +115,45 @@ class Judge:
         return answers, usage, retry
 
     def _decide_with_fallback(self, backend, stage: str, state: Any, questions: dict[str, dict]):
-        """원문으로 묻고, 크기 때문에 거절되면 입력을 줄여 **한 번** 더 묻는다. 그 외는 그대로 올린다."""
+        """원문으로 묻고, 크기 때문에 실패하면 단계적으로 한 번씩 더 묻는다. 그 외는 그대로 올린다.
+
+          500        겹침 OOM 일 수 있다 → 원문 그대로 한 번 더 (돌아가며 보내므로 다음 서버로 간다)
+                     → 또 500 이면 축약해서 한 번 더
+          422 · 413  한도 초과는 결정적이라 재시도 없이 바로 축약
+
+        셋째 값은 재시도 기록 {"abbrev": 메모, "kev_failed": 실패한 kev 요청 수, "llm_usage", "llm_calls"}.
+        원문 재시도만으로 됐으면 abbrev 가 비고 kev_failed 가 1 이다. 한 번에 됐으면 None.
+        """
         try:
             answers, usage = backend.decide(state, questions)
             return answers, usage, None
         except KevHTTPError as e:
-            if e.status not in abbrev.TOO_LARGE_STATUSES or not settings.ABBREV_ENABLED:
+            if e.status not in abbrev.TOO_LARGE_STATUSES:
                 raise
-            shrunk = abbrev.abbreviate(stage, state, self)
-            if shrunk is None:
-                raise                                   # 이 단계에는 처방이 없다
-            small, notes, llm_usage, llm_calls = shrunk
-            if not notes:
-                raise                                   # 어느 칸도 상한을 안 넘었다 — 크기 문제가 아니다
+            err = e
+        failed = 1
+        if err.status == 500:
             try:
-                answers, usage = backend.decide(small, questions)
-            except KevHTTPError as e2:
-                raise JudgeError(f"{e2} — 입력을 축약한 뒤에도 실패 ({abbrev.describe(notes)})") from e2
-            return answers, usage, {"abbrev": notes, "llm_usage": llm_usage, "llm_calls": llm_calls}
+                answers, usage = backend.decide(state, questions)
+                return answers, usage, {"abbrev": [], "kev_failed": failed, "llm_usage": Usage(), "llm_calls": 0}
+            except KevHTTPError as e:
+                if e.status not in abbrev.TOO_LARGE_STATUSES:
+                    raise
+                err = e
+                failed += 1
+        if not settings.ABBREV_ENABLED:
+            raise err
+        shrunk = abbrev.abbreviate(stage, state, self)
+        if shrunk is None:
+            raise err                                   # 이 단계에는 처방이 없다
+        small, notes, llm_usage, llm_calls = shrunk
+        if not notes:
+            raise err                                   # 어느 칸도 상한을 안 넘었다 — 크기 문제가 아니다
+        try:
+            answers, usage = backend.decide(small, questions)
+        except KevHTTPError as e:
+            raise JudgeError(f"{e} — 입력을 축약한 뒤에도 실패 ({abbrev.describe(notes)})") from e
+        return answers, usage, {"abbrev": notes, "kev_failed": failed, "llm_usage": llm_usage, "llm_calls": llm_calls}
 
     # -- 일반 LLM (2차 판정) -----------------------------------------------------
 

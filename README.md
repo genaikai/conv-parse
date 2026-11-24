@@ -119,7 +119,7 @@ Case
   안 받으면 다음 대로 넘어간다 (`run.workers` 를 서버 수 이상으로). `kev.url` 이 없으면 일반 LLM 이 같은 문항에 답하는 에뮬레이션으로 돈다 —
   확률이 보정돼 있지 않아 요약에 그렇게 찍힌다. 턴당 kev 요청 최대 3, 일반 LLM 은 kev 가 모름이라 한
   문항마다 1 (`llm.second_pass` 로 끈다). kev 가 있으면 일반 LLM 은 없어도 돈다 — 2차 판정만 건너뛴다.
-- **kev 가 ④ 에 500(OOM) · 422(한도 초과) 를 내면** history · 질문 · 답변을 칸별 상한으로 줄여 한 번 더 묻는다 (`abbrev.*`). 평소에는
+- **kev 가 ④ 에 500(OOM) 을 내면 원문으로 한 번 더, 그래도 500 이거나 422(한도 초과) 면** history · 질문 · 답변을 칸별 상한으로 줄여 한 번 더 묻는다 (`abbrev.*`). 평소에는
   원문 그대로다. 줄인 턴은 플래그 `입력 축약` 에 남는다. 설정 · 운영은 [docs/abbrev.md](docs/abbrev.md).
 - **코드 단계로는** `integrity`(플래그 열) → `code_rules` → `complaint` → `evidence` →
   `complaint_evidence`. 순서가 적힌 곳은 `src/ragdiag/features/__init__.py` 의 `JUDGES` 뿐이다.

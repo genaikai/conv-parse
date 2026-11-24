@@ -193,8 +193,19 @@ def oom() -> KevHTTPError:
     return KevHTTPError(500, "http://kev", "CUDA out of memory")
 
 
-def test_judge_retries_once_with_the_abbreviated_state_after_a_500(tmp_path):
+def test_judge_retries_the_same_input_once_after_a_single_500():
+    """500 은 겹침 OOM 일 수 있다 — 먼저 원문 그대로 한 번 더. 되면 축약 없이 그 답이다."""
     backend = _Flaky([oom()])
+    judge = Judge(None, cache_dir=None, decision=backend)
+    big = state(answer=long_text(8000))
+    answers, _, retry = judge.decide("complaint", big, Q)
+    assert answers["illegible"].p == 0.95
+    assert retry["abbrev"] == [] and retry["kev_failed"] == 1
+    assert [c[0] for c in backend.calls] == [big]        # 재시도도 원문
+
+
+def test_judge_abbreviates_after_two_500s(tmp_path):
+    backend = _Flaky([oom(), oom()])
     judge = Judge(None, cache_dir=tmp_path, decision=backend)
     big = state(answer=long_text(8000))
     answers, used, retry = judge.decide("complaint", big, Q)
@@ -217,13 +228,13 @@ def test_judge_without_a_500_never_abbreviates():
 
 
 def test_judge_lets_a_500_through_when_no_field_is_over_cap():
-    judge = Judge(None, cache_dir=None, decision=_Flaky([oom()]))
+    judge = Judge(None, cache_dir=None, decision=_Flaky([oom(), oom()]))
     with pytest.raises(KevHTTPError, match="CUDA"):
         judge.decide("complaint", state(), Q)
 
 
-def test_judge_lets_a_second_500_through_with_a_note():
-    judge = Judge(None, cache_dir=None, decision=_Flaky([oom(), oom()]))
+def test_judge_lets_a_500_after_abbreviation_through_with_a_note():
+    judge = Judge(None, cache_dir=None, decision=_Flaky([oom(), oom(), oom()]))
     with pytest.raises(JudgeError, match="축약한 뒤에도"):
         judge.decide("complaint", state(answer=long_text(8000)), Q)
 
@@ -232,7 +243,7 @@ def test_judge_lets_a_second_500_through_with_a_note():
     (422, "state is 71,204 tokens; the limit is 65,536"),   # upstream kev: 한도 초과 거절
     (413, "Request Entity Too Large"),                        # 앞단 프록시: 본문 크기 제한
 ])
-def test_judge_abbreviates_for_too_large_codes_too(status, detail):
+def test_judge_abbreviates_at_once_for_deterministic_too_large_codes(status, detail):
     backend = _Flaky([KevHTTPError(status, "http://kev", detail)])
     judge = Judge(None, cache_dir=None, decision=backend)
     answers, _, retry = judge.decide("complaint", state(answer=long_text(8000)), Q)
@@ -241,21 +252,23 @@ def test_judge_abbreviates_for_too_large_codes_too(status, detail):
 
 
 @pytest.mark.parametrize("status", [503, 400, 502, 504])
-def test_judge_does_not_abbreviate_for_other_http_codes(status):
-    judge = Judge(None, cache_dir=None, decision=_Flaky([KevHTTPError(status, "http://kev", "x")]))
+def test_judge_does_not_retry_or_abbreviate_for_other_http_codes(status):
+    backend = _Flaky([KevHTTPError(status, "http://kev", "x")])
+    judge = Judge(None, cache_dir=None, decision=backend)
     with pytest.raises(KevHTTPError):
         judge.decide("complaint", state(answer=long_text(8000)), Q)
+    assert backend.calls == []
 
 
 def test_judge_respects_the_enabled_switch(monkeypatch):
     monkeypatch.setattr(settings, "ABBREV_ENABLED", False)
-    judge = Judge(None, cache_dir=None, decision=_Flaky([oom()]))
+    judge = Judge(None, cache_dir=None, decision=_Flaky([oom(), oom()]))
     with pytest.raises(KevHTTPError):
         judge.decide("complaint", state(answer=long_text(8000)), Q)
 
 
 def test_judge_leaves_other_stages_alone():
-    judge = Judge(None, cache_dir=None, decision=_Flaky([oom()]))
+    judge = Judge(None, cache_dir=None, decision=_Flaky([oom(), oom()]))
     with pytest.raises(KevHTTPError):
         judge.decide("evidence", {"question": long_text(9000)}, {"any": questions.EVIDENCE_ANY["any"]})
 
@@ -306,7 +319,7 @@ def test_a_real_kev_500_is_retried_and_flagged_end_to_end(tmp_path):
         server.shutdown()
         server.server_close()
     assert r.error is None and r.verdict.bucket == "normal"
-    assert len(received) == 2 and r.n_kev_calls == 2
+    assert len(received) == 3 and r.n_kev_calls == 3        # 원문 · 원문 재시도 · 축약
     assert [n["field"] for n in r.flags[abbrev.FLAG]] == ["answer"]
     conv = type("C", (), {"chat_id": "chat", "user": type("U", (), {"dept": "d", "job_grade": "g", "job_name": "j"})()})()
     turn = build_turn(r, conv)

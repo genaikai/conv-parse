@@ -143,16 +143,19 @@ def _run_parallel(name, run, turns, workers: int, bar: Progress) -> None:
 def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
     """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다.
 
-    kev 가 500 · 422 를 내서 입력을 줄여 다시 물었으면(abbrev.py) 그 기록을 플래그에 남기고, 요약에 쓴
-    LLM 호출은 2차 판정과 같이 n_calls 에 센다. 재시도도 kev 요청이라 하나 더 센다."""
+    kev 가 500 · 422 를 내서 다시 물었으면(judge._decide_with_fallback) 실패한 요청도 kev 요청으로 센다.
+    입력을 줄였으면(abbrev.py) 그 기록을 플래그에 남기고, 요약에 쓴 LLM 호출은 2차 판정과 같이
+    n_calls 에 센다. 원문 재시도만으로 된 턴은 플래그가 비어 있다 — 원문으로 판정됐으니 맞다."""
     answers, used, retry = ctx.judge.decide(stage, state, questions)
     turn.usage.add(used)
     live = bool(used.input_tokens or used.output_tokens)
     turn.n_kev_calls += live
     if retry:
-        turn.flags[abbrev.FLAG] = list(retry["abbrev"])
+        if retry["abbrev"]:
+            turn.flags[abbrev.FLAG] = list(retry["abbrev"])
         turn.usage.add(retry["llm_usage"])
         turn.n_calls += retry["llm_calls"]
-        turn.n_kev_calls += live            # 첫 요청(500 · 422)도 요청이다
+        if live:
+            turn.n_kev_calls += retry["kev_failed"]      # 실패한 요청(500 · 422)도 요청이다
     return answers
 
