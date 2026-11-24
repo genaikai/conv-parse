@@ -7,6 +7,7 @@ v4 는 호출이 두 종류다.
             (decide.LLMDecisionBackend).
   opine     일반 LLM. kev 가 모름이라 한 문항 하나를 이유와 함께 다시 묻는다 (second.py). 문장을
             만드는 자리는 이것뿐이고, 답은 결론이 아니라 sure=False 로 남는다.
+            ④ 입력 축약(abbrev.py)의 요약도 여기로 간다 — kev 가 500 을 냈을 때만.
 
 캐시가 있는 이유: 리포트 코드를 고칠 때마다 판정을 다시 사는 건 낭비다. 키는 (단계, 모델,
 state 전문, 문항 전문) 의 해시라 입력이 한 글자라도 다르면 빗나간다 — 문항 문구를 고치면
@@ -22,8 +23,9 @@ from typing import Any, Optional, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from ragdiag.backends import Usage
-from ragdiag.decide import Answer, DecisionBackend, LLMDecisionBackend
+from ragdiag import abbrev, settings
+from ragdiag.backends import JudgeError, Usage
+from ragdiag.decide import Answer, DecisionBackend, KevHTTPError, LLMDecisionBackend
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -84,8 +86,12 @@ class Judge:
     # -- 결정 백엔드 ------------------------------------------------------------
 
     def decide(self, stage: str, state: Any,
-               questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage]:
-        """범주 판정. 캐시 키는 (단계, 모델, state, 문항) 이다."""
+               questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage, Optional[dict]]:
+        """범주 판정. 캐시 키는 (단계, 모델, state, 문항) 이다.
+
+        셋째 값은 축약 재시도 기록 — kev 가 500 을 내서 입력을 줄여 다시 물었을 때만
+        {"abbrev": 메모, "llm_usage": Usage, "llm_calls": n}, 아니면 None (abbrev.py).
+        """
         if stage not in DECISION_STAGES:
             raise ValueError(f"모르는 결정 단계: {stage} (가능: {', '.join(DECISION_STAGES)})")
         backend = self.decision
@@ -96,12 +102,37 @@ class Judge:
         path = self._path(f"d-{stage}", backend.model, state_text, q_text)
         if path and path.exists():
             raw = json.loads(path.read_text(encoding="utf-8"))
-            return {k: Answer(**v) for k, v in raw.items()}, Usage()
-        answers, usage = backend.decide(state, questions)
+            # 옛 캐시는 {문항: 답} 그대로, 새 캐시는 {"answers": …, "abbrev": …}
+            answers_raw = raw["answers"] if "answers" in raw else raw
+            notes = raw.get("abbrev") if "answers" in raw else None
+            retry = {"abbrev": notes, "llm_usage": Usage(), "llm_calls": 0} if notes else None
+            return {k: Answer(**v) for k, v in answers_raw.items()}, Usage(), retry
+        answers, usage, retry = self._decide_with_fallback(backend, stage, state, questions)
         if path:
-            path.write_text(json.dumps({k: a.__dict__ for k, a in answers.items()},
-                                       ensure_ascii=False), encoding="utf-8")
-        return answers, usage
+            payload = {"answers": {k: a.__dict__ for k, a in answers.items()},
+                       "abbrev": retry["abbrev"] if retry else []}
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return answers, usage, retry
+
+    def _decide_with_fallback(self, backend, stage: str, state: Any, questions: dict[str, dict]):
+        """원문으로 묻고, 500 이면 입력을 줄여 **한 번** 더 묻는다. 그 외는 그대로 올린다."""
+        try:
+            answers, usage = backend.decide(state, questions)
+            return answers, usage, None
+        except KevHTTPError as e:
+            if e.status != 500 or not settings.ABBREV_ENABLED:
+                raise
+            shrunk = abbrev.abbreviate(stage, state, self)
+            if shrunk is None:
+                raise                                   # 이 단계에는 처방이 없다
+            small, notes, llm_usage, llm_calls = shrunk
+            if not notes:
+                raise                                   # 어느 칸도 상한을 안 넘었다 — 크기 문제가 아니다
+            try:
+                answers, usage = backend.decide(small, questions)
+            except KevHTTPError as e2:
+                raise JudgeError(f"{e2} — 입력을 축약한 뒤에도 실패 ({abbrev.describe(notes)})") from e2
+            return answers, usage, {"abbrev": notes, "llm_usage": llm_usage, "llm_calls": llm_calls}
 
     # -- 일반 LLM (2차 판정) -----------------------------------------------------
 

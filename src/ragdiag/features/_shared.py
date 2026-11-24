@@ -11,7 +11,7 @@ import threading
 import time
 from collections import Counter
 
-from ragdiag import settings
+from ragdiag import abbrev, settings
 from ragdiag.progress import Progress
 
 # 지금 판정 중인 턴. each_turn 이 fn(turn) 을 부르기 전에 넣는다. 백엔드 쪽에서 "어느 턴의
@@ -141,9 +141,18 @@ def _run_parallel(name, run, turns, workers: int, bar: Progress) -> None:
 
 
 def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
-    """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다."""
-    answers, used = ctx.judge.decide(stage, state, questions)
+    """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다.
+
+    kev 가 500 을 내서 입력을 줄여 다시 물었으면(abbrev.py) 그 기록을 플래그에 남기고, 요약에 쓴
+    LLM 호출은 2차 판정과 같이 n_calls 에 센다. 재시도도 kev 요청이라 하나 더 센다."""
+    answers, used, retry = ctx.judge.decide(stage, state, questions)
     turn.usage.add(used)
-    turn.n_kev_calls += bool(used.input_tokens or used.output_tokens)
+    live = bool(used.input_tokens or used.output_tokens)
+    turn.n_kev_calls += live
+    if retry:
+        turn.flags[abbrev.FLAG] = list(retry["abbrev"])
+        turn.usage.add(retry["llm_usage"])
+        turn.n_calls += retry["llm_calls"]
+        turn.n_kev_calls += live            # 첫 요청(500)도 요청이다
     return answers
 

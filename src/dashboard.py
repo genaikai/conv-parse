@@ -154,6 +154,7 @@ def load(path: str) -> pd.DataFrame:
             "개인정보": bool(flags.get("질문에 개인정보")),
             "재구성": int(flags.get("history 재구성 턴 수") or 0),
             "기울기": int(flags.get("불만 판정 기울기 통과") or 0),
+            "축약": len(flags.get("입력 축약") or []),
             "LLM2차": bool(v.get("second_pass")),
             "함께": " · ".join(v.get("also") or []),
             "질문": text.get("question", ""), "답변": text.get("answer", ""),
@@ -696,6 +697,9 @@ def detail(row: pd.Series) -> None:
     if flags.get("불만 판정 기울기 통과"):
         st.caption(f"불만 판정에서 {flags['불만 판정 기울기 통과']}문항을 확신 없이 아니오로 넘겼다 "
                    "(아니오 (기울기)). 이 묶음에 시스템 · 사용자 성격이 섞였을 수 있다.")
+    if flags.get("입력 축약"):
+        cut = " · ".join(f"{n['field']} {n['method']} {n['before']:,}→{n['after']:,}자" for n in flags["입력 축약"])
+        st.caption(f"입력 축약 — kev 가 500 을 내서 줄여 다시 물었다: {cut}. 판정은 줄인 입력 위에서 난 것이다.")
 
     steps = original.get("steps") or []
     st.markdown("**지나온 단계** — 문항과 답. p 는 그 답의 확신(0.9 이상이면 확실). 모름이면 P(예) 그대로")

@@ -58,7 +58,7 @@ def test_review_turn_names_the_question_it_stopped_at(results):
 def test_flags_axes_and_text_blocks(results):
     turn = build_turn(results["normal"], CONV)
     assert turn["flags"] == {"앞 턴 누락": False, "history 재구성 턴 수": 0, "질문에 개인정보": False,
-                             "불만 판정 기울기 통과": 0}
+                             "불만 판정 기울기 통과": 0, "입력 축약": []}
     assert turn["axes"] == {"부서": "부서", "직급": "직급", "직무": "직무",
                             "answered_by": "rag", "ask_on": "web", "fallback": ""}
     assert set(turn["text"]) == {"question", "answer", "followup", "history",

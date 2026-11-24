@@ -130,8 +130,8 @@ def test_judge_caches_decisions_per_stage_model_state_and_questions(tmp_path):
     backend = ScriptedBackend(lambda state, q: calls.append(state) or {"illegible": True})
     Q = {"illegible": questions.COMPLAINT["illegible"]}
     judge = Judge(None, cache_dir=tmp_path, decision=backend)
-    first, used = judge.decide("complaint", {"답변": "x"}, Q)
-    second, cached = judge.decide("complaint", {"답변": "x"}, Q)
+    first, used, _ = judge.decide("complaint", {"답변": "x"}, Q)
+    second, cached, _ = judge.decide("complaint", {"답변": "x"}, Q)
     judge.decide("complaint", {"답변": "y"}, Q)
     assert len(calls) == 2, "같은 입력은 캐시에서 나온다"
     assert first["illegible"].p == second["illegible"].p == 0.95

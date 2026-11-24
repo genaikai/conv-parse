@@ -101,3 +101,12 @@ KEV_CONFIDENT = 0.9
 KEV_PASS_THROUGH = 0.5
 # 2차 판정 — kev 가 모름이라 한 문항 하나를 일반 LLM 에 다시 묻는다 (second.py). 끄면 바로 검토.
 SECOND_PASS = True
+
+# ④ 입력 축약 — kev 가 불만 판정 요청에 500(OOM) 을 내면 칸별 상한으로 줄여 한 번 더 묻는다 (abbrev.py).
+# 평소에는 원문을 그대로 보낸다. 상한은 토큰 추정 = 글자 수 / ABBREV_CHARS_PER_TOKEN.
+ABBREV_ENABLED = True
+ABBREV_HISTORY_TOKENS = 1200
+ABBREV_QUESTION_TOKENS = 1200
+ABBREV_ANSWER_TOKENS = 5000
+ABBREV_FOLLOWUP_TOKENS = 3000     # 안전장치. 판정의 출발점이라 바꾸지 않는 것이 원칙이다
+ABBREV_CHARS_PER_TOKEN = 1.2      # 한국어 보수 추정 — 실제보다 적게 잡아 조금 일찍 자른다

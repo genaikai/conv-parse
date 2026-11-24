@@ -195,6 +195,7 @@ eval.jsonl 경로에서는 `records.jsonl` 이 답변 턴·불만 턴 둘만 담
 | 앞 턴 누락 | 지금 `integrity.check_missing_turns` 그대로 (턴 번호 ↔ `history_chat` user 수) |
 | history 재구성 턴 수 | 재구성했을 때 0~3 |
 | 질문에 개인정보 | 지금 `pii.find_pii` 를 `pre_queries[-1]` 에. 종류·건수만, 값은 안 남긴다 |
+| 입력 축약 (2026-11-24) | kev 가 ④ 에 500(OOM) 을 냈을 때만 칸별 상한(history 1200 · question 1200 · answer 5000 토큰)으로 줄여 한 번 재시도. 어느 칸 · 어떤 방법 · 전후 글자 수. 미리 줄이지 않는다 — 500 은 드물고 축약은 정보를 버린다. 설계 · 운영은 [docs/abbrev.md](../abbrev.md) |
 
 memory 어긋남(C2)은 뺀다 — 그게 막던 라벨이 없다.
 

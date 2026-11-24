@@ -79,6 +79,7 @@ def build_example(turn: dict) -> dict:
 
 
 _LEAN = "불만 판정 기울기 통과"
+_ABBREV = "입력 축약"
 
 
 def _flag_section(turns: list[dict]) -> dict:
@@ -95,6 +96,8 @@ def _flag_section(turns: list[dict]) -> dict:
             counts["질문에 개인정보"] += 1
         if f.get(_LEAN):
             counts[_LEAN] += 1
+        if f.get(_ABBREV):
+            counts[_ABBREV] += 1
     return dict(counts)
 
 
@@ -155,6 +158,11 @@ def build(result: dict, source: str = "", generated_at: Optional[str] = None) ->
         notes.append(f"불만 판정 기울기 통과 {flags[_LEAN]}건 — 거절 · 감정 · 새 요구 문항을 확신 없이 "
                      "아니오로 넘긴 턴이다. 근거 · 생성 묶음에 시스템 · 사용자 성격이 섞였을 수 있다. "
                      "묶음마다 '그중_기울기_통과' 에 수가 있다.")
+    if flags.get(_ABBREV):
+        notes.append(f"입력 축약 {flags[_ABBREV]}건 — kev 가 500(OOM) 을 내서 history · 질문 · 답변을 줄여 다시 "
+                     "물은 턴이다. 판정은 줄인 입력 위에서 났다. 플래그 '입력 축약' 에 어느 칸을 어떤 방법으로 "
+                     "몇 자에서 몇 자로 줄였는지 있다. 이 턴들의 묶음 분포가 나머지와 다르면 축약이 판정을 "
+                     "흔드는 것이다 (docs/abbrev.md).")
     if notes:
         out["주의"] = notes
     out["분류"] = listed

@@ -34,6 +34,7 @@
 | [docs/process_flow.md](docs/process_flow.md) | 단계별 입력 · 출력, 일부러 안 쓰는 입력과 그 이유 |
 | [docs/taxonomy.md](docs/taxonomy.md) | 묶음 다섯 · 네 단계의 문항 · 플래그 |
 | [docs/handover.md](docs/handover.md) | 전달본에 무엇을 담고 무엇을 빼나 |
+| [docs/abbrev.md](docs/abbrev.md) | kev 500 폴백 — ④ 입력 축약의 규칙과 이식 시스템이 적을 설정 |
 | [docs/design/](docs/design/README.md) | 단계별 개선 기록 — 무엇을 재고 왜 그렇게 정했나 |
 | [TODO.md](TODO.md) | 실행 환경에서 돌리기 전에 그쪽에서 만들어야 할 것 |
 
@@ -118,6 +119,8 @@ Case
   안 받으면 다음 대로 넘어간다 (`run.workers` 를 서버 수 이상으로). `kev.url` 이 없으면 일반 LLM 이 같은 문항에 답하는 에뮬레이션으로 돈다 —
   확률이 보정돼 있지 않아 요약에 그렇게 찍힌다. 턴당 kev 요청 최대 3, 일반 LLM 은 kev 가 모름이라 한
   문항마다 1 (`llm.second_pass` 로 끈다). kev 가 있으면 일반 LLM 은 없어도 돈다 — 2차 판정만 건너뛴다.
+- **kev 가 ④ 에 500(OOM) 을 내면** history · 질문 · 답변을 칸별 상한으로 줄여 한 번 더 묻는다 (`abbrev.*`). 평소에는
+  원문 그대로다. 줄인 턴은 플래그 `입력 축약` 에 남는다. 설정 · 운영은 [docs/abbrev.md](docs/abbrev.md).
 - **코드 단계로는** `integrity`(플래그 열) → `code_rules` → `complaint` → `evidence` →
   `complaint_evidence`. 순서가 적힌 곳은 `src/ragdiag/features/__init__.py` 의 `JUDGES` 뿐이다.
 - **턴 하나가 판정 전부를 끝까지 간다** (`run.mode: turn`, 기본). 끝난 턴부터 10초마다 결과
@@ -165,7 +168,7 @@ Case
 
 - **검토**는 묶음이 아니라 상태다 — kev 가 확신하지 못한 턴. 분모 밖이고 막힌 문항이 기준문을 고칠
   곳이다.
-- **플래그**(앞 턴 누락 · history 재구성 · 질문에 개인정보 · 불만 판정 기울기 통과)는 트리 밖 열이다. 판정에 안 끼어든다.
+- **플래그**(앞 턴 누락 · history 재구성 · 질문에 개인정보 · 불만 판정 기울기 통과 · 입력 축약)는 트리 밖 열이다. 판정에 안 끼어든다.
 - **함께 선 문항**(`verdict.also`)은 불만 판정이 멈춘 문항 뒤에서 kev 가 확신 예라 한 것들이다. 묶음이
   아니라 곁 정보라 건수에 안 더한다. 정상 턴에도 채워져 "불평은 없었지만 답이 끊긴" 턴이 보인다.
 - 지연 · 컨텍스트 초과 · 구 문서 · 권한 조회는 로그에 정보가 없어 **이 방법으로 못 보는 문제**다.
@@ -297,6 +300,7 @@ src/
     conv.py · filters.py · labels.py · assemble.py   로그 파싱 · 짝짓기 · 필터 · eval.jsonl 조립 (여기 전용)
     taxonomy.py · questions.py                묶음 · 단계 · 이유 문장 / kev 문항 (원본 두 곳)
     judge.py · decide.py · backends.py        kev 호출 · 캐시 · 에뮬레이션 · LLM 접속
+    second.py · abbrev.py                     2차 판정 (LLM) · ④ 입력 축약 (kev 500 폴백)
     results.py · schema.py                    턴 판정 결과(StepResult · Verdict) · Case
     output.py · pipeline.py · progress.py     결과 JSON · 단계별 함수 · 진행 표시
     textfmt.py                                터미널 표 정렬 (표시 폭)
@@ -332,6 +336,6 @@ python log_analysis/src/run.py --dry-run
 ragdiag/settings.py   ragdiag/schema.py   ragdiag/taxonomy.py   ragdiag/questions.py
 ragdiag/decide.py     ragdiag/backends.py ragdiag/judge.py      ragdiag/output.py
 ragdiag/textfmt.py    ragdiag/pipeline.py ragdiag/results.py    ragdiag/progress.py
-ragdiag/second.py     ragdiag/features/   (폴더 통째)
+ragdiag/second.py     ragdiag/abbrev.py   ragdiag/features/   (폴더 통째)
 ```
 <!-- /copy-list -->

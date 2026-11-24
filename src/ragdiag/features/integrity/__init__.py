@@ -10,6 +10,8 @@ features/complaint 가 채운다 — 트리 안에서 나는 수지만 턴마다
 
 from __future__ import annotations
 
+from ragdiag import abbrev
+
 from .._shared import each_turn
 from ..pii import find_pii
 
@@ -39,6 +41,7 @@ def _apply(turn) -> None:
         RECONSTRUCTED: case.history_reconstructed,
         PII: bool(find_pii(case.last_query)),
         LEAN: 0,
+        abbrev.FLAG: [],      # kev 500 으로 입력을 줄인 턴만 채워진다 (abbrev.py)
     }
 
 

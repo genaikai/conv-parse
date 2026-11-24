@@ -77,6 +77,16 @@ def _answer_from_kev(raw: dict) -> Answer:
     raise JudgeError(f"kev 가 모르는 답 유형을 냈다: {kind}")
 
 
+class KevHTTPError(JudgeError):
+    """kev 서버가 **답한** HTTP 오류 (4xx · 5xx). 연결 실패와 달리 다음 서버로 넘기지 않는다.
+
+    status 를 따로 두는 이유: Judge 가 500(OOM) 만 골라 입력을 줄여 재시도한다 (abbrev.py)."""
+
+    def __init__(self, status: int, url: str, detail: str):
+        super().__init__(f"kev {status} ({url}): {detail}")
+        self.status, self.url, self.detail = status, url, detail
+
+
 class KevBackend:
     """kev 서버. 요청 · 응답 모양은 README 의 System One API 그대로다.
 
@@ -116,7 +126,7 @@ class KevBackend:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:300]
-            raise JudgeError(f"kev {e.code} ({url}): {detail}") from e
+            raise KevHTTPError(e.code, url, detail) from e
 
     def decide(self, state: Any, questions: dict[str, dict]) -> tuple[dict[str, Answer], Usage]:
         body = json.dumps({"state": state, "model": self.model, "questions": questions},

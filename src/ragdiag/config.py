@@ -99,6 +99,13 @@ SPEC: dict[str, tuple[type | tuple, bool]] = {
     # v3 — 확률 → 등급, 청크 근거 임계값
     "thresholds.kev_confident": ((int, float), False),
     "thresholds.kev_pass_through": ((int, float), False),
+    # ④ 입력 축약 — kev 500 폴백 (docs/abbrev.md)
+    "abbrev.enabled": (bool, False),
+    "abbrev.history_tokens": (int, False),
+    "abbrev.question_tokens": (int, False),
+    "abbrev.answer_tokens": (int, False),
+    "abbrev.followup_tokens": (int, False),
+    "abbrev.chars_per_token": ((int, float), False),
 }
 
 # 없어진 키 → 왜 없어졌나. 판정에 더 이상 쓰지 않는다.
@@ -151,6 +158,12 @@ TO_SETTINGS = {
     "kev.timeout_sec": "KEV_TIMEOUT_SEC",
     "thresholds.kev_confident": "KEV_CONFIDENT",
     "thresholds.kev_pass_through": "KEV_PASS_THROUGH",
+    "abbrev.enabled": "ABBREV_ENABLED",
+    "abbrev.history_tokens": "ABBREV_HISTORY_TOKENS",
+    "abbrev.question_tokens": "ABBREV_QUESTION_TOKENS",
+    "abbrev.answer_tokens": "ABBREV_ANSWER_TOKENS",
+    "abbrev.followup_tokens": "ABBREV_FOLLOWUP_TOKENS",
+    "abbrev.chars_per_token": "ABBREV_CHARS_PER_TOKEN",
 }
 
 
