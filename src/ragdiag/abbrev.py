@@ -1,8 +1,9 @@
 """④ 불만 판정 입력 축약 — kev 가 500(OOM) 을 냈을 때만, 칸별 상한으로 줄여 한 번 더 묻는다.
 
 평소에는 원문을 그대로 보낸다. 미리 줄이면 모든 긴 턴의 판정이 축약된 입력 위에서 이뤄져 분포가
-달라지고, 500 은 드물기 때문이다. 발동은 Judge.decide 가 KevHTTPError(500) 을 받았을 때고
-(docs/abbrev.md), 어느 칸도 상한을 넘지 않았으면 크기 문제가 아니므로 손대지 않는다.
+달라지고, 500 은 드물기 때문이다. 발동은 Judge.decide 가 KevHTTPError 를 TOO_LARGE_STATUSES
+(500 OOM · 422 한도 초과 · 413 프록시) 로 받았을 때고 (docs/abbrev.md), 어느 칸도 상한을 넘지
+않았으면 크기 문제가 아니므로 손대지 않는다.
 
 칸마다 방법이 다르다. 문항이 읽는 신호를 지우는 방법은 쓰지 않는다.
 
@@ -35,6 +36,11 @@ from ragdiag.backends import Usage
 from ragdiag.decide import output_contract
 
 FLAG = "입력 축약"          # turn.flags 의 키. 값은 [{"field", "method", "before", "after"}] (글자 수)
+# "입력이 너무 크다" 로 읽는 HTTP 코드. 500 은 kev 가 받아 처리하다 GPU 메모리가 바닥난 것(OOM),
+# 422 는 kev 가 state 65,536 토큰 한도를 넘었다고 거절한 것, 413 은 앞단 프록시의 본문 크기 제한.
+# 셋 다 "어느 칸도 상한을 안 넘었으면 손대지 않는다" 는 같은 보호를 받는다 — 다른 이유의 422(문항
+# 모양 오류 등) 는 거기서 걸러진다. 503 · 502 · 504 는 서버 상태라 줄여도 소용없고, 4xx 나머지는 우리 버그다.
+TOO_LARGE_STATUSES = (500, 413, 422)
 METHODS = ("elide", "fold", "summarize", "split", "drop")
 
 _FOLD_KEEP = 80            # 접은 assistant 발화에 남기는 앞 글자 수 — 주제만 보이면 된다

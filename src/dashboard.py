@@ -699,7 +699,7 @@ def detail(row: pd.Series) -> None:
                    "(아니오 (기울기)). 이 묶음에 시스템 · 사용자 성격이 섞였을 수 있다.")
     if flags.get("입력 축약"):
         cut = " · ".join(f"{n['field']} {n['method']} {n['before']:,}→{n['after']:,}자" for n in flags["입력 축약"])
-        st.caption(f"입력 축약 — kev 가 500 을 내서 줄여 다시 물었다: {cut}. 판정은 줄인 입력 위에서 난 것이다.")
+        st.caption(f"입력 축약 — kev 가 500 · 422 를 내서 줄여 다시 물었다: {cut}. 판정은 줄인 입력 위에서 난 것이다.")
 
     steps = original.get("steps") or []
     st.markdown("**지나온 단계** — 문항과 답. p 는 그 답의 확신(0.9 이상이면 확실). 모름이면 P(예) 그대로")

@@ -228,7 +228,19 @@ def test_judge_lets_a_second_500_through_with_a_note():
         judge.decide("complaint", state(answer=long_text(8000)), Q)
 
 
-@pytest.mark.parametrize("status", [503, 400, 422])
+@pytest.mark.parametrize("status, detail", [
+    (422, "state is 71,204 tokens; the limit is 65,536"),   # upstream kev: 한도 초과 거절
+    (413, "Request Entity Too Large"),                        # 앞단 프록시: 본문 크기 제한
+])
+def test_judge_abbreviates_for_too_large_codes_too(status, detail):
+    backend = _Flaky([KevHTTPError(status, "http://kev", detail)])
+    judge = Judge(None, cache_dir=None, decision=backend)
+    answers, _, retry = judge.decide("complaint", state(answer=long_text(8000)), Q)
+    assert answers["illegible"].p == 0.95
+    assert [n["field"] for n in retry["abbrev"]] == ["answer"] and len(backend.calls) == 1
+
+
+@pytest.mark.parametrize("status", [503, 400, 502, 504])
 def test_judge_does_not_abbreviate_for_other_http_codes(status):
     judge = Judge(None, cache_dir=None, decision=_Flaky([KevHTTPError(status, "http://kev", "x")]))
     with pytest.raises(KevHTTPError):

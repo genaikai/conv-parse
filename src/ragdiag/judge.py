@@ -115,12 +115,12 @@ class Judge:
         return answers, usage, retry
 
     def _decide_with_fallback(self, backend, stage: str, state: Any, questions: dict[str, dict]):
-        """원문으로 묻고, 500 이면 입력을 줄여 **한 번** 더 묻는다. 그 외는 그대로 올린다."""
+        """원문으로 묻고, 크기 때문에 거절되면 입력을 줄여 **한 번** 더 묻는다. 그 외는 그대로 올린다."""
         try:
             answers, usage = backend.decide(state, questions)
             return answers, usage, None
         except KevHTTPError as e:
-            if e.status != 500 or not settings.ABBREV_ENABLED:
+            if e.status not in abbrev.TOO_LARGE_STATUSES or not settings.ABBREV_ENABLED:
                 raise
             shrunk = abbrev.abbreviate(stage, state, self)
             if shrunk is None:

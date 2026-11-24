@@ -226,7 +226,7 @@ eval.jsonl 경로에서는 이 필터가 `assemble.py select` 안에서 **같은
 | history 재구성 턴 수 | `history_chat` 이 비어 턴 순서로 되살린 턴 수 (`Case.history_reconstructed`) | 추정이라는 표시 |
 | 질문에 개인정보 | `pre_queries[-1]` 의 개인정보 패턴. 종류 · 건수만, 값은 안 남긴다 | 답변의 성패와 독립인 사건 |
 | 불만 판정 기울기 통과 | ④ 가 확신 없이 기울기만으로 아니오로 넘긴 문항 수 (④ 불만 판정이 채운다) | 판정이 아니라 "이 묶음에 시스템 · 사용자 성격이 섞였을 수 있다" 는 표시 |
-| 입력 축약 | kev 가 ④ 요청에 500(OOM) 을 내서 history · question · answer 를 칸별 상한으로 줄여 다시 물은 턴. `[{field, method, before, after}]` ([docs/abbrev.md](abbrev.md)) | 판정은 줄인 입력 위에서 났다는 표시. 500 이 없으면 늘 빈 목록 |
+| 입력 축약 | kev 가 ④ 요청에 500(OOM) · 422(한도 초과) 를 내서 history · question · answer 를 칸별 상한으로 줄여 다시 물은 턴. `[{field, method, before, after}]` ([docs/abbrev.md](abbrev.md)) | 판정은 줄인 입력 위에서 났다는 표시. 실패가 없으면 늘 빈 목록 |
 
 코드: `features/integrity`, `features/pii`. 입력 축약은 `abbrev.py` 가 `Judge.decide` 안에서 채운다.
 

@@ -143,7 +143,7 @@ def _run_parallel(name, run, turns, workers: int, bar: Progress) -> None:
 def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
     """결정 백엔드에 묻고 호출 수를 그 턴에 쌓는다. 캐시 적중(사용량 0)은 호출로 세지 않는다.
 
-    kev 가 500 을 내서 입력을 줄여 다시 물었으면(abbrev.py) 그 기록을 플래그에 남기고, 요약에 쓴
+    kev 가 500 · 422 를 내서 입력을 줄여 다시 물었으면(abbrev.py) 그 기록을 플래그에 남기고, 요약에 쓴
     LLM 호출은 2차 판정과 같이 n_calls 에 센다. 재시도도 kev 요청이라 하나 더 센다."""
     answers, used, retry = ctx.judge.decide(stage, state, questions)
     turn.usage.add(used)
@@ -153,6 +153,6 @@ def call_kev(turn, ctx, stage: str, state, questions: dict) -> dict:
         turn.flags[abbrev.FLAG] = list(retry["abbrev"])
         turn.usage.add(retry["llm_usage"])
         turn.n_calls += retry["llm_calls"]
-        turn.n_kev_calls += live            # 첫 요청(500)도 요청이다
+        turn.n_kev_calls += live            # 첫 요청(500 · 422)도 요청이다
     return answers
 
